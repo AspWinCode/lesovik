@@ -12,9 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev gcc curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- deps layer (cached unless pyproject.toml changes) ----
+# ---- prod deps (no dev extras — faster, no conflicts from semgrep etc.) ----
 FROM base AS deps
 COPY pyproject.toml .
+# Create a stub package so pip can install in non-editable mode without sources
+RUN mkdir -p app && touch app/__init__.py && pip install .
+
+# ---- dev deps (adds test/lint tooling on top) ----
+FROM deps AS dev-deps
 RUN pip install -e ".[dev]"
 
 # ---- runtime ----
