@@ -45,8 +45,20 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    roles: Mapped[list["UserRole"]] = relationship(
-        "UserRole", back_populates="user", lazy="selectin"
+    # Direct many-to-many to Role (used for serialization / UserRead)
+    roles: Mapped[list["Role"]] = relationship(
+        "Role",
+        secondary="identity.user_role",
+        lazy="selectin",
+        viewonly=True,
+        overlaps="user_roles,user,users",
+    )
+    # Junction rows (used for role assignment / management)
+    user_roles: Mapped[list["UserRole"]] = relationship(
+        "UserRole",
+        back_populates="user",
+        lazy="selectin",
+        overlaps="roles",
     )
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
@@ -54,7 +66,7 @@ class User(Base):
 
     @property
     def role_ids(self) -> list[str]:
-        return [ur.role_id for ur in self.roles]
+        return [r.id for r in self.roles]
 
 
 class UserRole(Base):
@@ -76,7 +88,7 @@ class UserRole(Base):
     )
     granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="roles")
+    user: Mapped["User"] = relationship("User", back_populates="user_roles", overlaps="roles")
     role: Mapped["Role"] = relationship("Role", back_populates="users")
 
 

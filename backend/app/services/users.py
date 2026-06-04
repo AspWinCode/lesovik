@@ -41,7 +41,7 @@ class UserService:
     async def list_users(self, params: UserListParams) -> CursorPage[UserRead]:
         stmt = (
             select(User)
-            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .options(selectinload(User.roles))
             .order_by(User.created_at.asc(), User.id.asc())
         )
 
@@ -49,7 +49,7 @@ class UserService:
             stmt = stmt.where(User.is_active == params.is_active)
 
         if params.role:
-            stmt = stmt.join(User.roles).where(UserRole.role_id == params.role)
+            stmt = stmt.join(User.user_roles).where(UserRole.role_id == params.role)
 
         if params.search:
             term = f"%{params.search}%"
@@ -139,7 +139,7 @@ class UserService:
     async def _fetch_user(self, user_id: uuid.UUID) -> User:
         stmt = (
             select(User)
-            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .options(selectinload(User.roles))
             .where(User.id == user_id)
         )
         result = await self._db.execute(stmt)
