@@ -70,10 +70,8 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    # Initialise OpenTelemetry
+    # configure_telemetry initialises the TracerProvider (no middleware added here)
     configure_telemetry()
-    instrument_fastapi(app)
-
     logger.info("startup", env=settings.APP_ENV, version=settings.APP_VERSION)
     yield
     logger.info("shutdown")
@@ -107,6 +105,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# OpenTelemetry FastAPI instrumentation — must happen BEFORE app starts
+# (instrument_app adds middleware; adding after start raises RuntimeError)
+instrument_fastapi(app)
 
 # Prometheus /metrics scrape endpoint (separate ASGI app, no auth needed on internal port)
 metrics_app = make_asgi_app()
