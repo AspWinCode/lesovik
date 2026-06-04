@@ -12,6 +12,15 @@ interface BotGroup {
   bots?: string[];
 }
 
+// Map bot name → default action type
+const BOT_ACTION_MAP: Record<string, ActionType> = {
+  insert: "add",
+  update: "update",
+  delete: "delete",
+};
+
+type ActionType = "add" | "delete" | "update" | "run" | "send";
+
 const GROUPS: BotGroup[] = [
   { id: "operations", name: "Операции", count: 3 },
   {
@@ -38,6 +47,7 @@ export function BotPage() {
   const [activeBot, setActiveBot] = useState("insert");
   const [botTab, setBotTab] = useState("Бот");
   const [enabled, setEnabled] = useState(false);
+  const [actionType, setActionType] = useState<ActionType>("add");
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -90,7 +100,7 @@ export function BotPage() {
                 {open && g.bots?.map((b) => (
                   <button
                     key={b}
-                    onClick={() => setActiveBot(b)}
+                    onClick={() => { setActiveBot(b); if (BOT_ACTION_MAP[b]) setActionType(BOT_ACTION_MAP[b]); }}
                     className={cn(
                       "flex items-center gap-[15px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
                       b === activeBot ? "bg-selected" : "hover:bg-cardbg/50"
@@ -134,10 +144,10 @@ export function BotPage() {
         </div>
       </div>
 
-      {/* ── Preview ── */}
+      {/* ── Right panel ── */}
       {botTab === "События"
         ? <PreviewPanel projectName="Profile" />
-        : <AutomationPreview />}
+        : <SettingsPanel actionType={actionType} onActionChange={setActionType} />}
     </div>
   );
 }
@@ -168,7 +178,7 @@ function BotFlow({ activeBot, enabled, onToggle }: { activeBot: string; enabled:
       </div>
       <div className="px-[40px] pt-[25px] flex flex-col items-start">
         <p className="text-[18px] font-medium text-primary mb-[20px]">Запустите этот <span className="font-bold">ПРОЦЕСС</span></p>
-        <FlowCard title="New Step" />
+        <StepCard />
         <div className="w-[356px] flex flex-col items-center pt-[10px]">
           <div className="w-px h-[60px] border-l-2 border-dashed border-cta" />
           <button aria-label="Добавить шаг" className="w-[43px] h-[43px] -mt-[2px]"><AddDashedIcon /></button>
@@ -441,25 +451,222 @@ function SectionHeader({ title, inset }: { title: string; inset?: boolean }) {
   );
 }
 
-function AutomationPreview() {
+// AutomationPreview removed — replaced by SettingsPanel
+
+/* ── Step card (New step in bot flow) ── */
+function StepCard() {
   return (
-    <div className="absolute top-[70px] bg-mainbg flex flex-col items-center"
-      style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px", paddingTop: 7 }}>
-      <div className="flex items-center gap-5 px-[46px] h-[40px]">
-        <button aria-label="Настройки" className="w-10 h-10 flex items-center justify-center bg-white rounded-full"><span className="w-6 h-6"><GearIcon /></span></button>
-        <div className="flex items-center bg-white rounded-[36px] p-[3.6px] gap-[20px] pr-5">
-          <span className="flex items-center gap-[9px] px-5 py-[3.6px] bg-selected rounded-[36px]">
-            <span className="w-[22px] h-[22px]"><PhoneIcon /></span><span className="text-nav font-semibold text-primary">Смартфон</span>
-          </span>
-          <span className="flex items-center gap-[9px] px-[11px] py-[3.6px]">
-            <span className="w-[22px] h-[22px]"><DesktopIcon /></span><span className="text-nav font-semibold text-primary">Десктоп</span>
-          </span>
+    <div className="w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] pt-5 pb-[30px] flex flex-col items-end">
+      {/* dots menu */}
+      <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mr-[30px] mb-[10px]">
+        {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
+      </button>
+      {/* "New step" title centered */}
+      <div className="w-full px-[100px] mb-[10px]">
+        <div className="flex items-center justify-center h-[30px] rounded-[30px]">
+          <span className="text-[20px] font-medium text-primary text-center">New step</span>
         </div>
       </div>
-      <div className="flex flex-col items-center" style={{ marginTop: 265 }}>
-        <span className="w-[278px] h-[278px]"><AutomationIllustration /></span>
-        <span className="text-nav font-semibold text-cta mt-[10px]">Настройки автоматизации</span>
+      {/* divider + action button */}
+      <div className="relative w-full mb-[10px]">
+        <div className="absolute left-0 right-0 top-1/2 border-t-2 border-selected" />
+        <div className="flex justify-center">
+          <button className="relative flex items-center gap-[5px] px-[18px] py-[5px] bg-white border-2 border-cta rounded-[30px]">
+            <SortListIcon />
+            <span className="text-[16px] font-medium text-cta">Выполнить действие с данными</span>
+          </button>
+        </div>
       </div>
+      {/* task type dropdown */}
+      <div className="w-full px-[30px]">
+        <button className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
+          <span className="text-[18px] text-primary">Пользовательская задача</span>
+          <span className="w-3 h-3 rotate-180"><Chevron /></span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Settings panel (right side, replaces AutomationPreview for Bot tab) ── */
+const ACTION_CARDS: { type: ActionType; label: string; icon: (c: string) => React.ReactNode }[] = [
+  { type: "add",    label: "Добавить\nновую строку",     icon: (c) => <WidgetAddIcon c={c} /> },
+  { type: "delete", label: "Удалить\nстроку",            icon: (c) => <TrashIcon c={c} /> },
+  { type: "update", label: "Настроить\nзначение строки", icon: (c) => <DeskEditIcon c={c} /> },
+  { type: "run",    label: "Запустить\nдействие строки", icon: (c) => <RunRowIcon c={c} /> },
+  { type: "send",   label: "Отправить\nдействие",        icon: (c) => <SendIcon2 c={c} /> },
+];
+
+function SettingsPanel({ actionType, onActionChange }: { actionType: ActionType; onActionChange: (t: ActionType) => void }) {
+  const [device, setDevice] = useState<"phone" | "desktop">("phone");
+  const [extraOpen, setExtraOpen] = useState(true);
+
+  return (
+    <div
+      className="absolute top-[70px] bg-mainbg flex flex-col overflow-y-auto"
+      style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
+    >
+      <div className="flex flex-col gap-[30px] px-[40px] py-[7px]">
+        {/* top row: settings btn + device toggle */}
+        <div className="flex items-center gap-5 h-[40px]">
+          <button aria-label="Настройки" className="w-10 h-10 flex items-center justify-center bg-white rounded-full shrink-0">
+            <span className="w-6 h-6"><GearIcon /></span>
+          </button>
+          <div className="flex items-center bg-white rounded-[36px] p-[3.6px] gap-0">
+            <button
+              onClick={() => setDevice("phone")}
+              className={cn("flex items-center gap-[9px] px-5 py-[3.6px] rounded-[36px] transition-colors", device === "phone" ? "bg-selected" : "")}
+            >
+              <span className="w-[22px] h-[22px]"><PhoneIcon /></span>
+              <span className="text-[20px] font-semibold text-primary">Смартфон</span>
+            </button>
+            <button
+              onClick={() => setDevice("desktop")}
+              className={cn("flex items-center gap-[9px] px-[11px] py-[3.6px] rounded-[36px] transition-colors", device === "desktop" ? "bg-selected" : "")}
+            >
+              <span className="w-[22px] h-[22px]"><DesktopIcon /></span>
+              <span className="text-[20px] font-semibold text-primary">Десктоп</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Настройки header */}
+        <div className="flex items-center justify-between h-[30px]">
+          <span className="text-[20px] font-semibold text-primary">Настройки</span>
+          <div className="flex items-center gap-5">
+            <span className="w-6 h-6"><LinkIcon /></span>
+            <button className="w-6 h-6"><Chevron /></button>
+          </div>
+        </div>
+
+        {/* Action type cards grid */}
+        <div className="flex flex-wrap gap-x-[25px] gap-y-[30px] w-[500px]">
+          {ACTION_CARDS.map(({ type, label, icon }) => {
+            const active = actionType === type;
+            const c = active ? "#35A7FF" : "#C2DBF8";
+            return (
+              <button
+                key={type}
+                onClick={() => onActionChange(type)}
+                className={cn(
+                  "w-[106px] h-[116px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] border-2 transition-colors box-border",
+                  active ? "bg-selected border-cta" : "bg-white border-[#C2DBF8]"
+                )}
+              >
+                <span className="w-[44px] h-[44px]">{icon(c)}</span>
+                <span className={cn("text-[12px] font-semibold text-center leading-[1.2] whitespace-pre-line", active ? "text-cta" : "text-[#C2DBF8]")}>
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Dynamic content based on action type */}
+        {actionType === "add" && (
+          <>
+            {/* Добавьте строку в эту таблицу */}
+            <div className="flex flex-col gap-[5px] w-[500px]">
+              <span className="text-[20px] font-medium text-primary">Добавьте строку в эту таблицу</span>
+              <button className="flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px] w-[277px]">
+                <span className="text-[18px] text-primary">Не указан</span>
+                <span className="w-3 h-3 rotate-180"><Chevron /></span>
+              </button>
+            </div>
+            <ColumnConfig />
+            <ExtraSection open={extraOpen} onToggle={() => setExtraOpen(v => !v)} />
+          </>
+        )}
+
+        {actionType === "update" && (
+          <>
+            <ColumnConfig />
+            <ExtraSection open={extraOpen} onToggle={() => setExtraOpen(v => !v)} />
+          </>
+        )}
+
+        {actionType === "delete" && (
+          <div className="w-[500px]">
+            <span className="text-[20px] font-medium text-primary">Строка будет удалена</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ColumnConfig() {
+  return (
+    <div className="flex flex-col gap-[5px] w-[500px]">
+      <span className="text-[20px] font-medium text-primary">Настроить эти столбцы</span>
+      <div className="flex flex-col gap-[5px]">
+        {/* Column row */}
+        <div className="flex items-center justify-between h-[43px] px-5 bg-white rounded-[20px] w-[500px]">
+          <span className="flex items-center gap-[2px]">
+            <DotsHandleIcon /><DotsHandleIcon />
+          </span>
+          <div className="flex items-center gap-[10px]">
+            <button className="w-[173px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]">
+              <span className="text-[18px] text-primary">Имя</span>
+            </button>
+            <span className="text-[20px] font-medium text-black">=</span>
+            <button className="w-[172px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]" />
+            <span className="w-[27px] h-[27px]"><FilterIcon /></span>
+            <span className="w-[28px] h-[28px]"><TrashIcon c="#00205F" /></span>
+          </div>
+        </div>
+        {/* Add button */}
+        <button className="flex items-center justify-center w-10 h-10">
+          <span className="w-5 h-5"><PlusIcon /></span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ExtraSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex flex-col gap-[5px] w-[500px]">
+      <button onClick={onToggle} className="flex items-center justify-between">
+        <span className="text-[20px] font-bold text-primary">Дополнительно</span>
+        <span className={cn("w-3 h-3 transition-transform", open ? "" : "rotate-180")}><Chevron /></span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-[5px]">
+          <div className="flex flex-col gap-[5px]">
+            <span className="text-[20px] font-medium text-primary">Входные</span>
+            <span className="text-[14px] text-primary leading-[150%]">Список входных данных, которые могут быть использованы в этой задаче.</span>
+          </div>
+          {/* Inputs row */}
+          <div className="flex flex-col gap-[5px]">
+            <div className="flex items-start justify-between bg-white rounded-[20px] px-5 py-[8px] w-[500px]">
+              <span className="flex items-center gap-[2px] mt-[10px]">
+                <DotsHandleIcon /><DotsHandleIcon />
+              </span>
+              <div className="flex flex-col gap-[5px] flex-1 ml-[10px]">
+                <div className="flex items-center gap-[10px]">
+                  <button className="w-[173px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]">
+                    <span className="text-[18px] text-primary">Имя</span>
+                  </button>
+                  <button className="w-[173px] h-[41px] flex items-center justify-between px-5 bg-selected rounded-[30px]">
+                    <span className="text-[18px] text-primary">Тип</span>
+                    <span className="w-3 h-3 rotate-180"><Chevron /></span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-[10px]">
+                  <button className="w-[359px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]">
+                    <span className="text-[20px] text-black">=</span>
+                  </button>
+                  <span className="w-[27px] h-[27px]"><FilterIcon /></span>
+                </div>
+              </div>
+            </div>
+            <button className="flex items-center justify-center w-10 h-10">
+              <span className="w-5 h-5"><PlusIcon /></span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -537,18 +744,16 @@ function GlyphIcon({ n }: { n: number }) {
     {v === 3 && <path d="M9 2 L11 7 L16 7 L12 11 L13 16 L9 13 L5 16 L6 11 L2 7 L7 7 Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />}
   </svg>;
 }
-function AutomationIllustration() {
-  return <svg viewBox="0 0 278 278" fill="none" className="w-full h-full">
-    <rect x="40" y="150" width="180" height="110" rx="10" stroke="#35A7FF" strokeWidth="6" />
-    <rect x="20" y="258" width="238" height="12" rx="6" fill="#35A7FF" />
-    <circle cx="110" cy="95" r="42" stroke="#35A7FF" strokeWidth="6" />
-    {Array.from({ length: 8 }).map((_, i) => {
-      const a = (i * Math.PI) / 4;
-      return <line key={i} x1={110 + Math.cos(a) * 42} y1={95 + Math.sin(a) * 42} x2={110 + Math.cos(a) * 56} y2={95 + Math.sin(a) * 56} stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" />;
-    })}
-    <circle cx="110" cy="95" r="16" stroke="#35A7FF" strokeWidth="6" />
-    <circle cx="185" cy="150" r="26" stroke="#35A7FF" strokeWidth="6" />
-    <path d="M210 60 C235 70 240 110 215 125" stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" />
-    <path d="M210 50 L210 62 L222 60" stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>;
+function SortListIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><line x1="5" y1="7" x2="11" y2="7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="12" x2="11" y2="12" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="17" x2="11" y2="17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><rect x="14" y="5" width="5" height="5" rx="1" stroke="#35A7FF" strokeWidth="2" transform="rotate(90 16 8.5)" /><path d="M17 13 L17 19 L20 16" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
+function RunRowIcon({ c }: { c: string }) {
+  return <svg viewBox="0 0 44 44" fill="none" className="w-full h-full"><path d="M9 9 L35 22 L9 35 Z" stroke={c} strokeWidth="3.5" strokeLinejoin="round" /></svg>;
+}
+function SendIcon2({ c }: { c: string }) {
+  return <svg viewBox="0 0 44 44" fill="none" className="w-full h-full"><path d="M38 6 L6 20 L18 25 L22 38 L38 6 Z" stroke={c} strokeWidth="3.5" strokeLinejoin="round" /><path d="M18 25 L38 6" stroke={c} strokeWidth="3.5" strokeLinecap="round" /></svg>;
+}
+function DotsHandleIcon() {
+  return <svg viewBox="0 0 5 20" fill="none" className="w-[5px] h-5"><circle cx="2.5" cy="4" r="1.5" fill="#00205F" /><circle cx="2.5" cy="10" r="1.5" fill="#00205F" /><circle cx="2.5" cy="16" r="1.5" fill="#00205F" /></svg>;
+}
+// AutomationIllustration removed (no longer used)
