@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "noreply@nocode.local"
 
     # Seed (development bootstrap admin)
-    SEED_ADMIN_EMAIL: str = "admin@nocode.local"
+    SEED_ADMIN_EMAIL: str = "admin@lesovik.app"   # must be valid RFC-5321 email (.local rejected by email-validator)
     SEED_ADMIN_PASSWORD: str = "ChangeMe123!"
     SEED_ADMIN_NAME: str = "Platform Admin"
 
