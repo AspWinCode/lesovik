@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyHttpUrl, PostgresDsn, RedisDsn, field_validator
+from pydantic import PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,15 +66,8 @@ class Settings(BaseSettings):
     SEED_ADMIN_PASSWORD: str = "ChangeMe123!"
     SEED_ADMIN_NAME: str = "Platform Admin"
 
-    # CORS
-    CORS_ORIGINS: list[AnyHttpUrl] = []
-
-    @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors(cls, v: str | list[str]) -> list[str]:
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v
+    # CORS — plain strings, validated at middleware level
+    CORS_ORIGINS: list[str] = []
 
     # ClamAV
     CLAMAV_HOST: str = "clamav"
