@@ -66,8 +66,12 @@ class Settings(BaseSettings):
     SEED_ADMIN_PASSWORD: str = "ChangeMe123!"
     SEED_ADMIN_NAME: str = "Platform Admin"
 
-    # CORS — plain strings, validated at middleware level
-    CORS_ORIGINS: list[str] = []
+    # CORS — comma-separated string; parse with cors_origins_list property
+    CORS_ORIGINS: str = ""
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # ClamAV
     CLAMAV_HOST: str = "clamav"
