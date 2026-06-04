@@ -11,6 +11,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_list_delimiter=",",   # parse LIST fields as comma-separated, not JSON
     )
 
     # App
