@@ -4,6 +4,7 @@ import { resolve } from "path";
 
 // Production build for the App Runtime (/runtime bundle — end-user-facing)
 export default defineConfig({
+  base: "/app/",
   plugins: [react()],
   resolve: {
     alias: {

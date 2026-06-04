@@ -4,6 +4,7 @@ import { resolve } from "path";
 
 // Production build for the App Builder (/editor bundle)
 export default defineConfig({
+  base: "/editor/",
   plugins: [react()],
   resolve: {
     alias: {
