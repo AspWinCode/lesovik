@@ -1,0 +1,54 @@
+version: "3.9"
+
+# Production overrides — applied on top of docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+
+  backend:
+    build:
+      target: runtime
+    command: >
+      gunicorn app.main:app
+        -k uvicorn.workers.UvicornWorker
+        -w 4
+        --bind 0.0.0.0:8000
+        --timeout 120
+        --access-logfile -
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+    volumes: []   # no bind-mount in prod
+    restart: unless-stopped
+
+  worker:
+    volumes: []
+    restart: unless-stopped
+
+  sandbox-worker:
+    volumes: []
+    restart: unless-stopped
+
+  beat:
+    volumes: []
+    restart: unless-stopped
+
+  frontend:
+    build:
+      target: runtime
+    volumes: []
+    restart: unless-stopped
+
+  postgres:
+    # In production, use managed PG — remove this service and set DATABASE_URL
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  minio:
+    # In production, use managed S3 — remove this service and set S3_ENDPOINT_URL
+    restart: unless-stopped
+
+  mailhog:
+    profiles: ["dev-only"]   # excluded from prod

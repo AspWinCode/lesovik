@@ -1,0 +1,132 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run full scan every Monday 03:00 UTC
+    - cron: "0 3 * * 1"
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ----------------------------------------------------------------
+  # SAST — Bandit (Python)
+  # ----------------------------------------------------------------
+  sast-bandit:
+    name: SAST — Bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install bandit[toml]
+      - run: bandit -r backend/app -ll -f json -o bandit-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  # ----------------------------------------------------------------
+  # SAST — Semgrep
+  # ----------------------------------------------------------------
+  sast-semgrep:
+    name: SAST — Semgrep
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep --config=auto --config=p/python --config=p/fastapi backend/app --json --output=semgrep-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+
+  # ----------------------------------------------------------------
+  # SCA — pip-audit (Python deps)
+  # ----------------------------------------------------------------
+  sca-pip-audit:
+    name: SCA — pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r backend/pyproject.toml --output pip-audit.json --format json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+
+  # ----------------------------------------------------------------
+  # SCA — pnpm audit (JS deps)
+  # ----------------------------------------------------------------
+  sca-pnpm-audit:
+    name: SCA — pnpm audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=moderate
+
+  # ----------------------------------------------------------------
+  # Secrets — Gitleaks
+  # ----------------------------------------------------------------
+  secrets-scan:
+    name: Secrets — Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ----------------------------------------------------------------
+  # Container scan — Trivy
+  # ----------------------------------------------------------------
+  container-scan:
+    name: Container — Trivy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          load: true
+          tags: nocode-backend:scan
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "nocode-backend:scan"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"

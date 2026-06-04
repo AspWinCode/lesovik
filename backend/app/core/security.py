@@ -1,0 +1,64 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+
+def _build_token(subject: str, extra: dict[str, Any], expire_delta: timedelta) -> str:
+    now = datetime.now(UTC)
+    payload = {
+        "sub": subject,
+        "iat": now,
+        "exp": now + expire_delta,
+        **extra,
+    }
+    return jwt.encode(payload, settings.JWT_PRIVATE_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_access_token(user_id: UUID, roles: list[str]) -> str:
+    return _build_token(
+        subject=str(user_id),
+        extra={"type": "access", "roles": roles},
+        expire_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def create_refresh_token(user_id: UUID) -> str:
+    return _build_token(
+        subject=str(user_id),
+        extra={"type": "refresh"},
+        expire_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+
+
+def decode_token(token: str) -> dict[str, Any]:
+    """Raises JWTError on invalid/expired token."""
+    return jwt.decode(  # type: ignore[no-any-return]
+        token,
+        settings.JWT_PUBLIC_KEY,
+        algorithms=[settings.JWT_ALGORITHM],
+    )
+
+
+__all__ = [
+    "hash_password",
+    "verify_password",
+    "create_access_token",
+    "create_refresh_token",
+    "decode_token",
+    "JWTError",
+]

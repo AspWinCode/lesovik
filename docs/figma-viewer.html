@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #1a1a1a; overflow: hidden; }
+  #container { width: 100vw; height: 100vh; overflow: hidden; position: relative; }
+  #img { position: absolute; transform-origin: top left; image-rendering: pixelated; }
+  #controls {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; z-index: 100;
+  }
+  button {
+    background: #333; color: #fff; border: 1px solid #555;
+    padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px;
+  }
+  button:hover { background: #555; }
+  #info { position: fixed; top: 8px; left: 8px; color: #aaa; font: 12px monospace; }
+</style>
+</head>
+<body>
+<div id="container">
+  <img id="img" src="figma-overview.png">
+</div>
+<div id="info">Click image to zoom in (right-click to zoom out)</div>
+<div id="controls">
+  <button onclick="zoom(0.5)">−</button>
+  <button onclick="resetView()">Reset</button>
+  <button onclick="zoom(2)">+</button>
+  <button onclick="goTo('top')">Top</button>
+  <button onclick="goTo('dark')">Dark screens</button>
+  <button onclick="goTo('left')">Left</button>
+  <button onclick="goTo('right')">Right</button>
+  <button onclick="goTo('mid')">Middle</button>
+  <button onclick="goTo('bottom')">Bottom</button>
+</div>
+
+<script>
+  const img = document.getElementById('img');
+  let scale = 1, tx = 0, ty = 0;
+
+  function apply() {
+    img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    document.getElementById('info').textContent = `scale: ${scale.toFixed(1)}x  pos: ${-tx.toFixed(0)}, ${-ty.toFixed(0)}`;
+  }
+
+  function zoom(factor) {
+    scale *= factor;
+    apply();
+  }
+
+  function resetView() {
+    scale = 1; tx = 0; ty = 0;
+    apply();
+  }
+
+  // Navigate to specific areas of the 2048x1852 image
+  const views = {
+    top:    { s: 8,  x: 150, y: 8   },   // top dark header bar
+    dark:   { s: 6,  x: 145, y: 55  },   // dark screens cluster
+    left:   { s: 5,  x: 0,   y: 50  },   // left mobile/component panel
+    right:  { s: 6,  x: 415, y: 55  },   // right cluster
+    mid:    { s: 5,  x: 145, y: 140 },   // middle flow
+    bottom: { s: 5,  x: 145, y: 380 },   // bottom section
+  };
+
+  function goTo(name) {
+    const v = views[name];
+    const vw = window.innerWidth, vh = window.innerHeight;
+    scale = v.s;
+    tx = -(v.x * scale) + vw/4;
+    ty = -(v.y * scale) + vh/4;
+    apply();
+  }
+
+  // Drag to pan
+  let dragging = false, startX, startY, startTx, startTy;
+  img.addEventListener('mousedown', e => {
+    dragging = true; startX = e.clientX; startY = e.clientY;
+    startTx = tx; startTy = ty;
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    tx = startTx + (e.clientX - startX);
+    ty = startTy + (e.clientY - startY);
+    apply();
+  });
+  document.addEventListener('mouseup', () => dragging = false);
+
+  // Scroll to zoom
+  document.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    const rect = img.getBoundingClientRect();
+    const mx = e.clientX, my = e.clientY;
+    tx = mx - (mx - tx) * factor;
+    ty = my - (my - ty) * factor;
+    scale *= factor;
+    apply();
+  }, { passive: false });
+
+  apply();
+  // Start on dark screens
+  setTimeout(() => goTo('dark'), 200);
+</script>
+</body>
+</html>

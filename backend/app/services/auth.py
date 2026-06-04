@@ -1,0 +1,243 @@
+import hashlib
+import secrets
+import uuid
+from datetime import UTC, datetime
+
+import pyotp
+import structlog
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.metrics import auth_attempts, token_refreshes
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+    verify_password,
+)
+from app.models.identity import RefreshToken, User
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, TokenPair, TOTPSetupResponse
+
+logger = structlog.get_logger(__name__)
+
+_ACCESS_EXPIRES = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+
+class AuthError(Exception):
+    """Raised for business-logic auth failures (mapped to 401/403 in endpoints)."""
+
+    def __init__(self, detail: str, status_code: int = 401) -> None:
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail)
+
+
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+class AuthService:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    # ------------------------------------------------------------------
+    # Login
+    # ------------------------------------------------------------------
+    async def login(
+        self,
+        req: LoginRequest,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> TokenPair:
+        try:
+            user = await self._get_active_user_by_email(req.email)
+        except AuthError:
+            auth_attempts.labels(result="wrong_password").inc()
+            raise
+
+        if not user.password_hash or not verify_password(req.password, user.password_hash):
+            logger.warning("login_failed_bad_password", email=req.email)
+            auth_attempts.labels(result="wrong_password").inc()
+            raise AuthError("Invalid credentials")
+
+        if user.totp_enabled:
+            if not req.totp_code:
+                auth_attempts.labels(result="totp_required").inc()
+                raise AuthError("TOTP code required", status_code=403)
+            if not self._verify_totp(user.totp_secret, req.totp_code):  # type: ignore[arg-type]
+                logger.warning("login_failed_bad_totp", user_id=str(user.id))
+                auth_attempts.labels(result="totp_invalid").inc()
+                raise AuthError("Invalid TOTP code", status_code=403)
+
+        # Update last_login_at
+        await self._db.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(last_login_at=datetime.now(UTC))
+        )
+
+        auth_attempts.labels(result="success").inc()
+        logger.info("login_success", user_id=str(user.id))
+        return await self._issue_tokens(user, user_agent=user_agent, ip=ip)
+
+    # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
+    async def refresh(self, raw_refresh_token: str) -> TokenPair:
+        try:
+            payload = decode_token(raw_refresh_token)
+        except Exception as exc:
+            token_refreshes.labels(result="expired").inc()
+            raise AuthError("Invalid refresh token") from exc
+
+        if payload.get("type") != "refresh":
+            token_refreshes.labels(result="expired").inc()
+            raise AuthError("Not a refresh token")
+
+        token_hash = _hash_token(raw_refresh_token)
+        stmt = select(RefreshToken).where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.revoked.is_(False),
+            RefreshToken.expires_at > datetime.now(UTC),
+        )
+        result = await self._db.execute(stmt)
+        db_token = result.scalar_one_or_none()
+
+        if db_token is None:
+            token_refreshes.labels(result="revoked").inc()
+            raise AuthError("Refresh token not found or revoked")
+
+        # Rotate: revoke old, issue new pair
+        db_token.revoked = True
+        await self._db.flush()
+
+        user = await self._get_active_user_by_id(db_token.user_id)
+        token_refreshes.labels(result="success").inc()
+        logger.info("token_refreshed", user_id=str(user.id))
+        return await self._issue_tokens(user)
+
+    # ------------------------------------------------------------------
+    # Logout (revoke specific token or all)
+    # ------------------------------------------------------------------
+    async def logout(self, raw_refresh_token: str) -> None:
+        token_hash = _hash_token(raw_refresh_token)
+        await self._db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.token_hash == token_hash)
+            .values(revoked=True)
+        )
+
+    async def logout_all(self, user_id: uuid.UUID) -> None:
+        await self._db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False))
+            .values(revoked=True)
+        )
+
+    # ------------------------------------------------------------------
+    # Change password
+    # ------------------------------------------------------------------
+    async def change_password(self, user_id: uuid.UUID, req: ChangePasswordRequest) -> None:
+        user = await self._get_active_user_by_id(user_id)
+        if not user.password_hash or not verify_password(req.current_password, user.password_hash):
+            raise AuthError("Current password is incorrect", status_code=403)
+        await self._db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(password_hash=hash_password(req.new_password))
+        )
+        await self.logout_all(user_id)
+        logger.info("password_changed", user_id=str(user_id))
+
+    # ------------------------------------------------------------------
+    # TOTP setup / enable / disable
+    # ------------------------------------------------------------------
+    async def totp_setup(self, user: User) -> TOTPSetupResponse:
+        secret = pyotp.random_base32()
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(
+            name=user.email, issuer_name="No-Code Platform"
+        )
+        # Persist secret (not yet enabled — user must verify first)
+        await self._db.execute(
+            update(User).where(User.id == user.id).values(totp_secret=secret)
+        )
+        return TOTPSetupResponse(secret=secret, provisioning_uri=uri)
+
+    async def totp_enable(self, user: User, code: str) -> None:
+        if not user.totp_secret:
+            raise AuthError("TOTP not configured", status_code=400)
+        if not self._verify_totp(user.totp_secret, code):
+            raise AuthError("Invalid TOTP code", status_code=403)
+        await self._db.execute(
+            update(User).where(User.id == user.id).values(totp_enabled=True)
+        )
+
+    async def totp_disable(self, user: User, code: str) -> None:
+        if not user.totp_enabled or not user.totp_secret:
+            raise AuthError("TOTP not enabled", status_code=400)
+        if not self._verify_totp(user.totp_secret, code):
+            raise AuthError("Invalid TOTP code", status_code=403)
+        await self._db.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(totp_secret=None, totp_enabled=False)
+        )
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+    async def _issue_tokens(
+        self,
+        user: User,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> TokenPair:
+        raw_refresh = secrets.token_urlsafe(64)
+        access = create_access_token(user.id, user.role_ids)
+        refresh = create_refresh_token(user.id)
+
+        # Store hashed refresh token
+        expires_at = datetime.now(UTC).replace(
+            microsecond=0
+        ).__class__.fromtimestamp(
+            datetime.now(UTC).timestamp() + settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+            tz=UTC,
+        )
+        db_token = RefreshToken(
+            user_id=user.id,
+            token_hash=_hash_token(refresh),
+            expires_at=expires_at,
+            user_agent=user_agent,
+            ip_address=ip,
+        )
+        self._db.add(db_token)
+        await self._db.flush()
+
+        return TokenPair(
+            access_token=access,
+            refresh_token=refresh,
+            expires_in=_ACCESS_EXPIRES,
+        )
+
+    async def _get_active_user_by_email(self, email: str) -> User:
+        stmt = select(User).where(User.email == email, User.is_active.is_(True))
+        result = await self._db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise AuthError("Invalid credentials")
+        return user
+
+    async def _get_active_user_by_id(self, user_id: uuid.UUID) -> User:
+        stmt = select(User).where(User.id == user_id, User.is_active.is_(True))
+        result = await self._db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise AuthError("User not found or inactive")
+        return user
+
+    @staticmethod
+    def _verify_totp(secret: str, code: str) -> bool:
+        totp = pyotp.TOTP(secret)
+        return totp.verify(code, valid_window=1)
