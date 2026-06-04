@@ -43,21 +43,21 @@ def configure_telemetry() -> None:
         resource = Resource.create({"service.name": service_name})
         provider = TracerProvider(resource=resource)
 
-        if app_env == "production":
+        otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+        if app_env == "production" and otlp_endpoint:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-            endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-            exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
-            logger.info("otel_otlp_exporter", endpoint=endpoint)
+            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+            logger.info("otel_otlp_exporter enabled: %s", otlp_endpoint)
         else:
             from opentelemetry.sdk.trace.export import ConsoleSpanExporter
             exporter = ConsoleSpanExporter()  # type: ignore[assignment]
-            logger.info("otel_console_exporter_dev")
+            logger.info("otel_console_exporter (dev or no OTLP endpoint)")
 
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
 
     except ImportError as exc:
-        logger.warning("otel_init_skipped", reason=str(exc))
+        logger.warning("otel_init_skipped: %s", exc)
 
 
 def instrument_fastapi(app: object) -> None:
