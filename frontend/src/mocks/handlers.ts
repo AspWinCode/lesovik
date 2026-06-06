@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import type { App, CursorPage } from "@/shared/api/apps";
 import type { CurrentUser, TokenPair } from "@/shared/api/auth";
+import type { EntityRead, FieldRead } from "@/shared/api/entities";
 import type { Rule } from "@/shared/api/rules";
 import type { User, UserRole } from "@/shared/api/users";
 
@@ -134,7 +135,70 @@ const mockUsers: User[] = [
   },
 ];
 
+/* ── Mock Entities ── */
+function makeField(
+  partial: Partial<FieldRead> & Pick<FieldRead, "id" | "entity_id" | "app_id" | "name" | "display_name" | "field_type" | "display_order">
+): FieldRead {
+  const now = new Date().toISOString();
+  return {
+    is_required: false, is_unique: false, is_system: false, is_indexed: false,
+    default_value: null, validation_rules: {}, field_options: {},
+    created_at: now, updated_at: now,
+    ...partial,
+  };
+}
+
 const ENTITY_ID = "00000000-0000-0000-0000-000000000010";
+
+function buildEntities(appId: string): EntityRead[] {
+  const now = new Date().toISOString();
+  const e1Id = ENTITY_ID;
+  const e2Id = "00000000-0000-0000-0000-000000000011";
+  const e3Id = "00000000-0000-0000-0000-000000000012";
+
+  return [
+    {
+      id: e1Id, app_id: appId, slug: "analytics", display_name: "Аналитика",
+      name_plural: null, description: null, icon: null, color: null,
+      settings: {}, is_system: false, field_order: [],
+      created_at: now, updated_at: now,
+      fields: [
+        makeField({ id: "f1", entity_id: e1Id, app_id: appId, name: "_row_number", display_name: "_RowNumber", field_type: "number", display_order: 0, is_system: true, is_unique: true }),
+        makeField({ id: "f2", entity_id: e1Id, app_id: appId, name: "row_id",      display_name: "Row ID",     field_type: "text",   display_order: 1, is_system: true, is_unique: true }),
+        makeField({ id: "f3", entity_id: e1Id, app_id: appId, name: "module",      display_name: "Модуль",     field_type: "text",   display_order: 2, is_required: true }),
+        makeField({ id: "f4", entity_id: e1Id, app_id: appId, name: "view",        display_name: "Вид",        field_type: "select", display_order: 3 }),
+        makeField({ id: "f5", entity_id: e1Id, app_id: appId, name: "status",      display_name: "Статус",     field_type: "select", display_order: 4 }),
+      ],
+    },
+    {
+      id: e2Id, app_id: appId, slug: "audit", display_name: "Аудит",
+      name_plural: null, description: null, icon: null, color: null,
+      settings: {}, is_system: false, field_order: [],
+      created_at: now, updated_at: now,
+      fields: [
+        makeField({ id: "f10", entity_id: e2Id, app_id: appId, name: "_row_number", display_name: "_RowNumber", field_type: "number", display_order: 0, is_system: true }),
+        makeField({ id: "f11", entity_id: e2Id, app_id: appId, name: "action",      display_name: "Действие",   field_type: "text",   display_order: 1, is_required: true }),
+        makeField({ id: "f12", entity_id: e2Id, app_id: appId, name: "user_id",     display_name: "Пользователь", field_type: "relation", display_order: 2 }),
+        makeField({ id: "f13", entity_id: e2Id, app_id: appId, name: "created_at",  display_name: "Создан",     field_type: "datetime", display_order: 3, is_system: true }),
+      ],
+    },
+    {
+      id: e3Id, app_id: appId, slug: "main_menu", display_name: "Главное меню",
+      name_plural: null, description: null, icon: null, color: null,
+      settings: {}, is_system: false, field_order: [],
+      created_at: now, updated_at: now,
+      fields: [
+        makeField({ id: "f20", entity_id: e3Id, app_id: appId, name: "_row_number", display_name: "_RowNumber", field_type: "number", display_order: 0, is_system: true }),
+        makeField({ id: "f21", entity_id: e3Id, app_id: appId, name: "label",       display_name: "Название",   field_type: "text",   display_order: 1, is_required: true }),
+        makeField({ id: "f22", entity_id: e3Id, app_id: appId, name: "icon",        display_name: "Иконка",     field_type: "image",  display_order: 2 }),
+        makeField({ id: "f23", entity_id: e3Id, app_id: appId, name: "route",       display_name: "Маршрут",    field_type: "url",    display_order: 3 }),
+      ],
+    },
+  ];
+}
+
+/* entities is keyed by appId */
+const entitiesByApp: Record<string, EntityRead[]> = {};
 
 const rules: Rule[] = [
   {
@@ -381,6 +445,93 @@ export const handlers = [
   http.delete(`${API}/users/:userId`, ({ params }) => {
     const idx = mockUsers.findIndex((u) => u.id === params.userId);
     if (idx !== -1) mockUsers[idx].is_active = false;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Entities
+  http.get(`${API}/apps/:appId/entities`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!entitiesByApp[appId]) entitiesByApp[appId] = buildEntities(appId);
+    return HttpResponse.json(entitiesByApp[appId]);
+  }),
+
+  http.post(`${API}/apps/:appId/entities`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!entitiesByApp[appId]) entitiesByApp[appId] = buildEntities(appId);
+    const body = (await request.json()) as { slug: string; display_name: string; [k: string]: unknown };
+    const now = new Date().toISOString();
+    const entity: EntityRead = {
+      id: crypto.randomUUID(), app_id: appId,
+      slug: body.slug, display_name: body.display_name,
+      name_plural: null, description: null, icon: null, color: null,
+      settings: {}, is_system: false, field_order: [], fields: [],
+      created_at: now, updated_at: now,
+    };
+    entitiesByApp[appId].push(entity);
+    return HttpResponse.json(entity, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/entities/:entityId`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!entitiesByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = entitiesByApp[appId].findIndex((e) => e.id === params.entityId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<EntityRead>;
+    entitiesByApp[appId][idx] = { ...entitiesByApp[appId][idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(entitiesByApp[appId][idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/entities/:entityId`, ({ params }) => {
+    const appId = params.appId as string;
+    if (entitiesByApp[appId]) {
+      const idx = entitiesByApp[appId].findIndex((e) => e.id === params.entityId);
+      if (idx !== -1) entitiesByApp[appId].splice(idx, 1);
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Fields
+  http.post(`${API}/apps/:appId/entities/:entityId/fields`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!entitiesByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const entity = entitiesByApp[appId].find((e) => e.id === params.entityId);
+    if (!entity) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as { name: string; display_name: string; field_type: string; [k: string]: unknown };
+    const now = new Date().toISOString();
+    const field: FieldRead = {
+      id: crypto.randomUUID(), entity_id: entity.id, app_id: appId,
+      name: body.name, display_name: body.display_name,
+      field_type: body.field_type as FieldRead["field_type"],
+      is_required: false, is_unique: false, is_system: false, is_indexed: false,
+      default_value: null, validation_rules: {}, field_options: {},
+      display_order: entity.fields.length,
+      created_at: now, updated_at: now,
+    };
+    entity.fields.push(field);
+    return HttpResponse.json(field, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/entities/:entityId/fields/:fieldId`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!entitiesByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const entity = entitiesByApp[appId].find((e) => e.id === params.entityId);
+    if (!entity) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = entity.fields.findIndex((f) => f.id === params.fieldId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<FieldRead>;
+    entity.fields[idx] = { ...entity.fields[idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(entity.fields[idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/entities/:entityId/fields/:fieldId`, ({ params }) => {
+    const appId = params.appId as string;
+    if (entitiesByApp[appId]) {
+      const entity = entitiesByApp[appId].find((e) => e.id === params.entityId);
+      if (entity) {
+        const idx = entity.fields.findIndex((f) => f.id === params.fieldId);
+        if (idx !== -1) entity.fields.splice(idx, 1);
+      }
+    }
     return new HttpResponse(null, { status: 204 });
   }),
 ];

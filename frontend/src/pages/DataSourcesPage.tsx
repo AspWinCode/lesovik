@@ -3,60 +3,57 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
+import { useApps } from "@/shared/hooks/useApps";
+import { useEntities } from "@/shared/hooks/useEntities";
+import type { EntityRead, FieldRead } from "@/shared/api/entities";
 
-/* ── Source list ── */
-interface Source {
-  id: string;
-  name: string;
-  expandable?: boolean;
-}
+/* ── Field type → display label ── */
+const FIELD_TYPE_LABEL: Record<string, string> = {
+  text:         "Текст",
+  long_text:    "Длинный текст",
+  rich_text:    "Форматированный текст",
+  number:       "Число",
+  decimal:      "Дробное",
+  boolean:      "Флаг",
+  date:         "Дата",
+  datetime:     "Дата и время",
+  time:         "Время",
+  select:       "Список",
+  multi_select: "Мульти-список",
+  file:         "Файл",
+  image:        "Изображение",
+  relation:     "Связь",
+  formula:      "Формула",
+  url:          "URL",
+  email:        "Email",
+  phone:        "Телефон",
+  json:         "JSON",
+  lookup:       "Поиск",
+};
 
-const SOURCES: Source[] = [
-  { id: "analytics",   name: "Аналитика" },
-  { id: "audit",       name: "Аудит", expandable: true },
-  { id: "main-menu",   name: "Главное меню", expandable: true },
-  { id: "year",        name: "Год" },
-  { id: "report-d1",   name: "Детали отчета (1)", expandable: true },
-  { id: "report-d2",   name: "Детали отчета" },
-  { id: "defect-1",    name: "Журнал бракеража (1)", expandable: true },
-  { id: "defect-2",    name: "Журнал бракеража (2)", expandable: true },
-  { id: "receipts",    name: "Журнал поступлений fi…" },
-];
-
-/* ── Table columns ── */
+/* ── Table columns shown in the center ── */
 const COLUMNS = [
-  "Название", "Тип", "Ключ", "Метка", "Формула",
-  "Показать", "Редакт.", "Обязат. поле", "Начальное значение",
-  "Отображаемое имя", "Описание", "Поиск", "Скан", "NFC", "PII",
-];
-
-type ColType = "Число" | "Текст" | "Приложение";
-interface Row {
-  id: string;
-  name: string;
-  type: ColType;
-  key: boolean;
-  label: boolean;
-}
-
-const ROWS: Row[] = [
-  { id: "rownum", name: "_RowNumber", type: "Число",      key: true, label: false },
-  { id: "rowid",  name: "Row ID",     type: "Текст",      key: true, label: false },
-  { id: "module", name: "Модуль",     type: "Текст",      key: true, label: false },
-  { id: "view",   name: "view",       type: "Приложение", key: true, label: false },
-];
-
-const META = [
-  { label: "Источник:", value: "Задачи" },
-  { label: "Квалификатор:", value: "Ресурсы" },
-  { label: "Источник данных:", value: "Google" },
-  { label: "Тип источника:", value: "Таблицы" },
-  { label: "Столбцы:", value: "4" },
+  "Название", "Тип", "Ключ", "Обязат.", "Уникальный",
+  "Системный", "Индекс", "Отображаемое имя",
 ];
 
 export function DataSourcesPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
-  const [activeSource, setActiveSource] = useState("analytics");
+
+  /* get appId from the first app */
+  const { data: appsData } = useApps();
+  const appId = appsData?.items[0]?.id;
+
+  const { data: entities, isLoading } = useEntities(appId);
+  const items: EntityRead[] = entities ?? [];
+
+  const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
+
+  /* resolve active entity; fall back to first when loaded */
+  const activeEntity: EntityRead | null =
+    items.find((e) => e.id === activeEntityId) ??
+    items[0] ??
+    null;
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -80,23 +77,32 @@ export function DataSourcesPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col gap-[10px] px-0 pt-[10px]">
-          {SOURCES.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSource(s.id)}
-              className={cn(
-                "flex items-center gap-[7px] w-[290px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
-                s.id === activeSource ? "bg-selected" : "hover:bg-cardbg/50"
-              )}
-            >
-              <span className="w-6 h-6 shrink-0"><DbIcon highlight={s.id === activeSource} /></span>
-              <span className={cn(
-                "flex-1 text-[18px] leading-[150%] font-medium truncate",
-                s.id === activeSource ? "text-cta" : "text-primary"
-              )}>{s.name}</span>
-              {s.expandable && <span className="w-3 h-3 shrink-0 -rotate-90"><Chevron /></span>}
-            </button>
-          ))}
+          {isLoading && (
+            <span className="px-4 text-[16px] text-primary/50">Загрузка…</span>
+          )}
+          {!isLoading && items.length === 0 && (
+            <span className="px-4 text-[16px] text-primary/50">Нет источников</span>
+          )}
+          {items.map((entity) => {
+            const active = entity.id === (activeEntity?.id ?? null);
+            return (
+              <button
+                key={entity.id}
+                onClick={() => setActiveEntityId(entity.id)}
+                className={cn(
+                  "flex items-center gap-[7px] w-[290px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
+                  active ? "bg-selected" : "hover:bg-cardbg/50"
+                )}
+              >
+                <span className="w-6 h-6 shrink-0"><DbIcon highlight={active} /></span>
+                <span className={cn(
+                  "flex-1 text-[18px] leading-[150%] font-medium truncate",
+                  active ? "text-cta" : "text-primary"
+                )}>{entity.display_name}</span>
+                <span className="text-[13px] text-primary/40 shrink-0">{entity.fields.length}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Bottom: options */}
@@ -119,7 +125,9 @@ export function DataSourcesPage() {
       >
         {/* Header */}
         <div className="flex items-center justify-between pl-[25px] pr-[15px] h-[64px] border-b-2 border-white shrink-0">
-          <h1 className="text-nav font-bold text-primary whitespace-nowrap">Таблица: Аналитика</h1>
+          <h1 className="text-nav font-bold text-primary whitespace-nowrap">
+            {activeEntity ? `Таблица: ${activeEntity.display_name}` : "Выберите источник"}
+          </h1>
           <div className="flex items-center gap-[25px]">
             <button className="flex items-center justify-center px-5 h-[34px] border-2 border-cta rounded-[20px] text-[14px] font-semibold text-cta whitespace-nowrap">
               Перейти к исх.коду
@@ -134,62 +142,106 @@ export function DataSourcesPage() {
         </div>
 
         {/* Meta row */}
-        <div className="flex flex-wrap gap-x-[30px] gap-y-[3px] pl-[25px] pr-[6px] py-[10px] shrink-0">
-          {META.map((m) => (
-            <span key={m.label} className="text-[16px] text-primary">
-              {m.label} <span className="font-semibold">{m.value}</span>
+        {activeEntity && (
+          <div className="flex flex-wrap gap-x-[30px] gap-y-[3px] pl-[25px] pr-[6px] py-[10px] shrink-0">
+            <span className="text-[16px] text-primary">
+              Slug: <span className="font-semibold">{activeEntity.slug}</span>
             </span>
-          ))}
-        </div>
+            <span className="text-[16px] text-primary">
+              Полей: <span className="font-semibold">{activeEntity.fields.length}</span>
+            </span>
+            {activeEntity.description && (
+              <span className="text-[16px] text-primary">
+                Описание: <span className="font-semibold">{activeEntity.description}</span>
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Table (horizontal scroll) */}
         <div className="flex-1 overflow-auto px-[25px] pt-[15px]">
-          <div className="min-w-[1400px] flex flex-col gap-[15px]">
-            {/* Header */}
-            <div className="flex items-center gap-[18px] h-[43px]">
-              {COLUMNS.map((c, i) => (
-                <span key={c} className={cn(
-                  "text-[18px] font-semibold text-primary text-center shrink-0",
-                  i === 0 ? "w-[250px]" : i === 1 ? "w-[200px]" : "w-[120px]"
-                )}>{c}</span>
-              ))}
-            </div>
-            {/* Rows */}
-            {ROWS.map((r) => (
-              <div key={r.id} className="flex items-center gap-[18px] h-[43px]">
-                {/* Название */}
-                <div className="w-[250px] h-[43px] flex items-center gap-[15px] px-4 bg-cardbg rounded-btn shrink-0">
-                  <span className="w-[15px] h-[15px] shrink-0"><EditMini /></span>
-                  <span className="text-[18px] font-semibold text-primary truncate">{r.name}</span>
-                </div>
-                {/* Тип */}
-                <div className="w-[200px] h-[43px] flex items-center justify-between px-4 bg-cardbg rounded-btn shrink-0">
-                  <span className="text-[18px] font-semibold text-primary">{r.type}</span>
-                  <span className="w-3 h-3"><Chevron /></span>
-                </div>
-                {/* Ключ */}
-                <div className="w-[120px] flex justify-center shrink-0"><CheckCircle on={r.key} /></div>
-                {/* Метка */}
-                <div className="w-[120px] flex justify-center shrink-0"><CheckCircle on={r.label} /></div>
-                {/* Формула + остальные boolean/formula столбцы */}
-                {COLUMNS.slice(4).map((c, i) => (
-                  <div key={c} className="w-[120px] flex justify-center shrink-0">
-                    {i <= 0 || i >= 6 ? (
-                      <div className="w-full h-[43px] flex items-center px-4 bg-cardbg rounded-btn">
-                        <span className="text-[18px] font-semibold text-primary">=</span>
-                      </div>
-                    ) : (
-                      <CheckCircle on={false} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
+          {!activeEntity && !isLoading && (
+            <p className="text-[18px] text-primary/50 pt-4">Выберите источник данных слева</p>
+          )}
+          {activeEntity && (
+            <EntityFieldsTable entity={activeEntity} />
+          )}
         </div>
       </div>
 
-      <PreviewPanel projectName="Profile" />
+      <PreviewPanel projectName={activeEntity?.display_name ?? "Data"} />
+    </div>
+  );
+}
+
+/* ── Fields table ── */
+function EntityFieldsTable({ entity }: { entity: EntityRead }) {
+  const fields = [...entity.fields].sort((a, b) => a.display_order - b.display_order);
+
+  return (
+    <div className="min-w-[1100px] flex flex-col gap-[15px]">
+      {/* Header */}
+      <div className="flex items-center gap-[18px] h-[43px]">
+        {COLUMNS.map((c, i) => (
+          <span key={c} className={cn(
+            "text-[18px] font-semibold text-primary text-center shrink-0",
+            i === 0 ? "w-[220px] text-left" :
+            i === 1 ? "w-[160px] text-left" :
+            "w-[100px]"
+          )}>{c}</span>
+        ))}
+      </div>
+
+      {/* Rows */}
+      {fields.length === 0 && (
+        <p className="text-[18px] text-primary/50">Нет полей</p>
+      )}
+      {fields.map((f) => (
+        <FieldRow key={f.id} field={f} />
+      ))}
+    </div>
+  );
+}
+
+function FieldRow({ field }: { field: FieldRead }) {
+  return (
+    <div className="flex items-center gap-[18px] h-[43px]">
+      {/* Название */}
+      <div className="w-[220px] h-[43px] flex items-center gap-[10px] px-4 bg-cardbg rounded-btn shrink-0">
+        <span className="w-[15px] h-[15px] shrink-0"><EditMini /></span>
+        <span className="text-[16px] font-semibold text-primary truncate" title={field.name}>{field.name}</span>
+      </div>
+      {/* Тип */}
+      <div className="w-[160px] h-[43px] flex items-center justify-between px-4 bg-cardbg rounded-btn shrink-0">
+        <span className="text-[16px] font-semibold text-primary truncate">
+          {FIELD_TYPE_LABEL[field.field_type] ?? field.field_type}
+        </span>
+        <span className="w-3 h-3 shrink-0"><Chevron /></span>
+      </div>
+      {/* Ключ (is_unique + is_system) */}
+      <div className="w-[100px] flex justify-center shrink-0">
+        <CheckCircle on={field.is_system && field.is_unique} />
+      </div>
+      {/* Обязат. */}
+      <div className="w-[100px] flex justify-center shrink-0">
+        <CheckCircle on={field.is_required} />
+      </div>
+      {/* Уникальный */}
+      <div className="w-[100px] flex justify-center shrink-0">
+        <CheckCircle on={field.is_unique} />
+      </div>
+      {/* Системный */}
+      <div className="w-[100px] flex justify-center shrink-0">
+        <CheckCircle on={field.is_system} />
+      </div>
+      {/* Индекс */}
+      <div className="w-[100px] flex justify-center shrink-0">
+        <CheckCircle on={field.is_indexed} />
+      </div>
+      {/* Отображаемое имя */}
+      <div className="w-[220px] h-[43px] flex items-center px-4 bg-cardbg rounded-btn shrink-0">
+        <span className="text-[16px] text-primary truncate" title={field.display_name}>{field.display_name}</span>
+      </div>
     </div>
   );
 }

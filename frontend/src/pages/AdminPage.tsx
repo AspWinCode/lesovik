@@ -95,6 +95,16 @@ function ProgressBar({
 }
 
 function AdminDashboard() {
+  const { data: appsData } = useApps();
+  const { data: usersData } = useUsers();
+
+  const totalApps = appsData?.total ?? 0;
+  const activeApps = appsData?.items.filter((a) => a.is_published).length ?? 0;
+  const devApps = totalApps - activeApps;
+
+  const totalUsers = usersData?.total ?? 0;
+  const activeUsers = usersData?.items.filter((u) => u.is_active).length ?? 0;
+
   return (
     <div className="flex flex-col gap-[70px] h-full">
       {/* Header */}
@@ -109,14 +119,14 @@ function AdminDashboard() {
 
       {/* Cards grid */}
       <div className="flex flex-wrap gap-x-5 gap-y-[50px]">
-        {/* Card 1: Apps & Databases */}
+        {/* Card 1: Apps & Users */}
         <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[30px_20px] flex flex-col gap-[30px] w-[544px]">
-          <h2 className="text-card-h font-semibold text-primary">Приложения и базы данных</h2>
+          <h2 className="text-card-h font-semibold text-primary">Приложения и пользователи</h2>
           <div className="flex gap-[50px] items-end">
             {/* Legend column */}
             <div className="flex flex-col gap-[25px]">
               <div className="flex flex-col gap-[25px]">
-                <span className="text-info text-primary">Базы данных</span>
+                <span className="text-info text-primary">Пользователи</span>
                 <span className="text-info text-primary">Приложения</span>
               </div>
             </div>
@@ -127,8 +137,8 @@ function AdminDashboard() {
                 <span className="text-[#FFA600] w-[120px]">В разработке</span>
                 <span className="text-cta w-[52px]">Всего</span>
               </div>
-              <StatRow label="" active={2} inDev={10} total={12} />
-              <StatRow label="" active={2} inDev={10} total={12} />
+              <StatRow label="" active={activeUsers} inDev={totalUsers - activeUsers} total={totalUsers} />
+              <StatRow label="" active={activeApps} inDev={devApps} total={totalApps} />
             </div>
           </div>
         </div>
