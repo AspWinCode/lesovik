@@ -12,6 +12,7 @@ import {
   useUpdateRule,
 } from "@/shared/hooks/useRules";
 import type { Rule } from "@/shared/api/rules";
+import { useEntities } from "@/shared/hooks/useEntities";
 
 const BOT_TABS = ["Бот", "События", "Процесс"];
 const POSITIONS_DC = ["Добавить", "Удалить", "Обновить"];
@@ -97,7 +98,7 @@ export function BotPage() {
         style={{ left: 85, width: 290, height: 1005, borderRadius: "20px 5px 5px 20px" }}
       >
         <div className="flex items-center justify-between px-[15px] pt-[15px] h-[30px] mb-[25px]">
-          <h2 className="text-[20px] font-bold text-primary">Бот</h2>
+          <h2 className="text-[20px] font-bold text-primary">События</h2>
           <div className="flex items-center gap-5">
             <button aria-label="Поиск" className="w-5 h-5"><SearchIcon /></button>
             <button aria-label="Добавить" className="w-5 h-5"><PlusIcon /></button>
@@ -108,13 +109,13 @@ export function BotPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
-          {/* Single "Боты" group */}
+          {/* Single "Отчеты" group */}
           <button
             onClick={() => setGroupOpen((v) => !v)}
             className="flex items-center gap-[7px] h-[46px] px-[15px] text-left"
           >
             <span className={cn("flex-1 text-[18px] leading-[150%] truncate", groupOpen ? "text-cta" : "text-primary")}>
-              {`Боты${rules.length > 0 ? ` (${rules.length})` : ""}`}
+              {`Отчеты${rules.length > 0 ? ` (${rules.length})` : ""}`}
             </span>
             {groupOpen ? (
               <>
@@ -132,7 +133,7 @@ export function BotPage() {
           )}
 
           {groupOpen && !isLoading && rules.length === 0 && (
-            <div className="px-[15px] py-2 text-[14px] text-primary/60">Нет ботов</div>
+            <div className="px-[15px] py-2 text-[14px] text-primary/60">Нет событий</div>
           )}
 
           {groupOpen && rules.map((rule) => (
@@ -175,10 +176,11 @@ export function BotPage() {
           {botTab === "События" && (
             <EventEditor
               rule={activeRule}
+              appId={appId}
               onSave={(ruleId, body) => updateRule.mutate({ ruleId, body })}
             />
           )}
-          {botTab === "Процесс" && <ProcessGraph rule={activeRule} />}
+          {botTab === "Процесс" && <ProcessGraph rule={activeRule} appId={appId} />}
         </div>
       </div>
 
@@ -214,6 +216,7 @@ function BotItem({
         className={cn(
           "group flex items-center gap-[15px] h-[46px] px-[15px] rounded-[30px] cursor-pointer transition-colors",
           isActive ? "bg-selected" : "bg-mainbg hover:bg-selected/60",
+          !rule.is_active && "opacity-60",
         )}
         onClick={onClick}
       >
@@ -315,7 +318,7 @@ function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }
   if (!rule) {
     return (
       <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
-        Выберите бота из списка
+        Выберите событие из списка
       </div>
     );
   }
@@ -382,17 +385,24 @@ function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }
 /* ── События tab ── */
 function EventEditor({
   rule,
+  appId,
   onSave,
 }: {
   rule: Rule | null;
+  appId: string | undefined;
   onSave: (ruleId: string, body: Record<string, unknown>) => void;
 }) {
   const [dc, setDc] = useState(() => eventToDc(rule?.trigger?.event ?? "record.created"));
   const [bypass, setBypass] = useState(false);
   const [displayOpen, setDisplayOpen] = useState(true);
   const [showSrc, setShowSrc] = useState(false);
+  const [showEntityDd, setShowEntityDd] = useState(false);
   const [src, setSrc] = useState("Приложение");
   const [nameVal, setNameVal] = useState(rule?.name ?? "");
+
+  const { data: entities = [] } = useEntities(appId);
+
+  const selectedEntity = entities.find((e) => e.id === rule?.entity_id) ?? entities[0] ?? null;
 
   useEffect(() => {
     if (rule) {
@@ -415,13 +425,13 @@ function EventEditor({
   if (!rule) {
     return (
       <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
-        Выберите бота из списка
+        Выберите событие из списка
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col relative" onClick={() => setShowSrc(false)}>
+    <div className="flex flex-col relative" onClick={() => { setShowSrc(false); setShowEntityDd(false); }}>
       {/* Header */}
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
         <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
@@ -429,6 +439,16 @@ function EventEditor({
           <span className="w-6 h-6"><LinkIcon /></span>
           <span className="text-[20px] font-semibold text-cta">1</span>
           <span className="w-6 h-6"><Chevron /></span>
+        </div>
+      </div>
+
+      {/* Settings section header */}
+      <div className="flex items-center justify-between px-[40px] h-[47px] bg-selected shrink-0 mb-[20px]">
+        <span className="text-[18px] font-semibold text-primary">Настройки</span>
+        <div className="flex items-center gap-[7px]">
+          <span className="w-6 h-6"><LinkIcon /></span>
+          <span className="text-[20px] font-semibold text-cta">1</span>
+          <span className="w-3 h-3"><Chevron /></span>
         </div>
       </div>
 
@@ -450,7 +470,7 @@ function EventEditor({
         <Row label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие." labelW={247}>
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
-              onClick={() => setShowSrc((v) => !v)}
+              onClick={() => { setShowSrc((v) => !v); setShowEntityDd(false); }}
               className="flex items-center justify-between gap-5 w-[580px] h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary"
             >
               <span className="truncate">{src}</span>
@@ -467,8 +487,38 @@ function EventEditor({
 
         {/* Таблица */}
         <Row label="Таблица" desc="Изменение данных в какой таблице должно вызывать это событие?">
-          <div className="flex items-center gap-5 w-[299px]">
-            <Dropdown value="Audit" className="flex-1" />
+          <div className="flex items-center gap-[10px] w-[580px]" onClick={(e) => e.stopPropagation()}>
+            <div className="relative flex-1">
+              <button
+                onClick={() => { setShowEntityDd((v) => !v); setShowSrc(false); }}
+                className="flex items-center justify-between gap-5 w-full h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary"
+              >
+                <span className="truncate">{selectedEntity?.display_name ?? "Выберите таблицу"}</span>
+                <span className={cn("w-3 h-3 shrink-0 transition-transform", showEntityDd && "rotate-180")}><Chevron /></span>
+              </button>
+              {showEntityDd && entities.length > 0 && (
+                <div className="absolute top-[44px] left-0 z-50 w-full bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.15)] p-[5px] flex flex-col max-h-[280px] overflow-y-auto">
+                  {entities.map((ent) => (
+                    <button
+                      key={ent.id}
+                      onClick={() => {
+                        if (rule) onSave(rule.id, { entity_id: ent.id });
+                        setShowEntityDd(false);
+                      }}
+                      className={cn(
+                        "flex items-center gap-[15px] px-[20px] py-[10px] rounded-[20px] text-[16px] font-medium text-primary transition-colors text-left",
+                        ent.id === (rule?.entity_id ?? entities[0]?.id)
+                          ? "bg-selected"
+                          : "bg-white hover:bg-selected/60",
+                      )}
+                    >
+                      <span className="w-5 h-5 shrink-0"><FileDocIcon /></span>
+                      {ent.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <IconBtn label="Редактировать"><EditIcon /></IconBtn>
           </div>
         </Row>
@@ -533,14 +583,23 @@ function EventEditor({
 }
 
 /* ── Процесс tab ── */
-function ProcessGraph({ rule }: { rule: Rule | null }) {
+function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | undefined }) {
+  const { data: entities = [] } = useEntities(appId);
+
+  const entityName = entities.find((e) => e.id === rule?.entity_id)?.display_name
+    ?? entities[0]?.display_name
+    ?? "Таблица";
+
   if (!rule) {
     return (
       <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
-        Выберите бота из списка
+        Выберите событие из списка
       </div>
     );
   }
+
+  const eventLabel = triggerLabel(rule.trigger?.event ?? "");
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
@@ -556,13 +615,13 @@ function ProcessGraph({ rule }: { rule: Rule | null }) {
         <div className="w-[287px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-5 flex items-center justify-between">
           <span className="flex items-center gap-[10px]">
             <span className="w-[30px] h-[30px]"><FileDocIcon /></span>
-            <span className="text-[20px] font-medium text-primary">Номенклатура</span>
+            <span className="text-[20px] font-medium text-primary">{entityName}</span>
           </span>
           <span className="w-3 h-3"><Chevron /></span>
         </div>
         <span className="text-[12px] text-primary text-center mt-[5px]">К какой таблице применить процесс?</span>
         <span className="w-[43px] h-[43px] my-[5px]"><AddDashedIcon /></span>
-        <ProcCard icon={<ShuffleIcon />} title="Запуск поиск Id номенклатуры" />
+        <ProcCard icon={<ShuffleIcon />} title={`Запуск ${eventLabel}`} />
         <svg viewBox="0 0 520 70" className="w-[520px] h-[70px]" fill="none">
           <path d="M260 0 L260 20 M260 20 L120 20 L120 50 M260 20 L400 20 L400 50" stroke="#35A7FF" strokeWidth="2" />
           <path d="M114 44 L120 50 L126 44 M394 44 L400 50 L406 44" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -631,15 +690,6 @@ function Row({ label, desc, labelW = 250, children }: { label: string; desc?: st
       </div>
       <div className="flex-1 flex justify-end">{children}</div>
     </div>
-  );
-}
-
-function Dropdown({ value, className }: { value: string; className?: string }) {
-  return (
-    <button className={cn("flex items-center justify-between gap-5 w-[580px] h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary", className)}>
-      <span className="truncate">{value}</span>
-      <span className="w-3 h-3 shrink-0"><Chevron /></span>
-    </button>
   );
 }
 
