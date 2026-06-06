@@ -2,6 +2,7 @@ import { http, HttpResponse } from "msw";
 import type { App, CursorPage } from "@/shared/api/apps";
 import type { CurrentUser, TokenPair } from "@/shared/api/auth";
 import type { Rule } from "@/shared/api/rules";
+import type { User, UserRole } from "@/shared/api/users";
 
 /**
  * In-memory mock backend for local frontend dev without Docker.
@@ -60,6 +61,77 @@ const apps: App[] = [
     is_published: true,
     updated_at: new Date(Date.now() - 2 * 86400_000).toISOString(),
   }),
+];
+
+/* ── Mock Users ── */
+const MOCK_ROLES: UserRole[] = [
+  { id: "platform_admin", display_name: "Platform Admin" },
+  { id: "app_builder",    display_name: "App Builder" },
+  { id: "auditor",        display_name: "Auditor" },
+  { id: "viewer",         display_name: "Viewer" },
+];
+
+const mockUsers: User[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000001",
+    email: "admin@nocode.local",
+    display_name: "Platform Admin",
+    is_active: true,
+    is_superuser: true,
+    totp_enabled: false,
+    last_login_at: new Date().toISOString(),
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    roles: [{ id: "platform_admin", display_name: "Platform Admin" }],
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000002",
+    email: "ivan@mail.ru",
+    display_name: "Иван Петров",
+    is_active: true,
+    is_superuser: false,
+    totp_enabled: false,
+    last_login_at: new Date(Date.now() - 2 * 86400_000).toISOString(),
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    roles: [{ id: "app_builder", display_name: "App Builder" }],
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000003",
+    email: "anna@corp.ru",
+    display_name: "Анна Соколова",
+    is_active: true,
+    is_superuser: false,
+    totp_enabled: true,
+    last_login_at: new Date(Date.now() - 1 * 86400_000).toISOString(),
+    created_at: "2026-02-15T00:00:00Z",
+    updated_at: "2026-02-15T00:00:00Z",
+    roles: [{ id: "app_builder", display_name: "App Builder" }, { id: "auditor", display_name: "Auditor" }],
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000004",
+    email: "dev@example.com",
+    display_name: "Dev User",
+    is_active: false,
+    is_superuser: false,
+    totp_enabled: false,
+    last_login_at: null,
+    created_at: "2026-03-20T00:00:00Z",
+    updated_at: "2026-03-20T00:00:00Z",
+    roles: [{ id: "viewer", display_name: "Viewer" }],
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000005",
+    email: "maria@mail.ru",
+    display_name: "Мария Иванова",
+    is_active: true,
+    is_superuser: false,
+    totp_enabled: false,
+    last_login_at: new Date(Date.now() - 3 * 86400_000).toISOString(),
+    created_at: "2026-04-05T00:00:00Z",
+    updated_at: "2026-04-05T00:00:00Z",
+    roles: [{ id: "app_builder", display_name: "App Builder" }],
+  },
 ];
 
 const ENTITY_ID = "00000000-0000-0000-0000-000000000010";
@@ -274,5 +346,41 @@ export const handlers = [
     rule.is_active = false;
     rule.updated_at = new Date().toISOString();
     return HttpResponse.json(rule);
+  }),
+
+  // Users
+  http.get(`${API}/users`, ({ request }) => {
+    const url = new URL(request.url);
+    const search = url.searchParams.get("search")?.toLowerCase() ?? "";
+    const isActive = url.searchParams.get("is_active");
+    let result = [...mockUsers];
+    if (search) result = result.filter(
+      (u) => u.display_name.toLowerCase().includes(search) || u.email.toLowerCase().includes(search)
+    );
+    if (isActive !== null) result = result.filter((u) => u.is_active === (isActive === "true"));
+    const page: CursorPage<User> = { items: result, next_cursor: null, has_more: false, total: result.length };
+    return HttpResponse.json(page);
+  }),
+
+  http.get(`${API}/users/roles`, () => HttpResponse.json(MOCK_ROLES)),
+
+  http.get(`${API}/users/:userId`, ({ params }) => {
+    const user = mockUsers.find((u) => u.id === params.userId);
+    if (!user) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    return HttpResponse.json(user);
+  }),
+
+  http.patch(`${API}/users/:userId`, async ({ params, request }) => {
+    const idx = mockUsers.findIndex((u) => u.id === params.userId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<User>;
+    mockUsers[idx] = { ...mockUsers[idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(mockUsers[idx]);
+  }),
+
+  http.delete(`${API}/users/:userId`, ({ params }) => {
+    const idx = mockUsers.findIndex((u) => u.id === params.userId);
+    if (idx !== -1) mockUsers[idx].is_active = false;
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

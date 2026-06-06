@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
+import { useUsers, useDeactivateUser, useUpdateUser } from "@/shared/hooks/useUsers";
+import { useApps } from "@/shared/hooks/useApps";
 
 /* ── Types ── */
 type AdminSection = "home" | "logs" | "users" | "apps" | "databases";
@@ -297,40 +299,90 @@ function AdminLogs() {
 }
 
 /* ── Users ── */
-const MOCK_USERS = [
-  { name: "Иван Петров",   email: "ivan@mail.ru",    role: "Пользователь", plan: "Про план",    status: "Активен",    created: "01.01.2026" },
-  { name: "Анна Соколова", email: "anna@corp.ru",    role: "Пользователь", plan: "Бизнес план", status: "Активен",    created: "15.02.2026" },
-  { name: "dev",           email: "dev@example.com", role: "Разработчик",  plan: "Бесплатный",  status: "В разработке", created: "20.03.2026" },
-  { name: "Мария Иванова", email: "maria@mail.ru",   role: "Пользователь", plan: "Про план",    status: "Активен",    created: "05.04.2026" },
-  { name: "Сергей Орлов",  email: "sergei@biz.ru",   role: "Пользователь", plan: "Бизнес план", status: "Активен",    created: "10.04.2026" },
-];
-
 function AdminUsers() {
+  const [search, setSearch] = useState("");
+  const { data, isLoading } = useUsers(search ? { search } : undefined);
+  const deactivate = useDeactivateUser();
+  const activate = useUpdateUser();
+
+  const users = data?.items ?? [];
+
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleDateString("ru", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
   return (
-    <div className="flex flex-col gap-[70px]">
-      <h1 className="text-[40px] font-bold text-primary leading-[150%]">Пользователи</h1>
+    <div className="flex flex-col gap-[40px]">
+      <div className="flex items-center justify-between">
+        <h1 className="text-[40px] font-bold text-primary leading-[150%]">Пользователи</h1>
+        <span className="text-[18px] text-primary/60">{data?.total != null ? `Всего: ${data.total}` : ""}</span>
+      </div>
+
+      {/* Search */}
+      <div className="flex items-center gap-[15px]">
+        <div className="flex items-center gap-[10px] w-[400px] h-[42px] px-5 bg-white rounded-[30px] shadow-sm">
+          <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5 shrink-0">
+            <circle cx="9" cy="9" r="6" stroke="#00205F" strokeWidth="1.8" />
+            <line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск по имени или email…"
+            className="flex-1 bg-transparent text-[16px] text-primary outline-none"
+          />
+        </div>
+      </div>
+
       <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
         <table className="w-full">
           <thead className="bg-mainbg">
             <tr>
-              {["Имя", "Email", "Роль", "Тариф", "Статус", "Создан"].map((h) => (
-                <th key={h} className="text-left px-6 py-3 text-info font-semibold text-primary">{h}</th>
+              {["Имя", "Email", "Роли", "Статус", "Последний вход", "Создан", ""].map((h, i) => (
+                <th key={i} className="text-left px-6 py-3 text-info font-semibold text-primary">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {MOCK_USERS.map((u, i) => (
-              <tr key={i} className="border-t border-mainbg hover:bg-mainbg/40">
-                <td className="px-6 py-3 text-meta font-semibold text-primary">{u.name}</td>
+            {isLoading && (
+              <tr><td colSpan={7} className="px-6 py-4 text-center text-primary/50 text-[16px]">Загрузка…</td></tr>
+            )}
+            {!isLoading && users.length === 0 && (
+              <tr><td colSpan={7} className="px-6 py-4 text-center text-primary/50 text-[16px]">Пользователи не найдены</td></tr>
+            )}
+            {users.map((u) => (
+              <tr key={u.id} className="border-t border-mainbg hover:bg-mainbg/40">
+                <td className="px-6 py-3 text-meta font-semibold text-primary">{u.display_name}</td>
                 <td className="px-6 py-3 text-meta text-primary">{u.email}</td>
-                <td className="px-6 py-3 text-meta text-primary">{u.role}</td>
-                <td className="px-6 py-3 text-meta text-primary">{u.plan}</td>
-                <td className={cn("px-6 py-3 text-meta font-semibold",
-                  u.status === "Активен" ? "text-[#20BE4F]" : "text-[#FFA600]"
-                )}>
-                  {u.status}
+                <td className="px-6 py-3 text-meta text-primary">
+                  {u.roles.length > 0 ? u.roles.map((r) => r.display_name).join(", ") : "—"}
                 </td>
-                <td className="px-6 py-3 text-meta text-primary">{u.created}</td>
+                <td className={cn("px-6 py-3 text-meta font-semibold",
+                  u.is_active ? "text-[#20BE4F]" : "text-[#FFA600]"
+                )}>
+                  {u.is_active ? "Активен" : "Неактивен"}
+                </td>
+                <td className="px-6 py-3 text-meta text-primary">
+                  {u.last_login_at ? fmtDate(u.last_login_at) : "—"}
+                </td>
+                <td className="px-6 py-3 text-meta text-primary">{fmtDate(u.created_at)}</td>
+                <td className="px-6 py-3">
+                  {u.is_active ? (
+                    <button
+                      onClick={() => deactivate.mutate(u.id)}
+                      className="text-[14px] text-[#C22A2A] hover:underline"
+                    >
+                      Деактивировать
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => activate.mutate({ userId: u.id, body: { is_active: true } })}
+                      className="text-[14px] text-[#20BE4F] hover:underline"
+                    >
+                      Активировать
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -341,42 +393,60 @@ function AdminUsers() {
 }
 
 /* ── Apps ── */
-const MOCK_APPS = [
-  { name: "Fitness App",  owner: "ivan@mail.ru",   status: "Прототип",    db: "3 таблицы",  modified: "6 дн. назад" },
-  { name: "Delivery App", owner: "anna@corp.ru",   status: "В разработке", db: "5 таблиц",  modified: "2 дн. назад" },
-  { name: "HR Portal",    owner: "maria@mail.ru",  status: "Активен",     db: "8 таблиц",  modified: "1 дн. назад" },
-  { name: "CRM System",   owner: "sergei@biz.ru",  status: "Активен",     db: "12 таблиц", modified: "3 часа назад" },
-];
-
-const appStatusColor: Record<string, string> = {
-  "Прототип":     "text-[#35A7FF]",
-  "В разработке": "text-[#FFA600]",
-  "Активен":      "text-[#20BE4F]",
-};
-
 function AdminApps() {
+  const { data, isLoading } = useApps();
+  const apps = data?.items ?? [];
+
+  function fmtRelative(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 60) return `${mins} мин. назад`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} ч. назад`;
+    const days = Math.floor(hrs / 24);
+    return `${days} дн. назад`;
+  }
+
+  function appStatus(app: { is_published: boolean; is_archived: boolean }) {
+    if (app.is_archived) return { label: "В архиве", cls: "text-[#8898AA]" };
+    if (app.is_published) return { label: "Активен",      cls: "text-[#20BE4F]" };
+    return { label: "В разработке", cls: "text-[#FFA600]" };
+  }
+
   return (
-    <div className="flex flex-col gap-[70px]">
-      <h1 className="text-[40px] font-bold text-primary leading-[150%]">Приложения</h1>
+    <div className="flex flex-col gap-[40px]">
+      <div className="flex items-center justify-between">
+        <h1 className="text-[40px] font-bold text-primary leading-[150%]">Приложения</h1>
+        <span className="text-[18px] text-primary/60">{data?.total != null ? `Всего: ${data.total}` : ""}</span>
+      </div>
       <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
         <table className="w-full">
           <thead className="bg-mainbg">
             <tr>
-              {["Название", "Владелец", "Статус", "БД", "Изменён"].map((h) => (
+              {["Название", "Описание", "Статус", "Версия", "Изменён"].map((h) => (
                 <th key={h} className="text-left px-6 py-3 text-info font-semibold text-primary">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {MOCK_APPS.map((a, i) => (
-              <tr key={i} className="border-t border-mainbg hover:bg-mainbg/40">
-                <td className="px-6 py-3 text-meta font-semibold text-primary">{a.name}</td>
-                <td className="px-6 py-3 text-meta text-primary">{a.owner}</td>
-                <td className={cn("px-6 py-3 text-meta font-semibold", appStatusColor[a.status])}>{a.status}</td>
-                <td className="px-6 py-3 text-meta text-primary">{a.db}</td>
-                <td className="px-6 py-3 text-meta text-primary">{a.modified}</td>
-              </tr>
-            ))}
+            {isLoading && (
+              <tr><td colSpan={5} className="px-6 py-4 text-center text-primary/50 text-[16px]">Загрузка…</td></tr>
+            )}
+            {!isLoading && apps.length === 0 && (
+              <tr><td colSpan={5} className="px-6 py-4 text-center text-primary/50 text-[16px]">Приложений нет</td></tr>
+            )}
+            {apps.map((a) => {
+              const st = appStatus(a);
+              return (
+                <tr key={a.id} className="border-t border-mainbg hover:bg-mainbg/40">
+                  <td className="px-6 py-3 text-meta font-semibold text-primary">{a.name}</td>
+                  <td className="px-6 py-3 text-meta text-primary max-w-[260px] truncate">{a.description ?? "—"}</td>
+                  <td className={cn("px-6 py-3 text-meta font-semibold", st.cls)}>{st.label}</td>
+                  <td className="px-6 py-3 text-meta text-primary">v{a.version}</td>
+                  <td className="px-6 py-3 text-meta text-primary">{fmtRelative(a.updated_at)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
