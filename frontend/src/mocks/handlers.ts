@@ -4,6 +4,10 @@ import type { CurrentUser, TokenPair } from "@/shared/api/auth";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
 import type { Rule } from "@/shared/api/rules";
 import type { User, UserRole } from "@/shared/api/users";
+import type { RecordRead } from "@/shared/api/records";
+import type { ViewRead, PageRead } from "@/shared/api/views";
+import type { WorkflowDefRead, StateDefRead } from "@/shared/api/workflows";
+import type { WebhookRead } from "@/shared/api/webhooks";
 
 /**
  * In-memory mock backend for local frontend dev without Docker.
@@ -331,6 +335,124 @@ const rules: Rule[] = [
   },
 ];
 
+/* ── Mock Records ── */
+const mockRecords: RecordRead[] = [
+  {
+    id: "rec-1", entity_id: ENTITY_ID, payload: { name: "Record 1", status: "active" },
+    version: 1, created_by: MOCK_USER.id, updated_by: null,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  },
+  {
+    id: "rec-2", entity_id: ENTITY_ID, payload: { name: "Record 2", status: "active" },
+    version: 1, created_by: MOCK_USER.id, updated_by: null,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  },
+  {
+    id: "rec-3", entity_id: ENTITY_ID, payload: { name: "Record 3", status: "active" },
+    version: 1, created_by: MOCK_USER.id, updated_by: null,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  },
+];
+
+/* ── Mock Views (per entity per app) ── */
+const viewsByApp: Record<string, ViewRead[]> = {};
+
+function buildViews(appId: string, entityId: string): ViewRead[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: `view-${entityId}-table`, app_id: appId, entity_id: entityId,
+      name: "Таблица", view_type: "table", config: {}, is_default: true,
+      is_public: false, created_by: MOCK_USER.id, created_at: now, updated_at: now,
+    },
+    {
+      id: `view-${entityId}-form`, app_id: appId, entity_id: entityId,
+      name: "Форма", view_type: "form", config: {}, is_default: false,
+      is_public: false, created_by: MOCK_USER.id, created_at: now, updated_at: now,
+    },
+  ];
+}
+
+function viewsKey(appId: string, entityId: string) { return `${appId}__${entityId}`; }
+
+/* ── Mock Pages (per app) ── */
+const pagesByApp: Record<string, PageRead[]> = {};
+
+function buildPages(appId: string): PageRead[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: `page-${appId}-reports`, app_id: appId, slug: "reports", title: "Отчёты",
+      icon: null, nav_order: 0, layout: {}, blocks: [], is_published: false,
+      published_at: null, created_at: now, updated_at: now,
+    },
+    {
+      id: `page-${appId}-enterprise`, app_id: appId, slug: "enterprise", title: "Предприятие",
+      icon: null, nav_order: 1, layout: {}, blocks: [], is_published: false,
+      published_at: null, created_at: now, updated_at: now,
+    },
+    {
+      id: `page-${appId}-main-menu`, app_id: appId, slug: "main-menu", title: "Главное меню",
+      icon: null, nav_order: 2, layout: {}, blocks: [], is_published: false,
+      published_at: null, created_at: now, updated_at: now,
+    },
+    {
+      id: `page-${appId}-analytics`, app_id: appId, slug: "analytics", title: "Аналитика",
+      icon: null, nav_order: 3, layout: {}, blocks: [], is_published: false,
+      published_at: null, created_at: now, updated_at: now,
+    },
+  ];
+}
+
+/* ── Mock Workflows ── */
+const workflowsByApp: Record<string, WorkflowDefRead[]> = {};
+const statesByWorkflow: Record<string, StateDefRead[]> = {};
+
+function buildWorkflows(appId: string): WorkflowDefRead[] {
+  const now = new Date().toISOString();
+  const wf1Id = `wf-${appId}-1`;
+  const wf2Id = `wf-${appId}-2`;
+
+  statesByWorkflow[wf1Id] = [
+    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+  ];
+  statesByWorkflow[wf2Id] = [
+    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+  ];
+
+  return [
+    {
+      id: wf1Id, app_id: appId, entity_id: ENTITY_ID, name: "Основной процесс",
+      description: null, initial_state: "new", is_active: true, version: 1,
+      created_at: now, updated_at: now,
+    },
+    {
+      id: wf2Id, app_id: appId, entity_id: ENTITY_ID, name: "Процесс согласования",
+      description: null, initial_state: "draft", is_active: false, version: 1,
+      created_at: now, updated_at: now,
+    },
+  ];
+}
+
+/* ── Mock Webhooks ── */
+const webhooksByApp: Record<string, WebhookRead[]> = {};
+
+function buildWebhooks(appId: string): WebhookRead[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: `wh-${appId}-1`, app_id: appId, name: "Основной вебхук",
+      target_url: "https://example.com/webhook", events: ["record.created", "record.updated"],
+      is_active: true, custom_headers: {}, timeout_seconds: 30, max_retries: 3,
+      created_at: now, updated_at: now,
+    },
+  ];
+}
+
 function tokenPair(): TokenPair {
   return {
     access_token: `mock-access-${Date.now()}`,
@@ -531,6 +653,327 @@ export const handlers = [
         const idx = entity.fields.findIndex((f) => f.id === params.fieldId);
         if (idx !== -1) entity.fields.splice(idx, 1);
       }
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Rules create
+  http.post(`${API}/apps/:appId/rules`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    const body = (await request.json()) as { name: string; entity_id: string; trigger: { event: string; watch_fields?: string[] }; description?: string | null; priority?: number };
+    const now = new Date().toISOString();
+    const rule: Rule = {
+      id: crypto.randomUUID(),
+      app_id: appId,
+      entity_id: body.entity_id,
+      name: body.name,
+      description: body.description ?? null,
+      is_active: false,
+      trigger: { event: body.trigger.event, watch_fields: body.trigger.watch_fields ?? [] },
+      conditions: {},
+      actions: [],
+      priority: body.priority ?? 100,
+      version: 1,
+      created_by: MOCK_USER.id,
+      created_at: now,
+      updated_at: now,
+    };
+    rules.push(rule);
+    return HttpResponse.json(rule, { status: 201 });
+  }),
+
+  // Records
+  http.get(`${API}/apps/:appId/entities/:entityId/records`, ({ params }) => {
+    const entityId = params.entityId as string;
+    const items = mockRecords.filter((r) => r.entity_id === entityId);
+    const page: CursorPage<RecordRead> = { items, next_cursor: null, has_more: false, total: items.length };
+    return HttpResponse.json(page);
+  }),
+
+  http.post(`${API}/apps/:appId/entities/:entityId/records`, async ({ params, request }) => {
+    const entityId = params.entityId as string;
+    const body = (await request.json()) as { payload: Record<string, unknown> };
+    const now = new Date().toISOString();
+    const record: RecordRead = {
+      id: crypto.randomUUID(), entity_id: entityId, payload: body.payload,
+      version: 1, created_by: MOCK_USER.id, updated_by: null,
+      created_at: now, updated_at: now,
+    };
+    mockRecords.push(record);
+    return HttpResponse.json(record, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/entities/:entityId/records/:recordId`, async ({ params, request }) => {
+    const idx = mockRecords.findIndex((r) => r.id === params.recordId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as { payload: Record<string, unknown> };
+    mockRecords[idx] = { ...mockRecords[idx], payload: body.payload, updated_at: new Date().toISOString() };
+    return HttpResponse.json(mockRecords[idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/entities/:entityId/records/:recordId`, ({ params }) => {
+    const idx = mockRecords.findIndex((r) => r.id === params.recordId);
+    if (idx !== -1) mockRecords.splice(idx, 1);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Views
+  http.get(`${API}/apps/:appId/entities/:entityId/views`, ({ params }) => {
+    const appId = params.appId as string;
+    const entityId = params.entityId as string;
+    const key = viewsKey(appId, entityId);
+    if (!viewsByApp[key]) viewsByApp[key] = buildViews(appId, entityId);
+    return HttpResponse.json(viewsByApp[key]);
+  }),
+
+  http.post(`${API}/apps/:appId/entities/:entityId/views`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    const entityId = params.entityId as string;
+    const key = viewsKey(appId, entityId);
+    if (!viewsByApp[key]) viewsByApp[key] = buildViews(appId, entityId);
+    const body = (await request.json()) as { name: string; view_type: string; config?: Record<string, unknown>; is_public?: boolean };
+    const now = new Date().toISOString();
+    const view: ViewRead = {
+      id: crypto.randomUUID(), app_id: appId, entity_id: entityId,
+      name: body.name, view_type: body.view_type as ViewRead["view_type"],
+      config: body.config ?? {}, is_default: false, is_public: body.is_public ?? false,
+      created_by: MOCK_USER.id, created_at: now, updated_at: now,
+    };
+    viewsByApp[key].push(view);
+    return HttpResponse.json(view, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/entities/:entityId/views/:viewId`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    const entityId = params.entityId as string;
+    const key = viewsKey(appId, entityId);
+    if (!viewsByApp[key]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = viewsByApp[key].findIndex((v) => v.id === params.viewId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<ViewRead>;
+    viewsByApp[key][idx] = { ...viewsByApp[key][idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(viewsByApp[key][idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/entities/:entityId/views/:viewId`, ({ params }) => {
+    const appId = params.appId as string;
+    const entityId = params.entityId as string;
+    const key = viewsKey(appId, entityId);
+    if (viewsByApp[key]) {
+      const idx = viewsByApp[key].findIndex((v) => v.id === params.viewId);
+      if (idx !== -1) viewsByApp[key].splice(idx, 1);
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API}/apps/:appId/entities/:entityId/views/:viewId/set_default`, ({ params }) => {
+    const appId = params.appId as string;
+    const entityId = params.entityId as string;
+    const key = viewsKey(appId, entityId);
+    if (!viewsByApp[key]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    viewsByApp[key].forEach((v) => { v.is_default = v.id === params.viewId; });
+    const view = viewsByApp[key].find((v) => v.id === params.viewId);
+    if (!view) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    return HttpResponse.json(view);
+  }),
+
+  // Pages
+  http.get(`${API}/apps/:appId/pages`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!pagesByApp[appId]) pagesByApp[appId] = buildPages(appId);
+    const sorted = [...pagesByApp[appId]].sort((a, b) => a.nav_order - b.nav_order);
+    return HttpResponse.json(sorted);
+  }),
+
+  http.post(`${API}/apps/:appId/pages`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!pagesByApp[appId]) pagesByApp[appId] = buildPages(appId);
+    const body = (await request.json()) as { slug: string; title: string; icon?: string | null; nav_order?: number; layout?: Record<string, unknown>; blocks?: Record<string, unknown>[] };
+    const now = new Date().toISOString();
+    const page: PageRead = {
+      id: crypto.randomUUID(), app_id: appId, slug: body.slug, title: body.title,
+      icon: body.icon ?? null, nav_order: body.nav_order ?? pagesByApp[appId].length,
+      layout: body.layout ?? {}, blocks: body.blocks ?? [],
+      is_published: false, published_at: null, created_at: now, updated_at: now,
+    };
+    pagesByApp[appId].push(page);
+    return HttpResponse.json(page, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/pages/:pageId`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!pagesByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = pagesByApp[appId].findIndex((p) => p.id === params.pageId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<PageRead>;
+    pagesByApp[appId][idx] = { ...pagesByApp[appId][idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(pagesByApp[appId][idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/pages/:pageId`, ({ params }) => {
+    const appId = params.appId as string;
+    if (pagesByApp[appId]) {
+      const idx = pagesByApp[appId].findIndex((p) => p.id === params.pageId);
+      if (idx !== -1) pagesByApp[appId].splice(idx, 1);
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API}/apps/:appId/pages/:pageId/publish`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!pagesByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const page = pagesByApp[appId].find((p) => p.id === params.pageId);
+    if (!page) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    page.is_published = true;
+    page.published_at = new Date().toISOString();
+    return HttpResponse.json(page);
+  }),
+
+  http.post(`${API}/apps/:appId/pages/:pageId/unpublish`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!pagesByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const page = pagesByApp[appId].find((p) => p.id === params.pageId);
+    if (!page) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    page.is_published = false;
+    page.published_at = null;
+    return HttpResponse.json(page);
+  }),
+
+  // Workflows
+  http.get(`${API}/apps/:appId/workflows`, ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!workflowsByApp[appId]) workflowsByApp[appId] = buildWorkflows(appId);
+    const url = new URL(request.url);
+    const entityId = url.searchParams.get("entity_id");
+    const result = entityId
+      ? workflowsByApp[appId].filter((w) => w.entity_id === entityId)
+      : workflowsByApp[appId];
+    return HttpResponse.json(result);
+  }),
+
+  http.post(`${API}/apps/:appId/workflows`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!workflowsByApp[appId]) workflowsByApp[appId] = buildWorkflows(appId);
+    const body = (await request.json()) as { entity_id: string; name: string; description?: string | null; initial_state: string };
+    const now = new Date().toISOString();
+    const wfId = crypto.randomUUID();
+    const wf: WorkflowDefRead = {
+      id: wfId, app_id: appId, entity_id: body.entity_id, name: body.name,
+      description: body.description ?? null, initial_state: body.initial_state,
+      is_active: false, version: 1, created_at: now, updated_at: now,
+    };
+    workflowsByApp[appId].push(wf);
+    statesByWorkflow[wfId] = [];
+    return HttpResponse.json(wf, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/workflows/:workflowId`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!workflowsByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = workflowsByApp[appId].findIndex((w) => w.id === params.workflowId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<WorkflowDefRead>;
+    workflowsByApp[appId][idx] = { ...workflowsByApp[appId][idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(workflowsByApp[appId][idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/workflows/:workflowId`, ({ params }) => {
+    const appId = params.appId as string;
+    if (workflowsByApp[appId]) {
+      const idx = workflowsByApp[appId].findIndex((w) => w.id === params.workflowId);
+      if (idx !== -1) workflowsByApp[appId].splice(idx, 1);
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API}/apps/:appId/workflows/:workflowId/activate`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!workflowsByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const wf = workflowsByApp[appId].find((w) => w.id === params.workflowId);
+    if (!wf) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    wf.is_active = true;
+    wf.updated_at = new Date().toISOString();
+    return HttpResponse.json(wf);
+  }),
+
+  http.post(`${API}/apps/:appId/workflows/:workflowId/deactivate`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!workflowsByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const wf = workflowsByApp[appId].find((w) => w.id === params.workflowId);
+    if (!wf) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    wf.is_active = false;
+    wf.updated_at = new Date().toISOString();
+    return HttpResponse.json(wf);
+  }),
+
+  http.get(`${API}/apps/:appId/workflows/:workflowId/states`, ({ params }) => {
+    const workflowId = params.workflowId as string;
+    return HttpResponse.json(statesByWorkflow[workflowId] ?? []);
+  }),
+
+  http.post(`${API}/apps/:appId/workflows/:workflowId/states`, async ({ params, request }) => {
+    const workflowId = params.workflowId as string;
+    if (!statesByWorkflow[workflowId]) statesByWorkflow[workflowId] = [];
+    const body = (await request.json()) as { name: string; display_name: string; is_terminal?: boolean; color?: string | null; sla_seconds?: number | null };
+    const state: StateDefRead = {
+      id: crypto.randomUUID(), workflow_id: workflowId,
+      name: body.name, display_name: body.display_name,
+      is_terminal: body.is_terminal ?? false, color: body.color ?? null,
+      sla_seconds: body.sla_seconds ?? null,
+      on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [],
+    };
+    statesByWorkflow[workflowId].push(state);
+    return HttpResponse.json(state, { status: 201 });
+  }),
+
+  http.delete(`${API}/apps/:appId/workflows/:workflowId/states/:stateId`, ({ params }) => {
+    const workflowId = params.workflowId as string;
+    if (statesByWorkflow[workflowId]) {
+      const idx = statesByWorkflow[workflowId].findIndex((s) => s.id === params.stateId);
+      if (idx !== -1) statesByWorkflow[workflowId].splice(idx, 1);
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Webhooks
+  http.get(`${API}/apps/:appId/webhooks`, ({ params }) => {
+    const appId = params.appId as string;
+    if (!webhooksByApp[appId]) webhooksByApp[appId] = buildWebhooks(appId);
+    return HttpResponse.json(webhooksByApp[appId]);
+  }),
+
+  http.post(`${API}/apps/:appId/webhooks`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!webhooksByApp[appId]) webhooksByApp[appId] = buildWebhooks(appId);
+    const body = (await request.json()) as { name: string; target_url: string; events?: string[]; custom_headers?: Record<string, string>; timeout_seconds?: number; max_retries?: number };
+    const now = new Date().toISOString();
+    const webhook: WebhookRead & { secret: string } = {
+      id: crypto.randomUUID(), app_id: appId, name: body.name,
+      target_url: body.target_url, events: body.events ?? [],
+      is_active: true, custom_headers: body.custom_headers ?? {},
+      timeout_seconds: body.timeout_seconds ?? 30, max_retries: body.max_retries ?? 3,
+      created_at: now, updated_at: now,
+      secret: crypto.randomUUID(),
+    };
+    webhooksByApp[appId].push(webhook);
+    return HttpResponse.json(webhook, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/webhooks/:subId`, async ({ params, request }) => {
+    const appId = params.appId as string;
+    if (!webhooksByApp[appId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = webhooksByApp[appId].findIndex((w) => w.id === params.subId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<WebhookRead>;
+    webhooksByApp[appId][idx] = { ...webhooksByApp[appId][idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(webhooksByApp[appId][idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/webhooks/:subId`, ({ params }) => {
+    const appId = params.appId as string;
+    if (webhooksByApp[appId]) {
+      const idx = webhooksByApp[appId].findIndex((w) => w.id === params.subId);
+      if (idx !== -1) webhooksByApp[appId].splice(idx, 1);
     }
     return new HttpResponse(null, { status: 204 });
   }),

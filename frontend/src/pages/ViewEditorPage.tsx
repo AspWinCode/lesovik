@@ -1,33 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-
-/* ── Mock navigation data ── */
-const NAV_SECTIONS: NavSection[] = [
-  {
-    id: "main",
-    title: "Основная навигация",
-    views: [
-      { id: "reports",    label: "Отчёты" },
-      { id: "enterprise", label: "Предприятие" },
-      { id: "main-menu",  label: "Главное меню" },
-    ],
-  },
-  {
-    id: "menu",
-    title: "Меню",
-    views: [
-      { id: "analytics",     label: "Аналитика" },
-      { id: "ready-reports", label: "Готовые отчёты" },
-      { id: "add-employee",  label: "Добавить сотрудника" },
-      { id: "request",       label: "Запросить отчёт" },
-    ],
-  },
-  { id: "links", title: "Ссылки", views: [] },
-];
+import { useApps } from "@/shared/hooks/useApps";
+import { usePages, useUpdatePage } from "@/shared/hooks/useViews";
 
 /* ── View types ── */
 type ViewType =
@@ -54,22 +32,63 @@ const EDITOR_TABS = ["Представления", "Правила формир�
 
 export function ViewEditorPage() {
   const [railModule, setRailModule] = useState<RailModule>("constructor");
-  const [activeView, setActiveView] = useState("reports");
+  const [activeView, setActiveView] = useState<string>("");
   const [editorTab, setEditorTab] = useState("Представления");
 
-  const [name, setName] = useState("Отчёты");
+  const [name, setName] = useState("");
   const [viewType, setViewType] = useState<ViewType>("table");
   const [position, setPosition] = useState("первый");
   const [colMode, setColMode] = useState<"auto" | "manual">("manual");
   const [quickEdit, setQuickEdit] = useState(true);
   const [paramsOpen, setParamsOpen] = useState(true);
 
+  const appsQuery = useApps();
+  const appId = appsQuery.data?.items[0]?.id;
+  const pagesQuery = usePages(appId);
+  const pages = pagesQuery.data ?? [];
+  const updatePageMutation = useUpdatePage(appId ?? "");
+
+  // Set initial active view and name when pages load
+  useEffect(() => {
+    if (pages.length > 0 && !activeView) {
+      setActiveView(pages[0].id);
+      setName(pages[0].title);
+    }
+  }, [pages, activeView]);
+
+  // Update name when active view changes
+  useEffect(() => {
+    const page = pages.find((p) => p.id === activeView);
+    if (page) setName(page.title);
+  }, [activeView, pages]);
+
+  const navSections: NavSection[] = [
+    {
+      id: "main",
+      title: "Навигация",
+      views: pages.map((p) => ({ id: p.id, label: p.title })),
+    },
+  ];
+
+  function handleNameBlur() {
+    if (!activeView || !appId) return;
+    updatePageMutation.mutate({ pageId: activeView, body: { title: name } });
+  }
+
+  if (pagesQuery.isLoading) {
+    return (
+      <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden flex items-center justify-center">
+        <span className="text-[20px] text-primary">Загрузка...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
       <IconRail active={railModule} onChange={setRailModule} />
       <ViewNavPanel
-        sections={NAV_SECTIONS}
+        sections={navSections}
         activeViewId={activeView}
         onSelect={setActiveView}
       />
@@ -115,6 +134,7 @@ export function ViewEditorPage() {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onBlur={handleNameBlur}
                 className="w-full bg-transparent text-[18px] text-primary outline-none placeholder:text-primary/40"
                 placeholder="Текст"
               />

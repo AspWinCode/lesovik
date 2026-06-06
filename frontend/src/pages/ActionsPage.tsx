@@ -3,37 +3,28 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-
-/* ── Action groups ── */
-interface ActionGroup {
-  id: string;
-  name: string;
-  count: number;
-  actions?: string[]; // sub-items when expanded
-}
-
-const GROUPS: ActionGroup[] = [
-  { id: "analytics", name: "Аналитика", count: 4, actions: ["Delete", "Add", "Edit"] },
-  { id: "audit",     name: "Аудит", count: 3 },
-  { id: "main-menu", name: "Главное меню", count: 4 },
-  { id: "year",      name: "Год", count: 3 },
-  { id: "report-d",  name: "Детали отчета", count: 8 },
-  { id: "for-report",name: "Для отчета", count: 3 },
-  { id: "defect",    name: "Журнал бракеража", count: 7 },
-  { id: "receipts",  name: "Журнал поступлений", count: 7 },
-  { id: "receipts-f",name: "Журнал поступлений files", count: 2 },
-];
+import { useApps } from "@/shared/hooks/useApps";
+import { useEntities } from "@/shared/hooks/useEntities";
+import { useWorkflows } from "@/shared/hooks/useWorkflows";
 
 const POSITIONS = ["основной", "выделенный", "встроенный", "скрыть"];
 const ICON_TABS = ["Все", "Заполненные", "Тонкие", "Обычные"];
 
 export function ActionsPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
-  const [openGroup, setOpenGroup] = useState<string | null>("analytics");
-  const [activeAction, setActiveAction] = useState("Add");
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState("");
   const [position, setPosition] = useState("основной");
   const [displayOpen, setDisplayOpen] = useState(true);
   const [iconTab, setIconTab] = useState("Все");
+
+  const appsQuery = useApps();
+  const appId = appsQuery.data?.items[0]?.id;
+  const entitiesQuery = useEntities(appId);
+  const entities = entitiesQuery.data ?? [];
+
+  const workflowsQuery = useWorkflows(appId, openGroup ?? undefined);
+  const workflows = workflowsQuery.data ?? [];
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -57,16 +48,17 @@ export function ActionsPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
-          {GROUPS.map((g) => {
-            const open = openGroup === g.id;
+          {entities.map((entity) => {
+            const open = openGroup === entity.id;
+            const entityWorkflows = open ? workflows : [];
             return (
-              <div key={g.id} className="flex flex-col">
+              <div key={entity.id} className="flex flex-col">
                 <button
-                  onClick={() => setOpenGroup(open ? null : g.id)}
+                  onClick={() => setOpenGroup(open ? null : entity.id)}
                   className="flex items-center gap-[7px] h-[46px] px-[15px] text-left"
                 >
                   <span className="flex-1 text-[18px] leading-[150%] text-primary truncate">
-                    {g.name} ({g.count})
+                    {entity.display_name} ({entity.fields.length})
                   </span>
                   {open ? (
                     <>
@@ -79,20 +71,20 @@ export function ActionsPage() {
                   )}
                 </button>
 
-                {open && g.actions?.map((a) => (
+                {open && entityWorkflows.map((wf) => (
                   <button
-                    key={a}
-                    onClick={() => setActiveAction(a)}
+                    key={wf.id}
+                    onClick={() => setActiveAction(wf.id)}
                     className={cn(
                       "flex items-center gap-[7px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
-                      a === activeAction ? "bg-selected" : "hover:bg-cardbg/50"
+                      wf.id === activeAction ? "bg-selected" : "hover:bg-cardbg/50"
                     )}
                   >
-                    <span className="w-6 h-6 shrink-0"><DbIcon highlight={a === activeAction} /></span>
+                    <span className="w-6 h-6 shrink-0"><DbIcon highlight={wf.id === activeAction} /></span>
                     <span className={cn(
                       "text-[18px] leading-[150%] font-medium",
-                      a === activeAction ? "text-cta" : "text-primary"
-                    )}>{a}</span>
+                      wf.id === activeAction ? "text-cta" : "text-primary"
+                    )}>{wf.name}</span>
                   </button>
                 ))}
               </div>
@@ -108,7 +100,9 @@ export function ActionsPage() {
       >
         {/* Title bar */}
         <div className="h-[60px] flex items-center px-[41px] shrink-0">
-          <h1 className="text-nav font-bold text-primary">{activeAction}</h1>
+          <h1 className="text-nav font-bold text-primary">
+            {workflows.find((w) => w.id === activeAction)?.name ?? activeAction}
+          </h1>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -117,7 +111,7 @@ export function ActionsPage() {
             <h2 className="text-[20px] font-medium text-primary px-[41px] pt-[4px]">Сгенерированное системой</h2>
 
             <FieldRow title="Название" desc="Уникальное название для этого действия.">
-              <InputPill value={activeAction} />
+              <InputPill value={workflows.find((w) => w.id === activeAction)?.name ?? activeAction} />
             </FieldRow>
 
             <FieldRow title="Таблица" desc="Это действие применимо к строкам какой таблицы?">
@@ -166,7 +160,7 @@ export function ActionsPage() {
                   desc="Скрыть имя, отображаемое для этого действия в приложении. Оставьте это поле пустым, чтобы использовать только имя действия. Или задайте текстовое значение (в двойных кавычках) или формулу."
                 >
                   <div className="flex items-center gap-[10px] w-[539px]">
-                    <InputPill value={activeAction} className="w-[423px]" />
+                    <InputPill value={workflows.find((w) => w.id === activeAction)?.name ?? activeAction} className="w-[423px]" />
                     <div className="flex items-center w-[100px] h-[41px] bg-white rounded-btn overflow-hidden">
                       <span className="flex-1 h-full flex items-center justify-center bg-selected rounded-l-btn text-cta text-[22px] font-bold">T</span>
                       <span className="flex-1 h-full flex items-center justify-center"><FilterIcon /></span>

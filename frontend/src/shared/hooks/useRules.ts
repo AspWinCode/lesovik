@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activateRule,
+  createRule,
   deactivateRule,
   deleteRule,
   listRules,
   updateRule,
+  type RuleCreate,
   type RuleUpdate,
 } from "../api/rules";
 
@@ -49,6 +51,14 @@ export function useUpdateRule(appId: string) {
   return useMutation({
     mutationFn: ({ ruleId, body }: { ruleId: string; body: RuleUpdate }) =>
       updateRule(appId, ruleId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: rulesKey(appId) }); },
+  });
+}
+
+export function useCreateRule(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RuleCreate) => createRule(appId, body),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: rulesKey(appId) }); },
   });
 }

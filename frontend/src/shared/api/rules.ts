@@ -24,6 +24,14 @@ export interface RuleUpdate {
   priority?: number;
 }
 
+export interface RuleCreate {
+  name: string;
+  entity_id: string;
+  trigger: { event: string; watch_fields?: string[] };
+  description?: string | null;
+  priority?: number;
+}
+
 export async function listRules(
   appId: string,
   params?: { entity_id?: string; active_only?: boolean },
@@ -48,5 +56,10 @@ export async function activateRule(appId: string, ruleId: string): Promise<Rule>
 
 export async function deactivateRule(appId: string, ruleId: string): Promise<Rule> {
   const { data } = await apiClient.post<Rule>(`/apps/${appId}/rules/${ruleId}/deactivate`);
+  return data;
+}
+
+export async function createRule(appId: string, body: RuleCreate): Promise<Rule> {
+  const { data } = await apiClient.post<Rule>(`/apps/${appId}/rules`, body);
   return data;
 }
