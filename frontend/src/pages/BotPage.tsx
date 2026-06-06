@@ -1,56 +1,81 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-
-/* ── Bot groups ── */
-interface BotGroup {
-  id: string;
-  name: string;
-  count: number;
-  bots?: string[];
-}
-
-// Map bot name → default action type
-const BOT_ACTION_MAP: Record<string, ActionType> = {
-  insert: "add",
-  update: "update",
-  delete: "delete",
-};
-
-type ActionType = "add" | "delete" | "update" | "run" | "send";
-
-const GROUPS: BotGroup[] = [
-  { id: "operations", name: "Операции", count: 3 },
-  {
-    id: "reports",
-    name: "Отчеты",
-    count: 0,
-    bots: ["insert", "update", "delete", "Отчет TG 2", "(disable) Ошибка отчета", "New Bot 9", "Аналитические таблицы", "New Bot 10"],
-  },
-  { id: "nomenclature", name: "Номенклатура", count: 4 },
-  { id: "min",          name: "Необходимый минимум", count: 3 },
-  { id: "report-d",     name: "Детали отчета", count: 8 },
-  { id: "for-report",   name: "Для отчета", count: 3 },
-  { id: "defect",       name: "Журнал бракеража", count: 7 },
-  { id: "receipts",     name: "Журнал поступлений", count: 7 },
-  { id: "receipts-f",   name: "Журнал поступлений files", count: 2 },
-];
+import { useApps } from "@/shared/hooks/useApps";
+import {
+  useRules,
+  useActivateRule,
+  useDeactivateRule,
+  useDeleteRule,
+  useUpdateRule,
+} from "@/shared/hooks/useRules";
+import type { Rule } from "@/shared/api/rules";
 
 const BOT_TABS = ["Бот", "События", "Процесс"];
 const POSITIONS_DC = ["Добавить", "Удалить", "Обновить"];
 
+function triggerLabel(event: string): string {
+  if (event === "record.created") return "insert";
+  if (event === "record.updated") return "update";
+  if (event === "record.deleted") return "delete";
+  return event;
+}
+
 export function BotPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
-  const [openGroup, setOpenGroup] = useState<string | null>("reports");
-  const [activeBot, setActiveBot] = useState("insert");
+  const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
   const [botTab, setBotTab] = useState("Бот");
-  const [enabled, setEnabled] = useState(false);
-  const [actionType, setActionType] = useState<ActionType>("add");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [groupOpen, setGroupOpen] = useState(true);
+
+  const { data: appsData } = useApps();
+  const appId = appsData?.items[0]?.id;
+
+  const { data: rules = [], isLoading } = useRules(appId);
+  const activateRule  = useActivateRule(appId ?? "");
+  const deactivateRule = useDeactivateRule(appId ?? "");
+  const deleteRule    = useDeleteRule(appId ?? "");
+  const updateRule    = useUpdateRule(appId ?? "");
+
+  useEffect(() => {
+    if (rules.length > 0 && !activeRuleId) setActiveRuleId(rules[0].id);
+  }, [rules, activeRuleId]);
+
+  const activeRule = rules.find((r) => r.id === activeRuleId) ?? null;
+
+  function handleToggle() {
+    if (!activeRule || !appId) return;
+    if (activeRule.is_active) {
+      deactivateRule.mutate(activeRule.id);
+    } else {
+      activateRule.mutate(activeRule.id);
+    }
+  }
+
+  function handleDelete(ruleId: string) {
+    if (!appId) return;
+    deleteRule.mutate(ruleId);
+    if (activeRuleId === ruleId) setActiveRuleId(rules.find((r) => r.id !== ruleId)?.id ?? null);
+    setOpenMenuId(null);
+  }
+
+  function handleRename(ruleId: string) {
+    const rule = rules.find((r) => r.id === ruleId);
+    if (!rule || !appId) return;
+    const name = window.prompt("Новое название:", rule.name);
+    if (name && name.trim() && name.trim() !== rule.name) {
+      updateRule.mutate({ ruleId, body: { name: name.trim() } });
+    }
+    setOpenMenuId(null);
+  }
 
   return (
-    <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
+    <div
+      className="relative w-[1920px] h-[1080px] bg-white overflow-hidden"
+      onClick={() => setOpenMenuId(null)}
+    >
       <Navbar />
       <IconRail active={railModule} onChange={setRailModule} />
 
@@ -60,7 +85,7 @@ export function BotPage() {
         style={{ left: 85, width: 290, height: 1005, borderRadius: "20px 5px 5px 20px" }}
       >
         <div className="flex items-center justify-between px-[15px] pt-[15px] h-[30px] mb-[25px]">
-          <h2 className="text-nav font-bold text-primary">{botTab}</h2>
+          <h2 className="text-[20px] font-bold text-primary">Бот</h2>
           <div className="flex items-center gap-5">
             <button aria-label="Поиск" className="w-5 h-5"><SearchIcon /></button>
             <button aria-label="Добавить" className="w-5 h-5"><PlusIcon /></button>
@@ -71,55 +96,49 @@ export function BotPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
-          {GROUPS.map((g) => {
-            const open = openGroup === g.id;
-            const expandable = !!g.bots;
-            return (
-              <div key={g.id} className="flex flex-col">
-                <button
-                  onClick={() => setOpenGroup(open ? null : g.id)}
-                  className="flex items-center gap-[7px] h-[46px] px-[15px] text-left"
-                >
-                  <span className={cn(
-                    "flex-1 text-[18px] leading-[150%] truncate",
-                    open && expandable ? "text-cta" : "text-primary"
-                  )}>
-                    {g.name}{g.count > 0 ? ` (${g.count})` : ""}
-                  </span>
-                  {open && expandable ? (
-                    <>
-                      <span className="w-5 h-5"><PlusIcon highlight /></span>
-                      <span className="w-6 h-6"><LayersIcon highlight /></span>
-                      <span className="w-3 h-3 rotate-180"><Chevron /></span>
-                    </>
-                  ) : (
-                    <span className="w-3 h-3 -rotate-90"><Chevron /></span>
-                  )}
-                </button>
+          {/* Single "Боты" group */}
+          <button
+            onClick={() => setGroupOpen((v) => !v)}
+            className="flex items-center gap-[7px] h-[46px] px-[15px] text-left"
+          >
+            <span className={cn("flex-1 text-[18px] leading-[150%] truncate", groupOpen ? "text-cta" : "text-primary")}>
+              {`Боты${rules.length > 0 ? ` (${rules.length})` : ""}`}
+            </span>
+            {groupOpen ? (
+              <>
+                <span className="w-5 h-5"><PlusIcon highlight /></span>
+                <span className="w-6 h-6"><LayersIcon highlight /></span>
+                <span className="w-3 h-3 rotate-180"><Chevron /></span>
+              </>
+            ) : (
+              <span className="w-3 h-3 -rotate-90"><Chevron /></span>
+            )}
+          </button>
 
-                {open && g.bots?.map((b) => (
-                  <button
-                    key={b}
-                    onClick={() => { setActiveBot(b); if (BOT_ACTION_MAP[b]) setActionType(BOT_ACTION_MAP[b]); }}
-                    className={cn(
-                      "flex items-center gap-[15px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
-                      b === activeBot ? "bg-selected" : "hover:bg-cardbg/50"
-                    )}
-                  >
-                    <span className="w-5 h-5 shrink-0"><RobotIcon highlight={b === activeBot} /></span>
-                    <span className={cn(
-                      "text-[18px] leading-[150%] font-medium truncate",
-                      b === activeBot ? "text-cta" : "text-primary"
-                    )}>{b}</span>
-                  </button>
-                ))}
-              </div>
-            );
-          })}
+          {groupOpen && isLoading && (
+            <div className="px-[15px] py-2 text-[14px] text-primary/60">Загрузка…</div>
+          )}
+
+          {groupOpen && !isLoading && rules.length === 0 && (
+            <div className="px-[15px] py-2 text-[14px] text-primary/60">Нет ботов</div>
+          )}
+
+          {groupOpen && rules.map((rule) => (
+            <BotItem
+              key={rule.id}
+              rule={rule}
+              isActive={rule.id === activeRuleId}
+              menuOpen={openMenuId === rule.id}
+              onClick={() => { setActiveRuleId(rule.id); setOpenMenuId(null); }}
+              onMenuOpen={(e) => { e.stopPropagation(); setOpenMenuId((v) => v === rule.id ? null : rule.id); }}
+              onRename={() => handleRename(rule.id)}
+              onDelete={() => handleDelete(rule.id)}
+            />
+          ))}
         </div>
       </aside>
 
-      {/* ── Center ── */}
+      {/* ── Center panel ── */}
       <div
         className="absolute bg-mainbg rounded-[5px] overflow-hidden flex flex-col"
         style={{ left: 380, top: 70, width: 945, height: 1000 }}
@@ -138,52 +157,203 @@ export function BotPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
-          {botTab === "Бот" && <BotFlow activeBot={activeBot} enabled={enabled} onToggle={() => setEnabled((v) => !v)} />}
+          {botTab === "Бот" && (
+            <BotFlow rule={activeRule} onToggle={handleToggle} />
+          )}
           {botTab === "События" && <EventEditor />}
           {botTab === "Процесс" && <ProcessGraph />}
         </div>
       </div>
 
-      {/* ── Right panel ── */}
+      {/* ── Right panel — always illustration per design ── */}
       {botTab === "События"
         ? <PreviewPanel projectName="Profile" />
-        : <SettingsPanel actionType={actionType} onActionChange={setActionType} />}
+        : <AutomationPreview />}
+    </div>
+  );
+}
+
+/* ── Bot list item (pill, always visible bg, hover shows dots) ── */
+function BotItem({
+  rule,
+  isActive,
+  menuOpen,
+  onClick,
+  onMenuOpen,
+  onRename,
+  onDelete,
+}: {
+  rule: Rule;
+  isActive: boolean;
+  menuOpen: boolean;
+  onClick: () => void;
+  onMenuOpen: (e: React.MouseEvent) => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="relative px-[15px]">
+      <div
+        className={cn(
+          "group flex items-center gap-[15px] h-[46px] px-[15px] rounded-[30px] cursor-pointer transition-colors",
+          isActive ? "bg-selected" : "bg-mainbg hover:bg-selected/60",
+        )}
+        onClick={onClick}
+      >
+        <span className="w-5 h-5 shrink-0"><RobotIcon highlight={isActive} /></span>
+        <span className={cn(
+          "flex-1 text-[18px] leading-[150%] font-medium truncate",
+          isActive ? "text-cta" : "text-primary",
+        )}>
+          {rule.name}
+        </span>
+        {/* 3-dot menu — visible on hover or when menu is open */}
+        <button
+          onClick={onMenuOpen}
+          className={cn(
+            "flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center shrink-0 transition-opacity",
+            menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          )}
+          aria-label="Меню"
+        >
+          {[0, 1, 2].map((i) => (
+            <span key={i} className={cn("w-1 h-1 rounded-full", isActive ? "bg-cta" : "bg-primary")} />
+          ))}
+        </button>
+      </div>
+
+      {/* Context dropdown */}
+      {menuOpen && (
+        <div
+          className="absolute right-[15px] top-[48px] z-50 w-[160px] bg-white rounded-[25px] shadow-[10px_10px_20px_rgba(0,0,0,0.25),-10px_-10px_20px_rgba(0,0,0,0.25)] p-[5px] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {[
+            { label: "Переименовать", action: onRename },
+            { label: "Удалить",       action: onDelete },
+          ].map(({ label, action }) => (
+            <button
+              key={label}
+              onClick={action}
+              className="text-left px-[30px] py-[11px] text-[16px] font-medium text-primary bg-mainbg rounded-[30px] hover:bg-selected transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Right panel: automation illustration ── */
+function AutomationPreview() {
+  return (
+    <div
+      className="absolute top-[70px] bg-mainbg flex flex-col items-center justify-center"
+      style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
+    >
+      <div className="flex flex-col items-center gap-[30px]">
+        {/* Gear/automation SVG illustration */}
+        <svg viewBox="0 0 278 278" fill="none" className="w-[278px] h-[278px]">
+          {/* Outer gear */}
+          <circle cx="139" cy="139" r="90" stroke="#35A7FF" strokeWidth="8" />
+          <circle cx="139" cy="139" r="60" stroke="#35A7FF" strokeWidth="6" />
+          {/* Gear teeth */}
+          {Array.from({ length: 12 }).map((_, i) => {
+            const angle = (i * 30 * Math.PI) / 180;
+            const x1 = 139 + 90 * Math.cos(angle);
+            const y1 = 139 + 90 * Math.sin(angle);
+            const x2 = 139 + 108 * Math.cos(angle);
+            const y2 = 139 + 108 * Math.sin(angle);
+            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#35A7FF" strokeWidth="10" strokeLinecap="round" />;
+          })}
+          {/* Inner circle */}
+          <circle cx="139" cy="139" r="28" fill="#CBE3FF" stroke="#35A7FF" strokeWidth="5" />
+          {/* Small gear (top-right) */}
+          <circle cx="210" cy="68" r="38" stroke="#35A7FF" strokeWidth="5" />
+          <circle cx="210" cy="68" r="24" stroke="#35A7FF" strokeWidth="4" />
+          {Array.from({ length: 8 }).map((_, i) => {
+            const angle = (i * 45 * Math.PI) / 180;
+            const x1 = 210 + 38 * Math.cos(angle);
+            const y1 = 68 + 38 * Math.sin(angle);
+            const x2 = 210 + 48 * Math.cos(angle);
+            const y2 = 68 + 48 * Math.sin(angle);
+            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#35A7FF" strokeWidth="7" strokeLinecap="round" />;
+          })}
+          <circle cx="210" cy="68" r="12" fill="#CBE3FF" stroke="#35A7FF" strokeWidth="4" />
+          {/* Arrows (download-like) */}
+          <path d="M100 210 L100 240 M100 240 L80 220 M100 240 L120 220" stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M178 210 L178 240 M178 240 L158 220 M178 240 L198 220" stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+
+        <span className="text-[20px] font-semibold text-cta">Настройки автоматизации</span>
+      </div>
     </div>
   );
 }
 
 /* ── Бот tab ── */
-function BotFlow({ activeBot, enabled, onToggle }: { activeBot: string; enabled: boolean; onToggle: () => void }) {
+function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }) {
+  if (!rule) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
+        Выберите бота из списка
+      </div>
+    );
+  }
+
+  const eventLabel = triggerLabel(rule.trigger?.event ?? "");
+
   return (
     <>
       <div className="flex items-center justify-between px-[40px] h-[64px] shrink-0">
-        <h1 className="text-[20px] font-semibold text-primary">Добавление события предприятия</h1>
+        <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
         <div className="flex items-center gap-5">
-          <button onClick={onToggle} className={cn(
-            "px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta transition-colors",
-            enabled ? "bg-white text-cta" : "bg-cta text-white"
-          )}>{enabled ? "Включить" : "Отключить"}</button>
-          <button className="px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta text-cta">Монитор</button>
+          <button
+            onClick={onToggle}
+            className={cn(
+              "px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta transition-colors",
+              rule.is_active ? "bg-white text-cta" : "bg-cta text-white",
+            )}
+          >
+            {rule.is_active ? "Отключить" : "Включить"}
+          </button>
+          <button className="px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta text-cta">
+            Монитор
+          </button>
           <button aria-label="Меню" className="flex flex-col items-center gap-[3px] w-[5px] h-5 justify-center">
             {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
           </button>
         </div>
       </div>
+
       <div className="h-[47px] flex items-center px-[40px] bg-selected shrink-0">
-        <span className="text-[18px] font-semibold text-primary">{enabled ? "Бот включён" : "Бот отключен"}</span>
+        <span className="text-[18px] font-semibold text-primary">
+          {rule.is_active ? "Бот включён" : "Бот отключен"}
+        </span>
       </div>
+
       <div className="px-[40px] pt-[25px]">
-        <p className="text-[18px] font-medium text-primary mb-[20px]">Когда происходит это <span className="font-bold">СОБЫТИЕ</span></p>
-        <FlowCard title={activeBot} subtitle="Позиция предприятия" />
+        <p className="text-[18px] font-medium text-primary mb-[20px]">
+          Когда происходит это <span className="font-bold">СОБЫТИЕ</span>
+        </p>
+        <FlowCard title={eventLabel} subtitle="Позиция предприятия" />
       </div>
+
       <div className="px-[40px] pt-[25px] flex flex-col items-start">
-        <p className="text-[18px] font-medium text-primary mb-[20px]">Запустите этот <span className="font-bold">ПРОЦЕСС</span></p>
+        <p className="text-[18px] font-medium text-primary mb-[20px]">
+          Запустите этот <span className="font-bold">ПРОЦЕСС</span>
+        </p>
         <StepCard />
         <div className="w-[356px] flex flex-col items-center pt-[10px]">
           <div className="w-px h-[60px] border-l-2 border-dashed border-cta" />
-          <button aria-label="Добавить шаг" className="w-[43px] h-[43px] -mt-[2px]"><AddDashedIcon /></button>
+          <button aria-label="Добавить шаг" className="w-[43px] h-[43px] -mt-[2px]">
+            <AddDashedIcon />
+          </button>
         </div>
       </div>
+
       <div className="mt-[37px]">
         <SectionHeader title="Отображение" />
         <SectionHeader title="Документация" />
@@ -201,7 +371,6 @@ function EventEditor() {
 
   return (
     <div className="flex flex-col">
-      {/* title */}
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
         <h1 className="text-[20px] font-semibold text-primary">insert_audit</h1>
         <div className="flex items-center gap-[7px]">
@@ -212,9 +381,7 @@ function EventEditor() {
       </div>
 
       <div className="px-[40px] flex flex-col gap-[20px] pb-[30px]">
-        <Row label="Название">
-          <InputPill value="insert_audit" />
-        </Row>
+        <Row label="Название"><InputPill value="insert_audit" /></Row>
         <Row label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие." labelW={247}>
           <Dropdown value={src} />
         </Row>
@@ -228,16 +395,21 @@ function EventEditor() {
           <div className="flex items-center gap-[30px] py-[7px]">
             {POSITIONS_DC.map((p) => {
               const sel = dc === p;
-              const dim = !sel;
               return (
-                <button key={p} onClick={() => setDc(p)} className={cn(
-                  "w-[106px] h-[95px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] box-border border-2",
-                  sel ? "bg-selected border-cta" : "border-[#C2DBF8]"
-                )}>
-                  <span className={cn("w-[39px] h-[39px]", dim && "opacity-60")}>
-                    {p === "Добавить" ? <WidgetAddIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
-                      : p === "Удалить" ? <TrashIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
-                      : <DeskEditIcon c={sel ? "#35A7FF" : "#C2DBF8"} />}
+                <button
+                  key={p}
+                  onClick={() => setDc(p)}
+                  className={cn(
+                    "w-[106px] h-[95px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] box-border border-2",
+                    sel ? "bg-selected border-cta" : "border-[#C2DBF8]",
+                  )}
+                >
+                  <span className={cn("w-[39px] h-[39px]", !sel && "opacity-60")}>
+                    {p === "Добавить"
+                      ? <WidgetAddIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
+                      : p === "Удалить"
+                        ? <TrashIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
+                        : <DeskEditIcon c={sel ? "#35A7FF" : "#C2DBF8"} />}
                   </span>
                   <span className={cn("text-[14px] font-semibold", sel ? "text-cta" : "text-[#C2DBF8]")}>{p}</span>
                 </button>
@@ -256,7 +428,6 @@ function EventEditor() {
         </Row>
       </div>
 
-      {/* Отображение */}
       <div className="border-t-2 border-white py-[10px] pb-[30px] flex flex-col gap-[20px] px-[40px]">
         <button onClick={() => setDisplayOpen((v) => !v)} className="flex items-center justify-between py-[7px]">
           <span className="text-[20px] font-bold text-primary">Отображение</span>
@@ -285,9 +456,7 @@ function ProcessGraph() {
           <span className="w-6 h-6"><Chevron /></span>
         </div>
       </div>
-
       <div className="flex flex-col items-center pt-[10px] pb-[40px]">
-        {/* table card */}
         <span className="text-[12px] text-primary self-center -ml-[40px] mb-[5px]">Таблица</span>
         <div className="w-[287px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-5 flex items-center justify-between">
           <span className="flex items-center gap-[10px]">
@@ -298,38 +467,28 @@ function ProcessGraph() {
         </div>
         <span className="text-[12px] text-primary text-center mt-[5px]">К какой таблице применить процесс?</span>
         <span className="w-[43px] h-[43px] my-[5px]"><AddDashedIcon /></span>
-
-        {/* main card */}
         <ProcCard icon={<ShuffleIcon />} title="Запуск поиск Id номенклатуры" />
-
-        {/* branch */}
         <svg viewBox="0 0 520 70" className="w-[520px] h-[70px]" fill="none">
           <path d="M260 0 L260 20 M260 20 L120 20 L120 50 M260 20 L400 20 L400 50" stroke="#35A7FF" strokeWidth="2" />
           <path d="M114 44 L120 50 L126 44 M394 44 L400 50 L406 44" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           <text x="150" y="16" fill="#35A7FF" fontSize="14" fontWeight="700">Да</text>
           <text x="350" y="16" fill="#35A7FF" fontSize="14" fontWeight="700">Нет</text>
         </svg>
-
-        {/* two children */}
         <div className="flex gap-[78px] items-start">
           <div className="flex flex-col items-center gap-[15px]">
             <ProcCard icon={<SendIcon />} title="Send_telegram" w={357} />
             <span className="w-[43px] h-[43px]"><AddDashedIcon /></span>
           </div>
           <div className="flex flex-col items-center gap-[15px]">
-            <ProcCard icon={<StatusIcon />} title={`Установить статус\n“Отправлен”`} w={356} />
+            <ProcCard icon={<StatusIcon />} title={`Установить статус\n"Отправлен"`} w={356} />
             <span className="w-[43px] h-[43px]"><AddDashedIcon /></span>
           </div>
         </div>
-
-        {/* merge */}
         <svg viewBox="0 0 520 70" className="w-[520px] h-[70px]" fill="none">
           <path d="M120 0 L120 30 L260 30 L260 55 M400 0 L400 30 L260 30" stroke="#35A7FF" strokeWidth="2" />
           <path d="M254 49 L260 55 L266 49" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-
-        {/* merge card */}
-        <ProcCard icon={<SendIcon />} title={`Установить статус\n“Отправлен”`} />
+        <ProcCard icon={<SendIcon />} title={`Установить статус\n"Отправлен"`} />
         <div className="w-px h-[40px] border-l-2 border-dashed border-cta mt-[5px]" />
       </div>
     </div>
@@ -354,7 +513,7 @@ function FlowCard({ title, subtitle }: { title: string; subtitle?: string }) {
   );
 }
 
-function ProcCard({ icon, title, w = 356 }: { icon: React.ReactNode; title: string; w?: number }) {
+function ProcCard({ icon, title, w = 356 }: { icon: ReactNode; title: string; w?: number }) {
   return (
     <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[20px_30px_30px] flex flex-col items-end" style={{ width: w }}>
       <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mb-[10px]">
@@ -388,6 +547,7 @@ function InputPill({ value }: { value: string }) {
     </div>
   );
 }
+
 function Dropdown({ value, className }: { value: string; className?: string }) {
   return (
     <button className={cn("flex items-center justify-between gap-5 w-[580px] h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary", className)}>
@@ -396,28 +556,35 @@ function Dropdown({ value, className }: { value: string; className?: string }) {
     </button>
   );
 }
+
 function IconBtn({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <button aria-label={label} title={label} className="w-10 h-10 flex items-center justify-center hover:bg-cardbg/40 rounded-full transition-colors shrink-0">{children}</button>
+    <button aria-label={label} title={label} className="w-10 h-10 flex items-center justify-center hover:bg-cardbg/40 rounded-full transition-colors shrink-0">
+      {children}
+    </button>
   );
 }
+
 function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   return (
     <button onClick={onChange} role="switch" aria-checked={on} className={cn(
       "w-[55px] h-[31px] rounded-[30px] flex items-center px-[3px] transition-colors",
-      on ? "bg-cardbg" : "bg-white border-2 border-cardbg"
+      on ? "bg-cardbg" : "bg-white border-2 border-cardbg",
     )}>
       <span className={cn("w-[23px] h-[23px] rounded-full transition-transform", on ? "translate-x-[24px] bg-cta" : "translate-x-0 bg-primary/30")} />
     </button>
   );
 }
+
 function IconPicker() {
   const TABS = ["Все", "Заполненные", "Тонкие", "Обычные"];
   const [tab, setTab] = useState("Все");
   return (
     <div className="w-[538px] bg-white rounded-[10px] p-[3px_10px_10px] flex flex-col gap-[5px]">
       <div className="flex items-center gap-[15px] h-[45px]">
-        <span className="w-[41px] h-[41px] flex items-center justify-center bg-selected rounded-full shrink-0"><span className="w-[21px] h-[21px]"><BookIcon /></span></span>
+        <span className="w-[41px] h-[41px] flex items-center justify-center bg-selected rounded-full shrink-0">
+          <span className="w-[21px] h-[21px]"><BookIcon /></span>
+        </span>
         <div className="flex-1 flex items-center gap-[10px] h-[31px] px-5 bg-selected rounded-btn">
           <span className="w-[15px] h-[15px]"><SearchIcon /></span>
           <span className="text-[14px] text-primary">Поиск</span>
@@ -428,17 +595,20 @@ function IconPicker() {
           {TABS.map((t) => (
             <button key={t} onClick={() => setTab(t)} className={cn(
               "h-[25px] px-[15px] flex items-center rounded-[20px] text-[12px] text-primary box-border bg-selected",
-              tab === t && "border-2 border-cta"
+              tab === t && "border-2 border-cta",
             )}>{t}</button>
           ))}
         </div>
         <div className="grid grid-cols-[repeat(13,1fr)] gap-x-1 gap-y-2 h-[118px] overflow-y-auto content-start">
-          {Array.from({ length: 78 }).map((_, i) => <span key={i} className="w-[18px] h-[18px] text-primary"><GlyphIcon n={i} /></span>)}
+          {Array.from({ length: 78 }).map((_, i) => (
+            <span key={i} className="w-[18px] h-[18px] text-primary"><GlyphIcon n={i} /></span>
+          ))}
         </div>
       </div>
     </div>
   );
 }
+
 function SectionHeader({ title, inset }: { title: string; inset?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
@@ -451,23 +621,17 @@ function SectionHeader({ title, inset }: { title: string; inset?: boolean }) {
   );
 }
 
-// AutomationPreview removed — replaced by SettingsPanel
-
-/* ── Step card (New step in bot flow) ── */
 function StepCard() {
   return (
     <div className="w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] pt-5 pb-[30px] flex flex-col items-end">
-      {/* dots menu */}
       <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mr-[30px] mb-[10px]">
         {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
       </button>
-      {/* "New step" title centered */}
       <div className="w-full px-[100px] mb-[10px]">
         <div className="flex items-center justify-center h-[30px] rounded-[30px]">
-          <span className="text-[20px] font-medium text-primary text-center">New step</span>
+          <span className="text-[20px] font-medium text-primary text-center">New Step</span>
         </div>
       </div>
-      {/* divider + action button */}
       <div className="relative w-full mb-[10px]">
         <div className="absolute left-0 right-0 top-1/2 border-t-2 border-selected" />
         <div className="flex justify-center">
@@ -477,196 +641,12 @@ function StepCard() {
           </button>
         </div>
       </div>
-      {/* task type dropdown */}
       <div className="w-full px-[30px]">
         <button className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
           <span className="text-[18px] text-primary">Пользовательская задача</span>
           <span className="w-3 h-3 rotate-180"><Chevron /></span>
         </button>
       </div>
-    </div>
-  );
-}
-
-/* ── Settings panel (right side, replaces AutomationPreview for Bot tab) ── */
-const ACTION_CARDS: { type: ActionType; label: string; icon: (c: string) => React.ReactNode }[] = [
-  { type: "add",    label: "Добавить\nновую строку",     icon: (c) => <WidgetAddIcon c={c} /> },
-  { type: "delete", label: "Удалить\nстроку",            icon: (c) => <TrashIcon c={c} /> },
-  { type: "update", label: "Настроить\nзначение строки", icon: (c) => <DeskEditIcon c={c} /> },
-  { type: "run",    label: "Запустить\nдействие строки", icon: (c) => <RunRowIcon c={c} /> },
-  { type: "send",   label: "Отправить\nдействие",        icon: (c) => <SendIcon2 c={c} /> },
-];
-
-function SettingsPanel({ actionType, onActionChange }: { actionType: ActionType; onActionChange: (t: ActionType) => void }) {
-  const [device, setDevice] = useState<"phone" | "desktop">("phone");
-  const [extraOpen, setExtraOpen] = useState(true);
-
-  return (
-    <div
-      className="absolute top-[70px] bg-mainbg flex flex-col overflow-y-auto"
-      style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
-    >
-      <div className="flex flex-col gap-[30px] px-[40px] py-[7px]">
-        {/* top row: settings btn + device toggle */}
-        <div className="flex items-center gap-5 h-[40px]">
-          <button aria-label="Настройки" className="w-10 h-10 flex items-center justify-center bg-white rounded-full shrink-0">
-            <span className="w-6 h-6"><GearIcon /></span>
-          </button>
-          <div className="flex items-center bg-white rounded-[36px] p-[3.6px] gap-0">
-            <button
-              onClick={() => setDevice("phone")}
-              className={cn("flex items-center gap-[9px] px-5 py-[3.6px] rounded-[36px] transition-colors", device === "phone" ? "bg-selected" : "")}
-            >
-              <span className="w-[22px] h-[22px]"><PhoneIcon /></span>
-              <span className="text-[20px] font-semibold text-primary">Смартфон</span>
-            </button>
-            <button
-              onClick={() => setDevice("desktop")}
-              className={cn("flex items-center gap-[9px] px-[11px] py-[3.6px] rounded-[36px] transition-colors", device === "desktop" ? "bg-selected" : "")}
-            >
-              <span className="w-[22px] h-[22px]"><DesktopIcon /></span>
-              <span className="text-[20px] font-semibold text-primary">Десктоп</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Настройки header */}
-        <div className="flex items-center justify-between h-[30px]">
-          <span className="text-[20px] font-semibold text-primary">Настройки</span>
-          <div className="flex items-center gap-5">
-            <span className="w-6 h-6"><LinkIcon /></span>
-            <button className="w-6 h-6"><Chevron /></button>
-          </div>
-        </div>
-
-        {/* Action type cards grid */}
-        <div className="flex flex-wrap gap-x-[25px] gap-y-[30px] w-[500px]">
-          {ACTION_CARDS.map(({ type, label, icon }) => {
-            const active = actionType === type;
-            const c = active ? "#35A7FF" : "#C2DBF8";
-            return (
-              <button
-                key={type}
-                onClick={() => onActionChange(type)}
-                className={cn(
-                  "w-[106px] h-[116px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] border-2 transition-colors box-border",
-                  active ? "bg-selected border-cta" : "bg-white border-[#C2DBF8]"
-                )}
-              >
-                <span className="w-[44px] h-[44px]">{icon(c)}</span>
-                <span className={cn("text-[12px] font-semibold text-center leading-[1.2] whitespace-pre-line", active ? "text-cta" : "text-[#C2DBF8]")}>
-                  {label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Dynamic content based on action type */}
-        {actionType === "add" && (
-          <>
-            {/* Добавьте строку в эту таблицу */}
-            <div className="flex flex-col gap-[5px] w-[500px]">
-              <span className="text-[20px] font-medium text-primary">Добавьте строку в эту таблицу</span>
-              <button className="flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px] w-[277px]">
-                <span className="text-[18px] text-primary">Не указан</span>
-                <span className="w-3 h-3 rotate-180"><Chevron /></span>
-              </button>
-            </div>
-            <ColumnConfig />
-            <ExtraSection open={extraOpen} onToggle={() => setExtraOpen(v => !v)} />
-          </>
-        )}
-
-        {actionType === "update" && (
-          <>
-            <ColumnConfig />
-            <ExtraSection open={extraOpen} onToggle={() => setExtraOpen(v => !v)} />
-          </>
-        )}
-
-        {actionType === "delete" && (
-          <div className="w-[500px]">
-            <span className="text-[20px] font-medium text-primary">Строка будет удалена</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ColumnConfig() {
-  return (
-    <div className="flex flex-col gap-[5px] w-[500px]">
-      <span className="text-[20px] font-medium text-primary">Настроить эти столбцы</span>
-      <div className="flex flex-col gap-[5px]">
-        {/* Column row */}
-        <div className="flex items-center justify-between h-[43px] px-5 bg-white rounded-[20px] w-[500px]">
-          <span className="flex items-center gap-[2px]">
-            <DotsHandleIcon /><DotsHandleIcon />
-          </span>
-          <div className="flex items-center gap-[10px]">
-            <button className="w-[173px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]">
-              <span className="text-[18px] text-primary">Имя</span>
-            </button>
-            <span className="text-[20px] font-medium text-black">=</span>
-            <button className="w-[172px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]" />
-            <span className="w-[27px] h-[27px]"><FilterIcon /></span>
-            <span className="w-[28px] h-[28px]"><TrashIcon c="#00205F" /></span>
-          </div>
-        </div>
-        {/* Add button */}
-        <button className="flex items-center justify-center w-10 h-10">
-          <span className="w-5 h-5"><PlusIcon /></span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ExtraSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  return (
-    <div className="flex flex-col gap-[5px] w-[500px]">
-      <button onClick={onToggle} className="flex items-center justify-between">
-        <span className="text-[20px] font-bold text-primary">Дополнительно</span>
-        <span className={cn("w-3 h-3 transition-transform", open ? "" : "rotate-180")}><Chevron /></span>
-      </button>
-      {open && (
-        <div className="flex flex-col gap-[5px]">
-          <div className="flex flex-col gap-[5px]">
-            <span className="text-[20px] font-medium text-primary">Входные</span>
-            <span className="text-[14px] text-primary leading-[150%]">Список входных данных, которые могут быть использованы в этой задаче.</span>
-          </div>
-          {/* Inputs row */}
-          <div className="flex flex-col gap-[5px]">
-            <div className="flex items-start justify-between bg-white rounded-[20px] px-5 py-[8px] w-[500px]">
-              <span className="flex items-center gap-[2px] mt-[10px]">
-                <DotsHandleIcon /><DotsHandleIcon />
-              </span>
-              <div className="flex flex-col gap-[5px] flex-1 ml-[10px]">
-                <div className="flex items-center gap-[10px]">
-                  <button className="w-[173px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]">
-                    <span className="text-[18px] text-primary">Имя</span>
-                  </button>
-                  <button className="w-[173px] h-[41px] flex items-center justify-between px-5 bg-selected rounded-[30px]">
-                    <span className="text-[18px] text-primary">Тип</span>
-                    <span className="w-3 h-3 rotate-180"><Chevron /></span>
-                  </button>
-                </div>
-                <div className="flex items-center gap-[10px]">
-                  <button className="w-[359px] h-[41px] flex items-center px-5 bg-selected rounded-[30px]">
-                    <span className="text-[20px] text-black">=</span>
-                  </button>
-                  <span className="w-[27px] h-[27px]"><FilterIcon /></span>
-                </div>
-              </div>
-            </div>
-            <button className="flex items-center justify-center w-10 h-10">
-              <span className="w-5 h-5"><PlusIcon /></span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -695,15 +675,6 @@ function ShuffleIcon() {
 }
 function AddDashedIcon() {
   return <svg viewBox="0 0 43 43" fill="none" className="w-full h-full"><circle cx="21.5" cy="21.5" r="19" stroke="#35A7FF" strokeWidth="1.8" strokeDasharray="4 4" /><line x1="21.5" y1="13" x2="21.5" y2="30" stroke="#35A7FF" strokeWidth="2.15" strokeLinecap="round" /><line x1="13" y1="21.5" x2="30" y2="21.5" stroke="#35A7FF" strokeWidth="2.15" strokeLinecap="round" /></svg>;
-}
-function GearIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><circle cx="12" cy="12" r="3" stroke="#00205F" strokeWidth="2" /><path d="M12 2 L12 5 M12 19 L12 22 M2 12 L5 12 M19 12 L22 12 M5 5 L7 7 M17 17 L19 19 M5 19 L7 17 M17 7 L19 5" stroke="#00205F" strokeWidth="2" strokeLinecap="round" /></svg>;
-}
-function PhoneIcon() {
-  return <svg viewBox="0 0 23 23" fill="none" className="w-full h-full"><rect x="4" y="1" width="15" height="21" rx="3" stroke="#00205F" strokeWidth="2" /><circle cx="11.5" cy="18.5" r="1" fill="#00205F" /></svg>;
-}
-function DesktopIcon() {
-  return <svg viewBox="0 0 23 23" fill="none" className="w-full h-full"><rect x="1" y="2" width="21" height="14" rx="2" stroke="#00205F" strokeWidth="2" /><path d="M7 20 L16 20 M11.5 16 L11.5 20" stroke="#00205F" strokeWidth="2" strokeLinecap="round" /></svg>;
 }
 function LinkIcon() {
   return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><path d="M10 14 C11 15 13 15 14 14 L17 11 C18.5 9.5 18.5 7 17 5.5 C15.5 4 13 4 11.5 5.5 L10 7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><path d="M14 10 C13 9 11 9 10 10 L7 13 C5.5 14.5 5.5 17 7 18.5 C8.5 20 11 20 12.5 18.5 L14 17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /></svg>;
@@ -747,13 +718,3 @@ function GlyphIcon({ n }: { n: number }) {
 function SortListIcon() {
   return <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><line x1="5" y1="7" x2="11" y2="7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="12" x2="11" y2="12" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="17" x2="11" y2="17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><rect x="14" y="5" width="5" height="5" rx="1" stroke="#35A7FF" strokeWidth="2" transform="rotate(90 16 8.5)" /><path d="M17 13 L17 19 L20 16" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
-function RunRowIcon({ c }: { c: string }) {
-  return <svg viewBox="0 0 44 44" fill="none" className="w-full h-full"><path d="M9 9 L35 22 L9 35 Z" stroke={c} strokeWidth="3.5" strokeLinejoin="round" /></svg>;
-}
-function SendIcon2({ c }: { c: string }) {
-  return <svg viewBox="0 0 44 44" fill="none" className="w-full h-full"><path d="M38 6 L6 20 L18 25 L22 38 L38 6 Z" stroke={c} strokeWidth="3.5" strokeLinejoin="round" /><path d="M18 25 L38 6" stroke={c} strokeWidth="3.5" strokeLinecap="round" /></svg>;
-}
-function DotsHandleIcon() {
-  return <svg viewBox="0 0 5 20" fill="none" className="w-[5px] h-5"><circle cx="2.5" cy="4" r="1.5" fill="#00205F" /><circle cx="2.5" cy="10" r="1.5" fill="#00205F" /><circle cx="2.5" cy="16" r="1.5" fill="#00205F" /></svg>;
-}
-// AutomationIllustration removed (no longer used)

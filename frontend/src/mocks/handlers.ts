@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import type { App, CursorPage } from "@/shared/api/apps";
 import type { CurrentUser, TokenPair } from "@/shared/api/auth";
+import type { Rule } from "@/shared/api/rules";
 
 /**
  * In-memory mock backend for local frontend dev without Docker.
@@ -61,6 +62,91 @@ const apps: App[] = [
   }),
 ];
 
+const ENTITY_ID = "00000000-0000-0000-0000-000000000010";
+
+const rules: Rule[] = [
+  {
+    id: "r1",
+    app_id: apps[0].id,
+    entity_id: ENTITY_ID,
+    name: "insert",
+    description: null,
+    is_active: false,
+    trigger: { event: "record.created", watch_fields: [] },
+    conditions: {},
+    actions: [],
+    priority: 100,
+    version: 1,
+    created_by: MOCK_USER.id,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "r2",
+    app_id: apps[0].id,
+    entity_id: ENTITY_ID,
+    name: "update",
+    description: null,
+    is_active: false,
+    trigger: { event: "record.updated", watch_fields: [] },
+    conditions: {},
+    actions: [],
+    priority: 100,
+    version: 1,
+    created_by: MOCK_USER.id,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "r3",
+    app_id: apps[0].id,
+    entity_id: ENTITY_ID,
+    name: "delete",
+    description: null,
+    is_active: false,
+    trigger: { event: "record.deleted", watch_fields: [] },
+    conditions: {},
+    actions: [],
+    priority: 100,
+    version: 1,
+    created_by: MOCK_USER.id,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "r4",
+    app_id: apps[0].id,
+    entity_id: ENTITY_ID,
+    name: "Отчет TG 2",
+    description: null,
+    is_active: true,
+    trigger: { event: "record.created", watch_fields: [] },
+    conditions: {},
+    actions: [],
+    priority: 90,
+    version: 1,
+    created_by: MOCK_USER.id,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "r5",
+    app_id: apps[0].id,
+    entity_id: ENTITY_ID,
+    name: "(disable) Ошибка отчета",
+    description: null,
+    is_active: false,
+    trigger: { event: "record.updated", watch_fields: [] },
+    conditions: {},
+    actions: [],
+    priority: 80,
+    version: 1,
+    created_by: MOCK_USER.id,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+];
+
 function tokenPair(): TokenPair {
   return {
     access_token: `mock-access-${Date.now()}`,
@@ -107,5 +193,38 @@ export const handlers = [
     const created = makeApp({ slug: body.slug, name: body.name, description: body.description ?? null });
     apps.push(created);
     return HttpResponse.json(created, { status: 201 });
+  }),
+
+  // Rules (bots)
+  http.get(`${API}/apps/:appId/rules`, () => HttpResponse.json(rules)),
+
+  http.patch(`${API}/apps/:appId/rules/:ruleId`, async ({ params, request }) => {
+    const idx = rules.findIndex((r) => r.id === params.ruleId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<Rule>;
+    rules[idx] = { ...rules[idx], ...body, updated_at: new Date().toISOString() };
+    return HttpResponse.json(rules[idx]);
+  }),
+
+  http.delete(`${API}/apps/:appId/rules/:ruleId`, ({ params }) => {
+    const idx = rules.findIndex((r) => r.id === params.ruleId);
+    if (idx !== -1) rules.splice(idx, 1);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API}/apps/:appId/rules/:ruleId/activate`, ({ params }) => {
+    const rule = rules.find((r) => r.id === params.ruleId);
+    if (!rule) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    rule.is_active = true;
+    rule.updated_at = new Date().toISOString();
+    return HttpResponse.json(rule);
+  }),
+
+  http.post(`${API}/apps/:appId/rules/:ruleId/deactivate`, ({ params }) => {
+    const rule = rules.find((r) => r.id === params.ruleId);
+    if (!rule) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    rule.is_active = false;
+    rule.updated_at = new Date().toISOString();
+    return HttpResponse.json(rule);
   }),
 ];

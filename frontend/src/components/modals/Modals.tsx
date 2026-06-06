@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /* ─────────────────────────────────────────────────
@@ -24,7 +24,7 @@ function Overlay({
       onClick={onClose}
     >
       <div
-        className="bg-mainbg rounded-[10px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-y-auto"
+        className="bg-mainbg rounded-[10px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-visible"
         style={alignTop ? { marginTop: topOffset } : {}}
         onClick={(e) => e.stopPropagation()}
       >
@@ -154,14 +154,90 @@ export function CreateProjectModal({
    MODAL 2 — New App form
 ───────────────────────────────────────────────── */
 
+const CATEGORY_PLACEHOLDER = "Выберете категорию...";
+
 const CATEGORIES = [
-  "Не указан",
+  "Проверки и обследования",
+  "Выездное обслуживание",
+  "Управление недвижимостью",
+  "Продажи и CRM",
   "Управление запасами",
-  "CRM",
-  "HR",
-  "Финансы",
-  "Логистика",
+  "Взаимодействие с клиентами",
+  "Управление персоналом",
+  "Планирование и управление проектами",
+  "Обучение и тренинги",
+  "Другое",
 ];
+
+/** Custom category dropdown — Figma "категории приложений" */
+function CategorySelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const options = [CATEGORY_PLACEHOLDER, ...CATEGORIES];
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Trigger */}
+      <BlueField>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="w-full flex items-center justify-between text-[18px] text-primary cursor-pointer pr-1"
+        >
+          <span className={cn(!value && "opacity-70")}>{value || CATEGORY_PLACEHOLDER}</span>
+          <span className={cn("text-xs transition-transform", open && "rotate-180")}>▾</span>
+        </button>
+      </BlueField>
+
+      {/* Open panel — overflow-visible on Overlay allows this to escape */}
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-2 z-20 w-full bg-white rounded-[25px] p-[5px] flex flex-col"
+          style={{ boxShadow: "10px 10px 20px rgba(0,0,0,0.25), -10px -10px 20px rgba(0,0,0,0.25)" }}
+        >
+          {options.map((label, i) => {
+            const isPlaceholder = i === 0;
+            const isSelected = isPlaceholder ? !value : label === value;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  onChange(isPlaceholder ? "" : label);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "w-full h-12 shrink-0 flex items-center px-[30px] border-2 border-white rounded-btn",
+                  "text-meta font-medium text-primary text-left transition-colors",
+                  isSelected ? "bg-selected" : "bg-mainbg hover:bg-cardbg",
+                )}
+                style={{ marginTop: i === 0 ? 0 : -2 }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const VIEW_TEMPLATES = [
   { label: "Календарь", icon: <CalendarIcon /> },
@@ -205,8 +281,8 @@ export function NewAppModal({
   isSubmitting?: boolean;
 }) {
   const [appName, setAppName] = useState("New App");
-  const [category, setCategory] = useState("Не указан");
-  const hasCategory = category !== "Не указан";
+  const [category, setCategory] = useState("");
+  const hasCategory = category !== "";
 
   return (
     <Overlay onClose={onClose}>
@@ -229,18 +305,7 @@ export function NewAppModal({
         {/* Category */}
         <div className="flex flex-col gap-[10px]">
           <label className="text-meta text-primary font-medium">Категория</label>
-          <BlueField>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full bg-transparent outline-none text-[18px] text-primary appearance-none cursor-pointer pr-6"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <span className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-primary text-xs">▾</span>
-          </BlueField>
+          <CategorySelect value={category} onChange={setCategory} />
         </div>
 
         {/* View templates */}
