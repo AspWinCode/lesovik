@@ -23,6 +23,18 @@ function triggerLabel(event: string): string {
   return event;
 }
 
+function eventToDc(event: string): string {
+  if (event === "record.created") return "Добавить";
+  if (event === "record.deleted") return "Удалить";
+  return "Обновить";
+}
+
+function dcToEvent(dc: string): string {
+  if (dc === "Добавить") return "record.created";
+  if (dc === "Удалить") return "record.deleted";
+  return "record.updated";
+}
+
 export function BotPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
@@ -160,8 +172,13 @@ export function BotPage() {
           {botTab === "Бот" && (
             <BotFlow rule={activeRule} onToggle={handleToggle} />
           )}
-          {botTab === "События" && <EventEditor />}
-          {botTab === "Процесс" && <ProcessGraph />}
+          {botTab === "События" && (
+            <EventEditor
+              rule={activeRule}
+              onSave={(ruleId, body) => updateRule.mutate({ ruleId, body })}
+            />
+          )}
+          {botTab === "Процесс" && <ProcessGraph rule={activeRule} />}
         </div>
       </div>
 
@@ -363,16 +380,51 @@ function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }
 }
 
 /* ── События tab ── */
-function EventEditor() {
-  const src = "Приложение";
-  const [dc, setDc] = useState("Добавить");
+function EventEditor({
+  rule,
+  onSave,
+}: {
+  rule: Rule | null;
+  onSave: (ruleId: string, body: Record<string, unknown>) => void;
+}) {
+  const [dc, setDc] = useState(() => eventToDc(rule?.trigger?.event ?? "record.created"));
   const [bypass, setBypass] = useState(false);
   const [displayOpen, setDisplayOpen] = useState(true);
+  const [showSrc, setShowSrc] = useState(false);
+  const [src, setSrc] = useState("Приложение");
+  const [nameVal, setNameVal] = useState(rule?.name ?? "");
+
+  useEffect(() => {
+    if (rule) {
+      setDc(eventToDc(rule.trigger?.event ?? "record.created"));
+      setNameVal(rule.name);
+    }
+  }, [rule?.id]);
+
+  function saveName() {
+    if (!rule || !nameVal.trim() || nameVal.trim() === rule.name) return;
+    onSave(rule.id, { name: nameVal.trim() });
+  }
+
+  function handleDcChange(p: string) {
+    setDc(p);
+    if (!rule) return;
+    onSave(rule.id, { trigger: { ...rule.trigger, event: dcToEvent(p) } });
+  }
+
+  if (!rule) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
+        Выберите бота из списка
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col relative" onClick={() => setShowSrc(false)}>
+      {/* Header */}
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
-        <h1 className="text-[20px] font-semibold text-primary">insert_audit</h1>
+        <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
         <div className="flex items-center gap-[7px]">
           <span className="w-6 h-6"><LinkIcon /></span>
           <span className="text-[20px] font-semibold text-cta">1</span>
@@ -381,16 +433,47 @@ function EventEditor() {
       </div>
 
       <div className="px-[40px] flex flex-col gap-[20px] pb-[30px]">
-        <Row label="Название"><InputPill value="insert_audit" /></Row>
-        <Row label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие." labelW={247}>
-          <Dropdown value={src} />
+        {/* Название */}
+        <Row label="Название">
+          <div className="w-[580px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
+            <input
+              value={nameVal}
+              onChange={(e) => setNameVal(e.target.value)}
+              onBlur={saveName}
+              onKeyDown={(e) => e.key === "Enter" && (e.currentTarget.blur())}
+              className="w-full bg-transparent text-[18px] text-primary outline-none"
+            />
+          </div>
         </Row>
+
+        {/* Источник события */}
+        <Row label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие." labelW={247}>
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowSrc((v) => !v)}
+              className="flex items-center justify-between gap-5 w-[580px] h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary"
+            >
+              <span className="truncate">{src}</span>
+              <span className={cn("w-3 h-3 shrink-0 transition-transform", showSrc && "rotate-180")}><Chevron /></span>
+            </button>
+            {showSrc && (
+              <SourceDropdown
+                value={src}
+                onChange={(v) => { setSrc(v); setShowSrc(false); }}
+              />
+            )}
+          </div>
+        </Row>
+
+        {/* Таблица */}
         <Row label="Таблица" desc="Изменение данных в какой таблице должно вызывать это событие?">
           <div className="flex items-center gap-5 w-[299px]">
             <Dropdown value="Audit" className="flex-1" />
             <IconBtn label="Редактировать"><EditIcon /></IconBtn>
           </div>
         </Row>
+
+        {/* Тип изменения данных */}
         <Row label="Тип изменения данных" desc="Изменение данных в какой таблице должно вызывать это событие?" labelW={236}>
           <div className="flex items-center gap-[30px] py-[7px]">
             {POSITIONS_DC.map((p) => {
@@ -398,13 +481,13 @@ function EventEditor() {
               return (
                 <button
                   key={p}
-                  onClick={() => setDc(p)}
+                  onClick={() => handleDcChange(p)}
                   className={cn(
-                    "w-[106px] h-[95px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] box-border border-2",
-                    sel ? "bg-selected border-cta" : "border-[#C2DBF8]",
+                    "w-[106px] h-[95px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] box-border border-2 transition-colors",
+                    sel ? "bg-selected border-cta" : "border-[#C2DBF8] hover:border-cta/40",
                   )}
                 >
-                  <span className={cn("w-[39px] h-[39px]", !sel && "opacity-60")}>
+                  <span className="w-[39px] h-[39px]">
                     {p === "Добавить"
                       ? <WidgetAddIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
                       : p === "Удалить"
@@ -417,17 +500,22 @@ function EventEditor() {
             })}
           </div>
         </Row>
+
+        {/* Условие */}
         <Row label="Условие" desc="Дополнительное условие, проверяемое перед запуском процесса." labelW={273}>
           <div className="flex items-center gap-[10px] w-[580px] py-[7px]">
             <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary">=</div>
             <span className="w-8 h-8"><FilterIcon /></span>
           </div>
         </Row>
+
+        {/* Обойти защитные фильтры */}
         <Row label="Обойти защитные фильтры?" desc="Выполните это действие и процессы, которые оно запускает, как если бы в источниках данных не было фильтров безопасности." labelW={259}>
           <div className="py-[7px]"><Toggle on={bypass} onChange={() => setBypass((v) => !v)} /></div>
         </Row>
       </div>
 
+      {/* Отображение */}
       <div className="border-t-2 border-white py-[10px] pb-[30px] flex flex-col gap-[20px] px-[40px]">
         <button onClick={() => setDisplayOpen((v) => !v)} className="flex items-center justify-between py-[7px]">
           <span className="text-[20px] font-bold text-primary">Отображение</span>
@@ -445,11 +533,18 @@ function EventEditor() {
 }
 
 /* ── Процесс tab ── */
-function ProcessGraph() {
+function ProcessGraph({ rule }: { rule: Rule | null }) {
+  if (!rule) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
+        Выберите бота из списка
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
-        <h1 className="text-[20px] font-semibold text-primary">Отчет TG 2</h1>
+        <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
         <div className="flex items-center gap-[7px]">
           <span className="w-6 h-6"><LinkIcon /></span>
           <span className="text-[20px] font-semibold text-cta">1</span>
@@ -535,15 +630,6 @@ function Row({ label, desc, labelW = 250, children }: { label: string; desc?: st
         {desc && <span className="text-[14px] leading-[150%] text-primary">{desc}</span>}
       </div>
       <div className="flex-1 flex justify-end">{children}</div>
-    </div>
-  );
-}
-
-function InputPill({ value }: { value: string }) {
-  const [v, setV] = useState(value);
-  return (
-    <div className="w-[580px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
-      <input value={v} onChange={(e) => setV(e.target.value)} className="w-full bg-transparent text-[18px] text-primary outline-none" />
     </div>
   );
 }
@@ -648,6 +734,81 @@ function StepCard() {
         </button>
       </div>
     </div>
+  );
+}
+
+/* ── Source event dropdown ── */
+const SOURCE_OPTIONS = [
+  { label: "Приложение", icon: "phone" },
+  { label: "База данных AppSheet", icon: "db" },
+  { label: "Расписание", icon: "clock" },
+  { label: "Приложение для чата", icon: "chat" },
+  { label: "Формы", icon: "form" },
+  { label: "Gmail", icon: "gmail" },
+] as const;
+
+function SourceDropdown({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="absolute top-[44px] left-0 z-50 w-[580px] bg-white rounded-[30px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[5px] flex flex-col">
+      {SOURCE_OPTIONS.map((opt) => (
+        <button
+          key={opt.label}
+          onClick={() => onChange(opt.label)}
+          className={cn(
+            "flex items-center gap-[30px] px-[30px] py-[11px] rounded-[30px] text-[16px] font-medium text-primary transition-colors",
+            value === opt.label ? "bg-selected" : "bg-mainbg hover:bg-selected/60",
+          )}
+        >
+          <span className="w-6 h-6 shrink-0"><SourceIcon type={opt.icon} /></span>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SourceIcon({ type }: { type: string }) {
+  if (type === "phone") return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <path d="M9 2 L15 2 C15.6 2 16 2.4 16 3 L16 21 C16 21.6 15.6 22 15 22 L9 22 C8.4 22 8 21.6 8 21 L8 3 C8 2.4 8.4 2 9 2 Z" stroke="#00205F" strokeWidth="1.8" />
+      <circle cx="12" cy="19" r="1" fill="#00205F" />
+    </svg>
+  );
+  if (type === "db") return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <ellipse cx="12" cy="7" rx="7" ry="3" stroke="#00205F" strokeWidth="1.8" />
+      <path d="M5 7 L5 17 C5 18.65 8.13 20 12 20 C15.87 20 19 18.65 19 17 L19 7" stroke="#00205F" strokeWidth="1.8" />
+      <path d="M5 12 C5 13.65 8.13 15 12 15 C15.87 15 19 13.65 19 12" stroke="#00205F" strokeWidth="1.8" />
+    </svg>
+  );
+  if (type === "clock") return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <circle cx="12" cy="12" r="9" stroke="#00205F" strokeWidth="1.8" />
+      <path d="M12 7 L12 12 L16 14" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+  if (type === "chat") return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <path d="M4 4 L20 4 C20.6 4 21 4.4 21 5 L21 15 C21 15.6 20.6 16 20 16 L8 16 L4 20 L4 5 C4 4.4 4.4 4 4 4 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
+      <line x1="8" y1="9" x2="16" y2="9" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="8" y1="12" x2="13" y2="12" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+  if (type === "form") return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <path d="M6 2 L15 2 L19 6 L19 22 L6 22 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M15 2 L15 6 L19 6" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
+      <line x1="9" y1="11" x2="16" y2="11" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="9" y1="15" x2="16" y2="15" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="9" y1="19" x2="13" y2="19" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+  // gmail
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="5" width="20" height="14" rx="1" stroke="#00205F" strokeWidth="1.8" />
+      <path d="M2 6 L12 13 L22 6" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
   );
 }
 
