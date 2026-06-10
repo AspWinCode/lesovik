@@ -40,6 +40,7 @@ const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   constructor: "/views",
   data: "/data",
   automation: "/bot",
+  documents: "/deploy",
   security: "/security",
 };
 
