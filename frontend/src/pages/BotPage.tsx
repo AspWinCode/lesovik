@@ -17,6 +17,17 @@ import { useEntities } from "@/shared/hooks/useEntities";
 const BOT_TABS = ["Бот", "События", "Процесс"];
 const POSITIONS_DC = ["Добавить", "Удалить", "Обновить"];
 
+const ACTION_TYPES = [
+  { id: "add_row",    label: "Добавить новую строку",     icon: "add_row" },
+  { id: "del_row",    label: "Удалить строку",            icon: "del_row" },
+  { id: "set_row",    label: "Настроить значение строки", icon: "set_row" },
+  { id: "run_action", label: "Запустить действие со строкой", icon: "run_action" },
+  { id: "format",     label: "Отформатировать действие",  icon: "format" },
+] as const;
+
+type ActionTypeId = typeof ACTION_TYPES[number]["id"];
+type SelectedCard = "event" | "step" | null;
+
 function triggerLabel(event: string): string {
   if (event === "record.created") return "insert";
   if (event === "record.updated") return "update";
@@ -42,6 +53,7 @@ export function BotPage() {
   const [botTab, setBotTab] = useState("Бот");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(true);
+  const [selectedCard, setSelectedCard] = useState<SelectedCard>(null);
 
   const { data: appsData } = useApps();
   const appId = appsData?.items[0]?.id;
@@ -56,15 +68,16 @@ export function BotPage() {
     if (rules.length > 0 && !activeRuleId) setActiveRuleId(rules[0].id);
   }, [rules, activeRuleId]);
 
+  // Reset selected card when switching rules
+  useEffect(() => { setSelectedCard(null); }, [activeRuleId]);
+
   const activeRule = rules.find((r) => r.id === activeRuleId) ?? null;
+  const leftTitle = botTab === "Бот" ? "Бот" : "События";
 
   function handleToggle() {
     if (!activeRule || !appId) return;
-    if (activeRule.is_active) {
-      deactivateRule.mutate(activeRule.id);
-    } else {
-      activateRule.mutate(activeRule.id);
-    }
+    if (activeRule.is_active) deactivateRule.mutate(activeRule.id);
+    else activateRule.mutate(activeRule.id);
   }
 
   function handleDelete(ruleId: string) {
@@ -78,9 +91,8 @@ export function BotPage() {
     const rule = rules.find((r) => r.id === ruleId);
     if (!rule || !appId) return;
     const name = window.prompt("Новое название:", rule.name);
-    if (name && name.trim() && name.trim() !== rule.name) {
+    if (name && name.trim() && name.trim() !== rule.name)
       updateRule.mutate({ ruleId, body: { name: name.trim() } });
-    }
     setOpenMenuId(null);
   }
 
@@ -92,13 +104,13 @@ export function BotPage() {
       <Navbar />
       <IconRail active={railModule} onChange={setRailModule} />
 
-      {/* ── List panel ── */}
+      {/* ── Left panel ── */}
       <aside
         className="absolute top-[70px] bg-mainbg flex flex-col"
         style={{ left: 85, width: 290, height: 1005, borderRadius: "20px 5px 5px 20px" }}
       >
         <div className="flex items-center justify-between px-[15px] pt-[15px] h-[30px] mb-[25px]">
-          <h2 className="text-[20px] font-bold text-primary">События</h2>
+          <h2 className="text-[20px] font-bold text-primary">{leftTitle}</h2>
           <div className="flex items-center gap-5">
             <button aria-label="Поиск" className="w-5 h-5"><SearchIcon /></button>
             <button aria-label="Добавить" className="w-5 h-5"><PlusIcon /></button>
@@ -109,7 +121,17 @@ export function BotPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
-          {/* Single "Отчеты" group */}
+          {/* "Операции" group — only shown on Бот tab */}
+          {botTab === "Бот" && (
+            <button className="flex items-center gap-[7px] h-[46px] px-[15px] text-left">
+              <span className="flex-1 text-[18px] leading-[150%] text-primary truncate">
+                Операции (3)
+              </span>
+              <span className="w-3 h-3 -rotate-90"><Chevron /></span>
+            </button>
+          )}
+
+          {/* "Отчеты" group */}
           <button
             onClick={() => setGroupOpen((v) => !v)}
             className="flex items-center gap-[7px] h-[46px] px-[15px] text-left"
@@ -131,11 +153,9 @@ export function BotPage() {
           {groupOpen && isLoading && (
             <div className="px-[15px] py-2 text-[14px] text-primary/60">Загрузка…</div>
           )}
-
           {groupOpen && !isLoading && rules.length === 0 && (
             <div className="px-[15px] py-2 text-[14px] text-primary/60">Нет событий</div>
           )}
-
           {groupOpen && rules.map((rule) => (
             <BotItem
               key={rule.id}
@@ -156,7 +176,6 @@ export function BotPage() {
         className="absolute bg-mainbg rounded-[5px] overflow-hidden flex flex-col"
         style={{ left: 380, top: 70, width: 945, height: 1000 }}
       >
-        {/* Tab bar */}
         <div className="h-[55px] flex items-center gap-[30px] px-[40px] shrink-0">
           {BOT_TABS.map((t) => (
             <button
@@ -171,7 +190,12 @@ export function BotPage() {
 
         <div className="flex-1 overflow-y-auto flex flex-col">
           {botTab === "Бот" && (
-            <BotFlow rule={activeRule} onToggle={handleToggle} />
+            <BotFlow
+              rule={activeRule}
+              selectedCard={selectedCard}
+              onToggle={handleToggle}
+              onSelectCard={setSelectedCard}
+            />
           )}
           {botTab === "События" && (
             <EventEditor
@@ -184,31 +208,31 @@ export function BotPage() {
         </div>
       </div>
 
-      {/* ── Right panel — always illustration per design ── */}
-      {botTab === "События"
-        ? <PreviewPanel projectName="Profile" />
-        : <AutomationPreview />}
+      {/* ── Right panel ── */}
+      {botTab === "События" ? (
+        <PreviewPanel projectName="Profile" />
+      ) : botTab === "Процесс" ? (
+        <AutomationPreview />
+      ) : (
+        /* Бот tab — context-sensitive Настройки panel */
+        <BotSettingsPanel
+          rule={activeRule}
+          appId={appId}
+          selectedCard={selectedCard}
+          onSave={(ruleId, body) => updateRule.mutate({ ruleId, body })}
+        />
+      )}
     </div>
   );
 }
 
-/* ── Bot list item (pill, always visible bg, hover shows dots) ── */
+/* ── Left sidebar item ── */
 function BotItem({
-  rule,
-  isActive,
-  menuOpen,
-  onClick,
-  onMenuOpen,
-  onRename,
-  onDelete,
+  rule, isActive, menuOpen, onClick, onMenuOpen, onRename, onDelete,
 }: {
-  rule: Rule;
-  isActive: boolean;
-  menuOpen: boolean;
-  onClick: () => void;
-  onMenuOpen: (e: React.MouseEvent) => void;
-  onRename: () => void;
-  onDelete: () => void;
+  rule: Rule; isActive: boolean; menuOpen: boolean;
+  onClick: () => void; onMenuOpen: (e: React.MouseEvent) => void;
+  onRename: () => void; onDelete: () => void;
 }) {
   return (
     <div className="relative px-[15px]">
@@ -224,10 +248,7 @@ function BotItem({
         <span className={cn(
           "flex-1 text-[18px] leading-[150%] font-medium truncate",
           isActive ? "text-cta" : "text-primary",
-        )}>
-          {rule.name}
-        </span>
-        {/* 3-dot menu — visible on hover or when menu is open */}
+        )}>{rule.name}</span>
         <button
           onClick={onMenuOpen}
           className={cn(
@@ -241,22 +262,14 @@ function BotItem({
           ))}
         </button>
       </div>
-
-      {/* Context dropdown */}
       {menuOpen && (
         <div
           className="absolute right-[15px] top-[48px] z-50 w-[160px] bg-white rounded-[25px] shadow-[10px_10px_20px_rgba(0,0,0,0.25),-10px_-10px_20px_rgba(0,0,0,0.25)] p-[5px] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
-          {[
-            { label: "Переименовать", action: onRename },
-            { label: "Удалить",       action: onDelete },
-          ].map(({ label, action }) => (
-            <button
-              key={label}
-              onClick={action}
-              className="text-left px-[30px] py-[11px] text-[16px] font-medium text-primary bg-mainbg rounded-[30px] hover:bg-selected transition-colors"
-            >
+          {[{ label: "Переименовать", action: onRename }, { label: "Удалить", action: onDelete }].map(({ label, action }) => (
+            <button key={label} onClick={action}
+              className="text-left px-[30px] py-[11px] text-[16px] font-medium text-primary bg-mainbg rounded-[30px] hover:bg-selected transition-colors">
               {label}
             </button>
           ))}
@@ -266,7 +279,7 @@ function BotItem({
   );
 }
 
-/* ── Right panel: automation illustration ── */
+/* ── Right panel: gear illustration (Автоматизация) ── */
 function AutomationPreview() {
   return (
     <div
@@ -274,47 +287,314 @@ function AutomationPreview() {
       style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
     >
       <div className="flex flex-col items-center gap-[30px]">
-        {/* Gear/automation SVG illustration */}
         <svg viewBox="0 0 278 278" fill="none" className="w-[278px] h-[278px]">
-          {/* Outer gear */}
           <circle cx="139" cy="139" r="90" stroke="#35A7FF" strokeWidth="8" />
           <circle cx="139" cy="139" r="60" stroke="#35A7FF" strokeWidth="6" />
-          {/* Gear teeth */}
           {Array.from({ length: 12 }).map((_, i) => {
             const angle = (i * 30 * Math.PI) / 180;
-            const x1 = 139 + 90 * Math.cos(angle);
-            const y1 = 139 + 90 * Math.sin(angle);
-            const x2 = 139 + 108 * Math.cos(angle);
-            const y2 = 139 + 108 * Math.sin(angle);
-            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#35A7FF" strokeWidth="10" strokeLinecap="round" />;
+            return <line key={i} x1={139 + 90 * Math.cos(angle)} y1={139 + 90 * Math.sin(angle)} x2={139 + 108 * Math.cos(angle)} y2={139 + 108 * Math.sin(angle)} stroke="#35A7FF" strokeWidth="10" strokeLinecap="round" />;
           })}
-          {/* Inner circle */}
           <circle cx="139" cy="139" r="28" fill="#CBE3FF" stroke="#35A7FF" strokeWidth="5" />
-          {/* Small gear (top-right) */}
           <circle cx="210" cy="68" r="38" stroke="#35A7FF" strokeWidth="5" />
           <circle cx="210" cy="68" r="24" stroke="#35A7FF" strokeWidth="4" />
           {Array.from({ length: 8 }).map((_, i) => {
             const angle = (i * 45 * Math.PI) / 180;
-            const x1 = 210 + 38 * Math.cos(angle);
-            const y1 = 68 + 38 * Math.sin(angle);
-            const x2 = 210 + 48 * Math.cos(angle);
-            const y2 = 68 + 48 * Math.sin(angle);
-            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#35A7FF" strokeWidth="7" strokeLinecap="round" />;
+            return <line key={i} x1={210 + 38 * Math.cos(angle)} y1={68 + 38 * Math.sin(angle)} x2={210 + 48 * Math.cos(angle)} y2={68 + 48 * Math.sin(angle)} stroke="#35A7FF" strokeWidth="7" strokeLinecap="round" />;
           })}
           <circle cx="210" cy="68" r="12" fill="#CBE3FF" stroke="#35A7FF" strokeWidth="4" />
-          {/* Arrows (download-like) */}
           <path d="M100 210 L100 240 M100 240 L80 220 M100 240 L120 220" stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M178 210 L178 240 M178 240 L158 220 M178 240 L198 220" stroke="#35A7FF" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-
         <span className="text-[20px] font-semibold text-cta">Настройки автоматизации</span>
       </div>
     </div>
   );
 }
 
-/* ── Бот tab ── */
-function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }) {
+/* ── Right panel for "Бот" tab — context-sensitive ── */
+function BotSettingsPanel({
+  rule, appId, selectedCard, onSave,
+}: {
+  rule: Rule | null;
+  appId: string | undefined;
+  selectedCard: SelectedCard;
+  onSave: (ruleId: string, body: Record<string, unknown>) => void;
+}) {
+  if (!rule || selectedCard === null) return <AutomationPreview />;
+
+  return (
+    <div
+      className="absolute top-[70px] bg-mainbg flex flex-col overflow-y-auto"
+      style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
+    >
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-[40px] h-[55px] shrink-0">
+        <div className="flex items-center gap-[10px]">
+          <span className="w-6 h-6"><GearIcon /></span>
+          <span className="text-[20px] font-semibold text-primary">Настройки</span>
+        </div>
+        <div className="flex items-center gap-[7px]">
+          <span className="w-5 h-5 opacity-40"><ExpandIcon /></span>
+          <span className="w-3 h-3"><Chevron open /></span>
+        </div>
+      </div>
+
+      {selectedCard === "event" && (
+        <EventSettingsPanel rule={rule} appId={appId} onSave={onSave} />
+      )}
+      {selectedCard === "step" && (
+        <StepSettingsPanel />
+      )}
+    </div>
+  );
+}
+
+/* ── Event settings in right panel ── */
+function EventSettingsPanel({
+  rule, appId, onSave,
+}: {
+  rule: Rule;
+  appId: string | undefined;
+  onSave: (ruleId: string, body: Record<string, unknown>) => void;
+}) {
+  const [dc, setDc] = useState(() => eventToDc(rule.trigger?.event ?? "record.created"));
+  const [bypass, setBypass] = useState(false);
+  const [nameVal, setNameVal] = useState(rule.name);
+  const [showEntityDd, setShowEntityDd] = useState(false);
+
+  const { data: entities = [] } = useEntities(appId);
+  const selectedEntity = entities.find((e) => e.id === rule.entity_id) ?? entities[0] ?? null;
+
+  useEffect(() => {
+    setDc(eventToDc(rule.trigger?.event ?? "record.created"));
+    setNameVal(rule.name);
+  }, [rule.id]);
+
+  function saveName() {
+    if (!nameVal.trim() || nameVal.trim() === rule.name) return;
+    onSave(rule.id, { name: nameVal.trim() });
+  }
+
+  function handleDcChange(p: string) {
+    setDc(p);
+    onSave(rule.id, { trigger: { ...rule.trigger, event: dcToEvent(p) } });
+  }
+
+  return (
+    <div className="flex flex-col gap-[15px] px-[30px] pb-[30px]" onClick={() => setShowEntityDd(false)}>
+      {/* Название */}
+      <SettingsRow label="Название">
+        <div className="h-[41px] bg-cardbg rounded-btn px-5 flex items-center w-full">
+          <input
+            value={nameVal}
+            onChange={(e) => setNameVal(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            className="w-full bg-transparent text-[18px] text-primary outline-none"
+          />
+        </div>
+      </SettingsRow>
+
+      {/* Источник события */}
+      <SettingsRow label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие.">
+        <button className="flex items-center justify-between gap-5 h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary w-full">
+          <span>Приложение</span>
+          <span className="w-3 h-3 shrink-0"><Chevron /></span>
+        </button>
+      </SettingsRow>
+
+      {/* Таблица */}
+      <SettingsRow label="Таблица" desc="Изменение данных в какой таблице должно вызывать это событие?">
+        <div className="flex items-center gap-[10px] w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="relative flex-1">
+            <button
+              onClick={() => setShowEntityDd((v) => !v)}
+              className="flex items-center justify-between gap-5 h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary w-full"
+            >
+              <span className="truncate">{selectedEntity?.display_name ?? "Выберите таблицу"}</span>
+              <span className={cn("w-3 h-3 shrink-0 transition-transform", showEntityDd && "rotate-180")}><Chevron /></span>
+            </button>
+            {showEntityDd && entities.length > 0 && (
+              <div className="absolute top-[44px] left-0 z-50 w-full bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.15)] p-[5px] flex flex-col max-h-[280px] overflow-y-auto">
+                {entities.map((ent) => (
+                  <button key={ent.id}
+                    onClick={() => { onSave(rule.id, { entity_id: ent.id }); setShowEntityDd(false); }}
+                    className={cn(
+                      "flex items-center gap-[15px] px-[20px] py-[10px] rounded-[20px] text-[16px] font-medium text-primary transition-colors text-left",
+                      ent.id === (rule.entity_id ?? entities[0]?.id) ? "bg-selected" : "bg-white hover:bg-selected/60",
+                    )}
+                  >
+                    <span className="w-5 h-5 shrink-0"><FileDocIcon /></span>
+                    {ent.display_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button aria-label="Редактировать" className="w-10 h-10 flex items-center justify-center hover:bg-cardbg/40 rounded-full shrink-0">
+            <EditIcon />
+          </button>
+        </div>
+      </SettingsRow>
+
+      {/* Тип изменения данных */}
+      <SettingsRow label="Тип изменения данных" desc="Изменение данных в какой таблице должно вызывать это событие?">
+        <div className="flex items-center gap-[10px]">
+          {POSITIONS_DC.map((p) => {
+            const sel = dc === p;
+            return (
+              <button key={p} onClick={() => handleDcChange(p)}
+                className={cn(
+                  "w-[100px] h-[90px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] box-border border-2 transition-colors",
+                  sel ? "bg-selected border-cta" : "border-[#C2DBF8] hover:border-cta/40",
+                )}
+              >
+                <span className="w-[36px] h-[36px]">
+                  {p === "Добавить" ? <WidgetAddIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
+                    : p === "Удалить" ? <TrashIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
+                    : <DeskEditIcon c={sel ? "#35A7FF" : "#C2DBF8"} />}
+                </span>
+                <span className={cn("text-[12px] font-semibold", sel ? "text-cta" : "text-[#C2DBF8]")}>{p}</span>
+              </button>
+            );
+          })}
+        </div>
+      </SettingsRow>
+
+      {/* Условие */}
+      <SettingsRow label="Условие" desc="Дополнительное условие, проверяемое перед запуском процесса.">
+        <div className="flex items-center gap-[10px] w-full">
+          <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary">=</div>
+          <span className="w-8 h-8"><FilterIcon /></span>
+        </div>
+      </SettingsRow>
+
+      {/* Обойти защитные фильтры */}
+      <SettingsRow label="Обойти защитные фильтры?" desc="Выполните это действие и процессы, которые оно запускает, как если бы в источниках данных не было фильтров безопасности.">
+        <Toggle on={bypass} onChange={() => setBypass((v) => !v)} />
+      </SettingsRow>
+    </div>
+  );
+}
+
+/* ── Step settings in right panel ── */
+function StepSettingsPanel() {
+  const [activeAction, setActiveAction] = useState<ActionTypeId>("add_row");
+
+  return (
+    <div className="flex flex-col gap-[15px] px-[30px] pb-[30px]">
+      {/* Action type grid */}
+      <div className="grid grid-cols-3 gap-[10px]">
+        {ACTION_TYPES.map(({ id, label }) => {
+          const sel = activeAction === id;
+          return (
+            <button key={id} onClick={() => setActiveAction(id)}
+              className={cn(
+                "flex flex-col items-center justify-center gap-[6px] h-[80px] rounded-[5px] border-2 transition-colors px-2",
+                sel ? "bg-selected border-cta" : "border-[#C2DBF8] hover:border-cta/40",
+              )}
+            >
+              <span className="w-[28px] h-[28px]"><ActionIcon id={id} active={sel} /></span>
+              <span className={cn("text-[11px] font-semibold text-center leading-[1.2]", sel ? "text-cta" : "text-[#C2DBF8]")}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeAction === "add_row" && (
+        <>
+          <SettingsRow label="Добавьте строку в эту таблицу">
+            <button className="flex items-center justify-between gap-5 h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary w-full">
+              <span className="text-primary/50">Не указан</span>
+              <span className="w-3 h-3 shrink-0"><Chevron /></span>
+            </button>
+          </SettingsRow>
+          <div className="flex flex-col gap-[8px]">
+            <span className="text-[18px] font-medium text-primary">Настроить эти столбцы</span>
+            <div className="flex items-center gap-[8px] h-[41px]">
+              <span className="w-4 h-4 opacity-40"><DragIcon /></span>
+              <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary/40">Столбец</div>
+              <span className="text-[18px] text-primary">=</span>
+              <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary/40">Значение</div>
+              <span className="w-6 h-6 opacity-40"><FilterIcon /></span>
+              <span className="w-6 h-6 opacity-40"><TrashIconSm /></span>
+            </div>
+            <button className="w-8 h-8 flex items-center justify-center text-cta text-2xl font-light">+</button>
+          </div>
+        </>
+      )}
+      {activeAction === "del_row" && (
+        <div className="flex items-center gap-[10px] px-[5px] py-[10px]">
+          <span className="w-6 h-6 opacity-60"><TrashIconSm /></span>
+          <span className="text-[18px] text-primary">Строка будет удалена</span>
+        </div>
+      )}
+      {(activeAction === "set_row" || activeAction === "run_action" || activeAction === "format") && (
+        <div className="flex flex-col gap-[8px]">
+          <span className="text-[18px] font-medium text-primary">Настроить эти столбцы</span>
+          <div className="flex items-center gap-[8px] h-[41px]">
+            <span className="w-4 h-4 opacity-40"><DragIcon /></span>
+            <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary/40">Имя</div>
+            <span className="text-[18px] text-primary">=</span>
+            <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary/40">Значение</div>
+            <span className="w-6 h-6 opacity-40"><FilterIcon /></span>
+            <span className="w-6 h-6 opacity-40"><TrashIconSm /></span>
+          </div>
+          <button className="w-8 h-8 flex items-center justify-center text-cta text-2xl font-light">+</button>
+        </div>
+      )}
+
+      {/* Дополнительно */}
+      <div className="border-t-2 border-white pt-[10px]">
+        <div className="flex items-center justify-between py-[7px]">
+          <span className="text-[18px] font-bold text-primary">Дополнительно</span>
+          <span className="w-3 h-3 rotate-180"><Chevron /></span>
+        </div>
+        <div className="flex flex-col gap-[8px] mt-[5px]">
+          <span className="text-[18px] font-medium text-primary">Входные</span>
+          <span className="text-[13px] text-primary/60">Список входных данных, которые могут быть использованы в этой задаче.</span>
+          <div className="flex items-center gap-[8px] h-[36px]">
+            <span className="w-4 h-4 opacity-40"><DragIcon /></span>
+            <div className="flex-1 h-[36px] bg-cardbg rounded-btn px-4 flex items-center text-[16px] text-primary/40">Имя</div>
+            <div className="flex items-center gap-[5px] h-[36px] px-4 bg-cardbg rounded-btn">
+              <span className="text-[16px] text-primary/40">Тип</span>
+              <span className="w-3 h-3 shrink-0"><Chevron /></span>
+            </div>
+            <span className="w-5 h-5 opacity-40"><EditIcon /></span>
+            <span className="w-5 h-5 opacity-40"><TrashIconSm /></span>
+          </div>
+          <div className="flex items-center gap-[8px] h-[36px]">
+            <span className="w-4 h-4 opacity-40"><DragIcon /></span>
+            <div className="flex-1 h-[36px] bg-cardbg rounded-btn px-4 flex items-center text-[16px] text-primary/40">=</div>
+            <span className="w-5 h-5 opacity-40"><FilterIcon /></span>
+          </div>
+          <button className="w-8 h-8 flex items-center justify-center text-cta text-2xl font-light">+</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Row helper for settings panels ── */
+function SettingsRow({ label, desc, children }: { label: string; desc?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-[5px]">
+      <div className="text-[18px] font-medium text-primary">{label}</div>
+      {desc && <div className="text-[13px] text-primary/70 leading-[1.4]">{desc}</div>}
+      <div className="mt-[2px]">{children}</div>
+    </div>
+  );
+}
+
+/* ── Бот tab (center) ── */
+function BotFlow({
+  rule, selectedCard, onToggle, onSelectCard,
+}: {
+  rule: Rule | null;
+  selectedCard: SelectedCard;
+  onToggle: () => void;
+  onSelectCard: (c: SelectedCard) => void;
+}) {
   if (!rule) {
     return (
       <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
@@ -330,18 +610,14 @@ function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }
       <div className="flex items-center justify-between px-[40px] h-[64px] shrink-0">
         <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
         <div className="flex items-center gap-5">
-          <button
-            onClick={onToggle}
+          <button onClick={onToggle}
             className={cn(
               "px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta transition-colors",
               rule.is_active ? "bg-white text-cta" : "bg-cta text-white",
-            )}
-          >
+            )}>
             {rule.is_active ? "Отключить" : "Включить"}
           </button>
-          <button className="px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta text-cta">
-            Монитор
-          </button>
+          <button className="px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta text-cta">Монитор</button>
           <button aria-label="Меню" className="flex flex-col items-center gap-[3px] w-[5px] h-5 justify-center">
             {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
           </button>
@@ -358,19 +634,66 @@ function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }
         <p className="text-[18px] font-medium text-primary mb-[20px]">
           Когда происходит это <span className="font-bold">СОБЫТИЕ</span>
         </p>
-        <FlowCard title={eventLabel} subtitle="Позиция предприятия" />
+        {/* Clickable event card */}
+        <div
+          onClick={() => onSelectCard(selectedCard === "event" ? null : "event")}
+          className={cn(
+            "w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[20px_30px_30px] flex flex-col items-end cursor-pointer transition-all",
+            selectedCard === "event" && "ring-2 ring-cta",
+          )}
+        >
+          <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mb-[10px]">
+            {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
+          </button>
+          <div className="w-full flex items-start justify-center gap-5">
+            <span className="w-[30px] h-[30px] mt-[2px] shrink-0"><ShuffleIcon /></span>
+            <div className="w-[209px] flex flex-col items-center">
+              <span className="text-[20px] font-medium text-primary">{eventLabel}</span>
+              <span className="text-[16px] text-primary">Позиция предприятия</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="px-[40px] pt-[25px] flex flex-col items-start">
         <p className="text-[18px] font-medium text-primary mb-[20px]">
           Запустите этот <span className="font-bold">ПРОЦЕСС</span>
         </p>
-        <StepCard />
+        {/* Clickable step card */}
+        <div
+          onClick={() => onSelectCard(selectedCard === "step" ? null : "step")}
+          className={cn(
+            "w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] pt-5 pb-[30px] flex flex-col items-end cursor-pointer transition-all",
+            selectedCard === "step" && "ring-2 ring-cta",
+          )}
+        >
+          <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mr-[30px] mb-[10px]">
+            {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
+          </button>
+          <div className="w-full px-[100px] mb-[10px]">
+            <div className="flex items-center justify-center h-[30px] rounded-[30px]">
+              <span className="text-[20px] font-medium text-primary text-center">New step</span>
+            </div>
+          </div>
+          <div className="relative w-full mb-[10px]">
+            <div className="absolute left-0 right-0 top-1/2 border-t-2 border-selected" />
+            <div className="flex justify-center">
+              <button className="relative flex items-center gap-[5px] px-[18px] py-[5px] bg-white border-2 border-cta rounded-[30px]">
+                <SortListIcon />
+                <span className="text-[16px] font-medium text-cta">Выполнить действие с данными</span>
+              </button>
+            </div>
+          </div>
+          <div className="w-full px-[30px]">
+            <button className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
+              <span className="text-[18px] text-primary">Пользовательская задача</span>
+              <span className="w-3 h-3 rotate-180"><Chevron /></span>
+            </button>
+          </div>
+        </div>
         <div className="w-[356px] flex flex-col items-center pt-[10px]">
           <div className="w-px h-[60px] border-l-2 border-dashed border-cta" />
-          <button aria-label="Добавить шаг" className="w-[43px] h-[43px] -mt-[2px]">
-            <AddDashedIcon />
-          </button>
+          <button aria-label="Добавить шаг" className="w-[43px] h-[43px] -mt-[2px]"><AddDashedIcon /></button>
         </div>
       </div>
 
@@ -382,11 +705,9 @@ function BotFlow({ rule, onToggle }: { rule: Rule | null; onToggle: () => void }
   );
 }
 
-/* ── События tab ── */
+/* ── События tab (center) ── */
 function EventEditor({
-  rule,
-  appId,
-  onSave,
+  rule, appId, onSave,
 }: {
   rule: Rule | null;
   appId: string | undefined;
@@ -401,7 +722,6 @@ function EventEditor({
   const [nameVal, setNameVal] = useState(rule?.name ?? "");
 
   const { data: entities = [] } = useEntities(appId);
-
   const selectedEntity = entities.find((e) => e.id === rule?.entity_id) ?? entities[0] ?? null;
 
   useEffect(() => {
@@ -432,19 +752,8 @@ function EventEditor({
 
   return (
     <div className="flex flex-col relative" onClick={() => { setShowSrc(false); setShowEntityDd(false); }}>
-      {/* Header */}
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
         <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
-        <div className="flex items-center gap-[7px]">
-          <span className="w-6 h-6"><LinkIcon /></span>
-          <span className="text-[20px] font-semibold text-cta">1</span>
-          <span className="w-6 h-6"><Chevron /></span>
-        </div>
-      </div>
-
-      {/* Settings section header */}
-      <div className="flex items-center justify-between px-[40px] h-[47px] bg-selected shrink-0 mb-[20px]">
-        <span className="text-[18px] font-semibold text-primary">Настройки</span>
         <div className="flex items-center gap-[7px]">
           <span className="w-6 h-6"><LinkIcon /></span>
           <span className="text-[20px] font-semibold text-cta">1</span>
@@ -453,20 +762,18 @@ function EventEditor({
       </div>
 
       <div className="px-[40px] flex flex-col gap-[20px] pb-[30px]">
-        {/* Название */}
         <Row label="Название">
           <div className="w-[580px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
             <input
               value={nameVal}
               onChange={(e) => setNameVal(e.target.value)}
               onBlur={saveName}
-              onKeyDown={(e) => e.key === "Enter" && (e.currentTarget.blur())}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="w-full bg-transparent text-[18px] text-primary outline-none"
             />
           </div>
         </Row>
 
-        {/* Источник события */}
         <Row label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие." labelW={247}>
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
@@ -476,16 +783,10 @@ function EventEditor({
               <span className="truncate">{src}</span>
               <span className={cn("w-3 h-3 shrink-0 transition-transform", showSrc && "rotate-180")}><Chevron /></span>
             </button>
-            {showSrc && (
-              <SourceDropdown
-                value={src}
-                onChange={(v) => { setSrc(v); setShowSrc(false); }}
-              />
-            )}
+            {showSrc && <SourceDropdown value={src} onChange={(v) => { setSrc(v); setShowSrc(false); }} />}
           </div>
         </Row>
 
-        {/* Таблица */}
         <Row label="Таблица" desc="Изменение данных в какой таблице должно вызывать это событие?">
           <div className="flex items-center gap-[10px] w-[580px]" onClick={(e) => e.stopPropagation()}>
             <div className="relative flex-1">
@@ -499,17 +800,11 @@ function EventEditor({
               {showEntityDd && entities.length > 0 && (
                 <div className="absolute top-[44px] left-0 z-50 w-full bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.15)] p-[5px] flex flex-col max-h-[280px] overflow-y-auto">
                   {entities.map((ent) => (
-                    <button
-                      key={ent.id}
-                      onClick={() => {
-                        if (rule) onSave(rule.id, { entity_id: ent.id });
-                        setShowEntityDd(false);
-                      }}
+                    <button key={ent.id}
+                      onClick={() => { onSave(rule.id, { entity_id: ent.id }); setShowEntityDd(false); }}
                       className={cn(
                         "flex items-center gap-[15px] px-[20px] py-[10px] rounded-[20px] text-[16px] font-medium text-primary transition-colors text-left",
-                        ent.id === (rule?.entity_id ?? entities[0]?.id)
-                          ? "bg-selected"
-                          : "bg-white hover:bg-selected/60",
+                        ent.id === (rule.entity_id ?? entities[0]?.id) ? "bg-selected" : "bg-white hover:bg-selected/60",
                       )}
                     >
                       <span className="w-5 h-5 shrink-0"><FileDocIcon /></span>
@@ -519,30 +814,26 @@ function EventEditor({
                 </div>
               )}
             </div>
-            <IconBtn label="Редактировать"><EditIcon /></IconBtn>
+            <button aria-label="Редактировать" className="w-10 h-10 flex items-center justify-center hover:bg-cardbg/40 rounded-full shrink-0 transition-colors">
+              <EditIcon />
+            </button>
           </div>
         </Row>
 
-        {/* Тип изменения данных */}
         <Row label="Тип изменения данных" desc="Изменение данных в какой таблице должно вызывать это событие?" labelW={236}>
           <div className="flex items-center gap-[30px] py-[7px]">
             {POSITIONS_DC.map((p) => {
               const sel = dc === p;
               return (
-                <button
-                  key={p}
-                  onClick={() => handleDcChange(p)}
+                <button key={p} onClick={() => handleDcChange(p)}
                   className={cn(
                     "w-[106px] h-[95px] flex flex-col items-center justify-center gap-[5px] rounded-[5px] box-border border-2 transition-colors",
                     sel ? "bg-selected border-cta" : "border-[#C2DBF8] hover:border-cta/40",
-                  )}
-                >
+                  )}>
                   <span className="w-[39px] h-[39px]">
-                    {p === "Добавить"
-                      ? <WidgetAddIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
-                      : p === "Удалить"
-                        ? <TrashIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
-                        : <DeskEditIcon c={sel ? "#35A7FF" : "#C2DBF8"} />}
+                    {p === "Добавить" ? <WidgetAddIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
+                      : p === "Удалить" ? <TrashIcon c={sel ? "#35A7FF" : "#C2DBF8"} />
+                      : <DeskEditIcon c={sel ? "#35A7FF" : "#C2DBF8"} />}
                   </span>
                   <span className={cn("text-[14px] font-semibold", sel ? "text-cta" : "text-[#C2DBF8]")}>{p}</span>
                 </button>
@@ -551,7 +842,6 @@ function EventEditor({
           </div>
         </Row>
 
-        {/* Условие */}
         <Row label="Условие" desc="Дополнительное условие, проверяемое перед запуском процесса." labelW={273}>
           <div className="flex items-center gap-[10px] w-[580px] py-[7px]">
             <div className="flex-1 h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary">=</div>
@@ -559,13 +849,11 @@ function EventEditor({
           </div>
         </Row>
 
-        {/* Обойти защитные фильтры */}
         <Row label="Обойти защитные фильтры?" desc="Выполните это действие и процессы, которые оно запускает, как если бы в источниках данных не было фильтров безопасности." labelW={259}>
           <div className="py-[7px]"><Toggle on={bypass} onChange={() => setBypass((v) => !v)} /></div>
         </Row>
       </div>
 
-      {/* Отображение */}
       <div className="border-t-2 border-white py-[10px] pb-[30px] flex flex-col gap-[20px] px-[40px]">
         <button onClick={() => setDisplayOpen((v) => !v)} className="flex items-center justify-between py-[7px]">
           <span className="text-[20px] font-bold text-primary">Отображение</span>
@@ -582,10 +870,9 @@ function EventEditor({
   );
 }
 
-/* ── Процесс tab ── */
+/* ── Процесс tab (center) ── */
 function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | undefined }) {
   const { data: entities = [] } = useEntities(appId);
-
   const entityName = entities.find((e) => e.id === rule?.entity_id)?.display_name
     ?? entities[0]?.display_name
     ?? "Таблица";
@@ -607,7 +894,7 @@ function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | unde
         <div className="flex items-center gap-[7px]">
           <span className="w-6 h-6"><LinkIcon /></span>
           <span className="text-[20px] font-semibold text-cta">1</span>
-          <span className="w-6 h-6"><Chevron /></span>
+          <span className="w-3 h-3"><Chevron /></span>
         </div>
       </div>
       <div className="flex flex-col items-center pt-[10px] pb-[40px]">
@@ -649,24 +936,7 @@ function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | unde
   );
 }
 
-/* ── Shared building blocks ── */
-function FlowCard({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div className="w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[20px_30px_30px] flex flex-col items-end">
-      <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mb-[10px]">
-        {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
-      </button>
-      <div className="w-full flex items-start justify-center gap-5">
-        <span className="w-[30px] h-[30px] mt-[2px] shrink-0"><ShuffleIcon /></span>
-        <div className="w-[209px] flex flex-col items-center">
-          <span className="text-[20px] font-medium text-primary">{title}</span>
-          {subtitle && <span className="text-[16px] text-primary">{subtitle}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
+/* ── Shared blocks ── */
 function ProcCard({ icon, title, w = 356 }: { icon: ReactNode; title: string; w?: number }) {
   return (
     <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[20px_30px_30px] flex flex-col items-end" style={{ width: w }}>
@@ -681,7 +951,7 @@ function ProcCard({ icon, title, w = 356 }: { icon: ReactNode; title: string; w?
   );
 }
 
-function Row({ label, desc, labelW = 250, children }: { label: string; desc?: string; labelW?: number; children: React.ReactNode }) {
+function Row({ label, desc, labelW = 250, children }: { label: string; desc?: string; labelW?: number; children: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-[40px]">
       <div className="flex flex-col shrink-0" style={{ width: labelW }}>
@@ -690,14 +960,6 @@ function Row({ label, desc, labelW = 250, children }: { label: string; desc?: st
       </div>
       <div className="flex-1 flex justify-end">{children}</div>
     </div>
-  );
-}
-
-function IconBtn({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <button aria-label={label} title={label} className="w-10 h-10 flex items-center justify-center hover:bg-cardbg/40 rounded-full transition-colors shrink-0">
-      {children}
-    </button>
   );
 }
 
@@ -757,36 +1019,6 @@ function SectionHeader({ title, inset }: { title: string; inset?: boolean }) {
   );
 }
 
-function StepCard() {
-  return (
-    <div className="w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] pt-5 pb-[30px] flex flex-col items-end">
-      <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mr-[30px] mb-[10px]">
-        {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
-      </button>
-      <div className="w-full px-[100px] mb-[10px]">
-        <div className="flex items-center justify-center h-[30px] rounded-[30px]">
-          <span className="text-[20px] font-medium text-primary text-center">New Step</span>
-        </div>
-      </div>
-      <div className="relative w-full mb-[10px]">
-        <div className="absolute left-0 right-0 top-1/2 border-t-2 border-selected" />
-        <div className="flex justify-center">
-          <button className="relative flex items-center gap-[5px] px-[18px] py-[5px] bg-white border-2 border-cta rounded-[30px]">
-            <SortListIcon />
-            <span className="text-[16px] font-medium text-cta">Выполнить действие с данными</span>
-          </button>
-        </div>
-      </div>
-      <div className="w-full px-[30px]">
-        <button className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
-          <span className="text-[18px] text-primary">Пользовательская задача</span>
-          <span className="w-3 h-3 rotate-180"><Chevron /></span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /* ── Source event dropdown ── */
 const SOURCE_OPTIONS = [
   { label: "Приложение", icon: "phone" },
@@ -801,14 +1033,11 @@ function SourceDropdown({ value, onChange }: { value: string; onChange: (v: stri
   return (
     <div className="absolute top-[44px] left-0 z-50 w-[580px] bg-white rounded-[30px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[5px] flex flex-col">
       {SOURCE_OPTIONS.map((opt) => (
-        <button
-          key={opt.label}
-          onClick={() => onChange(opt.label)}
+        <button key={opt.label} onClick={() => onChange(opt.label)}
           className={cn(
             "flex items-center gap-[30px] px-[30px] py-[11px] rounded-[30px] text-[16px] font-medium text-primary transition-colors",
             value === opt.label ? "bg-selected" : "bg-mainbg hover:bg-selected/60",
-          )}
-        >
+          )}>
           <span className="w-6 h-6 shrink-0"><SourceIcon type={opt.icon} /></span>
           {opt.label}
         </button>
@@ -818,48 +1047,12 @@ function SourceDropdown({ value, onChange }: { value: string; onChange: (v: stri
 }
 
 function SourceIcon({ type }: { type: string }) {
-  if (type === "phone") return (
-    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <path d="M9 2 L15 2 C15.6 2 16 2.4 16 3 L16 21 C16 21.6 15.6 22 15 22 L9 22 C8.4 22 8 21.6 8 21 L8 3 C8 2.4 8.4 2 9 2 Z" stroke="#00205F" strokeWidth="1.8" />
-      <circle cx="12" cy="19" r="1" fill="#00205F" />
-    </svg>
-  );
-  if (type === "db") return (
-    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <ellipse cx="12" cy="7" rx="7" ry="3" stroke="#00205F" strokeWidth="1.8" />
-      <path d="M5 7 L5 17 C5 18.65 8.13 20 12 20 C15.87 20 19 18.65 19 17 L19 7" stroke="#00205F" strokeWidth="1.8" />
-      <path d="M5 12 C5 13.65 8.13 15 12 15 C15.87 15 19 13.65 19 12" stroke="#00205F" strokeWidth="1.8" />
-    </svg>
-  );
-  if (type === "clock") return (
-    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <circle cx="12" cy="12" r="9" stroke="#00205F" strokeWidth="1.8" />
-      <path d="M12 7 L12 12 L16 14" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-  if (type === "chat") return (
-    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <path d="M4 4 L20 4 C20.6 4 21 4.4 21 5 L21 15 C21 15.6 20.6 16 20 16 L8 16 L4 20 L4 5 C4 4.4 4.4 4 4 4 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
-      <line x1="8" y1="9" x2="16" y2="9" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="8" y1="12" x2="13" y2="12" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-  if (type === "form") return (
-    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <path d="M6 2 L15 2 L19 6 L19 22 L6 22 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M15 2 L15 6 L19 6" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
-      <line x1="9" y1="11" x2="16" y2="11" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="9" y1="15" x2="16" y2="15" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="9" y1="19" x2="13" y2="19" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-  // gmail
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <rect x="2" y="5" width="20" height="14" rx="1" stroke="#00205F" strokeWidth="1.8" />
-      <path d="M2 6 L12 13 L22 6" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
+  if (type === "phone") return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><path d="M9 2 L15 2 C15.6 2 16 2.4 16 3 L16 21 C16 21.6 15.6 22 15 22 L9 22 C8.4 22 8 21.6 8 21 L8 3 C8 2.4 8.4 2 9 2 Z" stroke="#00205F" strokeWidth="1.8" /><circle cx="12" cy="19" r="1" fill="#00205F" /></svg>;
+  if (type === "db") return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><ellipse cx="12" cy="7" rx="7" ry="3" stroke="#00205F" strokeWidth="1.8" /><path d="M5 7 L5 17 C5 18.65 8.13 20 12 20 C15.87 20 19 18.65 19 17 L19 7" stroke="#00205F" strokeWidth="1.8" /><path d="M5 12 C5 13.65 8.13 15 12 15 C15.87 15 19 13.65 19 12" stroke="#00205F" strokeWidth="1.8" /></svg>;
+  if (type === "clock") return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><circle cx="12" cy="12" r="9" stroke="#00205F" strokeWidth="1.8" /><path d="M12 7 L12 12 L16 14" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  if (type === "chat") return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><path d="M4 4 L20 4 C20.6 4 21 4.4 21 5 L21 15 C21 15.6 20.6 16 20 16 L8 16 L4 20 L4 5 C4 4.4 4.4 4 4 4 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /><line x1="8" y1="9" x2="16" y2="9" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" /><line x1="8" y1="12" x2="13" y2="12" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" /></svg>;
+  if (type === "form") return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><path d="M6 2 L15 2 L19 6 L19 22 L6 22 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /><path d="M15 2 L15 6 L19 6" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /><line x1="9" y1="11" x2="16" y2="11" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" /><line x1="9" y1="15" x2="16" y2="15" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" /><line x1="9" y1="19" x2="13" y2="19" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" /></svg>;
+  return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><rect x="2" y="5" width="20" height="14" rx="1" stroke="#00205F" strokeWidth="1.8" /><path d="M2 6 L12 13 L22 6" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /></svg>;
 }
 
 /* ── Icons ── */
@@ -902,6 +1095,9 @@ function WidgetAddIcon({ c }: { c: string }) {
 function TrashIcon({ c }: { c: string }) {
   return <svg viewBox="0 0 44 44" fill="none" className="w-full h-full"><path d="M11 13 L33 13" stroke={c} strokeWidth="3.66" strokeLinecap="round" /><path d="M17 13 L17 9 L27 9 L27 13" stroke={c} strokeWidth="3.66" /><path d="M14 13 L15 36 L29 36 L30 13" stroke={c} strokeWidth="3.66" strokeLinejoin="round" /></svg>;
 }
+function TrashIconSm() {
+  return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><path d="M6 7 L18 7" stroke="#00205F" strokeWidth="2" strokeLinecap="round" /><path d="M9 7 L9 5 L15 5 L15 7" stroke="#00205F" strokeWidth="2" /><path d="M7.5 7 L8 19 L16 19 L16.5 7" stroke="#00205F" strokeWidth="2" strokeLinejoin="round" /></svg>;
+}
 function DeskEditIcon({ c }: { c: string }) {
   return <svg viewBox="0 0 44 44" fill="none" className="w-full h-full"><rect x="9" y="9" width="22" height="26" rx="2" stroke={c} strokeWidth="3" /><path d="M28 7 L35 14 L24 25 L17 25 L17 18 Z" fill="#F1F6FF" stroke={c} strokeWidth="2.3" strokeLinejoin="round" /></svg>;
 }
@@ -928,4 +1124,21 @@ function GlyphIcon({ n }: { n: number }) {
 }
 function SortListIcon() {
   return <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><line x1="5" y1="7" x2="11" y2="7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="12" x2="11" y2="12" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="17" x2="11" y2="17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><rect x="14" y="5" width="5" height="5" rx="1" stroke="#35A7FF" strokeWidth="2" transform="rotate(90 16 8.5)" /><path d="M17 13 L17 19 L20 16" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+function GearIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><circle cx="12" cy="12" r="3" stroke="#00205F" strokeWidth="1.8" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" /></svg>;
+}
+function ExpandIcon() {
+  return <svg viewBox="0 0 20 20" fill="none" className="w-full h-full"><path d="M3 7 L10 3 L17 7 L17 13 L10 17 L3 13 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /></svg>;
+}
+function DragIcon() {
+  return <svg viewBox="0 0 16 16" fill="none" className="w-full h-full"><circle cx="6" cy="4" r="1.2" fill="#00205F" /><circle cx="10" cy="4" r="1.2" fill="#00205F" /><circle cx="6" cy="8" r="1.2" fill="#00205F" /><circle cx="10" cy="8" r="1.2" fill="#00205F" /><circle cx="6" cy="12" r="1.2" fill="#00205F" /><circle cx="10" cy="12" r="1.2" fill="#00205F" /></svg>;
+}
+function ActionIcon({ id, active }: { id: ActionTypeId; active: boolean }) {
+  const c = active ? "#35A7FF" : "#C2DBF8";
+  if (id === "add_row") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><rect x="3" y="3" width="9" height="9" rx="1" stroke={c} strokeWidth="2" /><rect x="16" y="3" width="9" height="9" rx="1" stroke={c} strokeWidth="2" /><rect x="3" y="16" width="9" height="9" rx="1" stroke={c} strokeWidth="2" /><line x1="20.5" y1="16" x2="20.5" y2="25" stroke={c} strokeWidth="2" strokeLinecap="round" /><line x1="16" y1="20.5" x2="25" y2="20.5" stroke={c} strokeWidth="2" strokeLinecap="round" /></svg>;
+  if (id === "del_row") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><path d="M6 8 L22 8" stroke={c} strokeWidth="2" strokeLinecap="round" /><path d="M10 8 L10 6 L18 6 L18 8" stroke={c} strokeWidth="2" /><path d="M8 8 L9 23 L19 23 L20 8" stroke={c} strokeWidth="2" strokeLinejoin="round" /></svg>;
+  if (id === "set_row") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><rect x="4" y="5" width="15" height="18" rx="1" stroke={c} strokeWidth="2" /><path d="M20 3 L25 8 L17 16 L12 16 L12 11 Z" stroke={c} strokeWidth="1.8" strokeLinejoin="round" /></svg>;
+  if (id === "run_action") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><path d="M8 5 L23 14 L8 23 Z" stroke={c} strokeWidth="2" strokeLinejoin="round" /></svg>;
+  return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><path d="M5 9 L20 9 M5 14 L15 14 M5 19 L12 19" stroke={c} strokeWidth="2" strokeLinecap="round" /><path d="M22 12 L25 9 L22 6" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
