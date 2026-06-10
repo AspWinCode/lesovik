@@ -13,6 +13,8 @@ import { DataSourcesPage } from "@/pages/DataSourcesPage";
 import { ActionsPage } from "@/pages/ActionsPage";
 import { BotPage } from "@/pages/BotPage";
 import { LandingPage } from "@/pages/LandingPage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import { SecurityPage } from "@/pages/SecurityPage";
 
 export function EditorApp() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -37,7 +39,9 @@ export function EditorApp() {
         <Route path="/views"   element={<RequireAuth><ScaleToFit><ViewEditorPage /></ScaleToFit></RequireAuth>} />
         <Route path="/data"    element={<RequireAuth><ScaleToFit><DataSourcesPage /></ScaleToFit></RequireAuth>} />
         <Route path="/actions" element={<RequireAuth><ScaleToFit><ActionsPage /></ScaleToFit></RequireAuth>} />
-        <Route path="/bot"     element={<RequireAuth><ScaleToFit><BotPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/bot"      element={<RequireAuth><ScaleToFit><BotPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/settings" element={<RequireAuth><ScaleToFit><SettingsPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/security" element={<RequireAuth><ScaleToFit><SecurityPage /></ScaleToFit></RequireAuth>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

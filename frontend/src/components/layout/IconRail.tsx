@@ -40,7 +40,7 @@ const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   constructor: "/views",
   data: "/data",
   automation: "/bot",
-  security: "/admin",
+  security: "/security",
 };
 
 export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailProps) {
@@ -50,6 +50,11 @@ export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailP
     onChange(id);
     const route = MODULE_ROUTES[id];
     if (route) navigate(route);
+  }
+
+  function handleSettings() {
+    onSettings?.();
+    navigate("/settings");
   }
 
   return (
@@ -74,7 +79,7 @@ export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailP
       {/* Bottom group: settings + collapse */}
       <div className="mt-auto flex flex-col items-center gap-[15px] pb-[25px]">
         <button
-          onClick={onSettings}
+          onClick={handleSettings}
           aria-label="Настройки"
           title="Настройки"
           className="w-[55px] h-[55px] flex items-center justify-center rounded-nav hover:bg-mainbg/60 transition-colors"
