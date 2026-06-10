@@ -10,6 +10,7 @@ import {
   useDeactivateRule,
   useDeleteRule,
   useUpdateRule,
+  useCreateRule,
 } from "@/shared/hooks/useRules";
 import type { Rule } from "@/shared/api/rules";
 import { useEntities } from "@/shared/hooks/useEntities";
@@ -63,6 +64,9 @@ export function BotPage() {
   const deactivateRule = useDeactivateRule(appId ?? "");
   const deleteRule    = useDeleteRule(appId ?? "");
   const updateRule    = useUpdateRule(appId ?? "");
+  const createRule    = useCreateRule(appId ?? "");
+
+  const { data: allEntities = [] } = useEntities(appId);
 
   useEffect(() => {
     if (rules.length > 0 && !activeRuleId) setActiveRuleId(rules[0].id);
@@ -85,6 +89,20 @@ export function BotPage() {
     deleteRule.mutate(ruleId);
     if (activeRuleId === ruleId) setActiveRuleId(rules.find((r) => r.id !== ruleId)?.id ?? null);
     setOpenMenuId(null);
+  }
+
+  function handleCreate() {
+    const firstEntityId = allEntities[0]?.id;
+    if (!appId || !firstEntityId) {
+      window.alert("Сначала создайте таблицу в разделе Данные");
+      return;
+    }
+    const name = window.prompt("Название правила:", "Новое правило");
+    if (!name || !name.trim()) return;
+    createRule.mutate(
+      { name: name.trim(), entity_id: firstEntityId, trigger: { event: "record.created", watch_fields: [] } },
+      { onSuccess: (rule) => setActiveRuleId(rule.id) },
+    );
   }
 
   function handleRename(ruleId: string) {
@@ -113,7 +131,7 @@ export function BotPage() {
           <h2 className="text-[20px] font-bold text-primary">{leftTitle}</h2>
           <div className="flex items-center gap-5">
             <button aria-label="Поиск" className="w-5 h-5"><SearchIcon /></button>
-            <button aria-label="Добавить" className="w-5 h-5"><PlusIcon /></button>
+            <button aria-label="Добавить" onClick={(e) => { e.stopPropagation(); handleCreate(); }} className="w-5 h-5"><PlusIcon /></button>
             <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center">
               {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
             </button>
