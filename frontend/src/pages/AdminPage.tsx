@@ -236,13 +236,23 @@ const LOG_TABS = [
   { id: "admin", label: "Действия администратора" },
 ];
 
-const MOCK_LOGS = [
-  { time: "2026-05-29 12:03", user: "ivan@mail.ru",   action: "Создал проект «Fitness App»",       level: "info" },
-  { time: "2026-05-29 11:55", user: "admin",           action: "Изменил роль пользователя",          level: "warn" },
-  { time: "2026-05-29 11:40", user: "anna@corp.ru",    action: "Экспортировал базу данных",          level: "info" },
-  { time: "2026-05-29 11:12", user: "dev@example.com", action: "Ошибка сборки прототипа",            level: "error" },
-  { time: "2026-05-29 10:58", user: "ivan@mail.ru",    action: "Добавил пользователя в проект",      level: "info" },
-  { time: "2026-05-29 10:30", user: "anna@corp.ru",    action: "Изменил настройки безопасности",    level: "warn" },
+interface LogEntry {
+  time: string;
+  user: string;
+  action: string;
+  level: "info" | "warn" | "error";
+  ip: string;
+  device: string;
+  json: string;
+}
+
+const MOCK_LOGS: LogEntry[] = [
+  { time: "2026-05-29 12:03", user: "ivan.petrov@company.ru",  action: "Создание проекта",           level: "info",  ip: "192.168.1.33", device: "Chrome / Windows 11", json: '{\n  "timestamp": "2026-05-29T12:03:00.000Z",\n  "project_id": "abc-123",\n  "name": "Fitness App"\n}' },
+  { time: "2026-05-29 11:55", user: "admin",                    action: "Изменил роль пользователя",  level: "warn",  ip: "10.0.0.1",     device: "Firefox / macOS",     json: '{\n  "timestamp": "2026-05-29T11:55:00.000Z",\n  "user_id": "usr-456",\n  "role": "editor"\n}' },
+  { time: "2026-05-29 11:40", user: "anna@corp.ru",             action: "Экспортировал базу данных",  level: "info",  ip: "192.168.2.10", device: "Chrome / Linux",       json: '{\n  "timestamp": "2026-05-29T11:40:00.000Z",\n  "db_id": "db-789",\n  "format": "csv"\n}' },
+  { time: "2026-05-29 11:12", user: "dev@example.com",          action: "Ошибка сборки прототипа",    level: "error", ip: "172.16.0.5",   device: "Safari / iOS",        json: '{\n  "timestamp": "2026-05-29T11:12:00.000Z",\n  "app_id": "app-111",\n  "error": "Build failed"\n}' },
+  { time: "2026-05-29 10:58", user: "ivan.petrov@company.ru",   action: "Добавил пользователя",       level: "info",  ip: "192.168.1.33", device: "Chrome / Windows 11", json: '{\n  "timestamp": "2026-05-29T10:58:00.000Z",\n  "invited": "new@corp.ru"\n}' },
+  { time: "2026-05-29 10:30", user: "anna@corp.ru",             action: "Изменил настройки безопасности", level: "warn", ip: "192.168.2.10", device: "Chrome / Linux",  json: '{\n  "timestamp": "2026-05-29T10:30:00.000Z",\n  "setting": "2fa_required"\n}' },
 ];
 
 const levelColors: Record<string, string> = {
@@ -253,56 +263,134 @@ const levelColors: Record<string, string> = {
 
 function AdminLogs() {
   const [activeTab, setActiveTab] = useState("user");
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
 
   return (
-    <div className="flex flex-col gap-[40px]">
-      <div className="flex flex-col gap-[10px]">
-        <h1 className="text-[40px] font-bold text-primary leading-[150%]">Логи и мониторинг</h1>
-        <p className="text-[24px] font-medium text-primary leading-[150%]">
-          Обзор состояния платформы и ключевых метрик в реальном времени
-        </p>
-      </div>
+    <div className="flex gap-[30px] items-start">
+      {/* Left: list */}
+      <div className="flex flex-col gap-[40px] flex-1 min-w-0">
+        <div className="flex flex-col gap-[10px]">
+          <h1 className="text-[40px] font-bold text-primary leading-[150%]">Логи и мониторинг</h1>
+          <p className="text-[24px] font-medium text-primary leading-[150%]">
+            Обзор состояния платформы и ключевых метрик в реальном времени
+          </p>
+        </div>
 
-      {/* Tab switcher */}
-      <div className="flex items-center bg-white rounded-tab p-[3.6px] gap-2 self-start">
-        {LOG_TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={cn(
-              "px-5 py-[3.6px] rounded-tab text-info text-primary transition-colors",
-              activeTab === t.id ? "bg-cardbg font-semibold" : "hover:bg-mainbg"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+        <div className="flex items-center bg-white rounded-tab p-[3.6px] gap-2 self-start">
+          {LOG_TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={cn(
+                "px-5 py-[3.6px] rounded-tab text-info text-primary transition-colors",
+                activeTab === t.id ? "bg-cardbg font-semibold" : "hover:bg-mainbg"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-      {/* Log table */}
-      <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-mainbg">
-            <tr>
-              <th className="text-left px-6 py-3 text-info font-semibold text-primary">Время</th>
-              <th className="text-left px-6 py-3 text-info font-semibold text-primary">Пользователь</th>
-              <th className="text-left px-6 py-3 text-info font-semibold text-primary">Действие</th>
-              <th className="text-left px-6 py-3 text-info font-semibold text-primary">Уровень</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MOCK_LOGS.map((log, i) => (
-              <tr key={i} className="border-t border-mainbg hover:bg-mainbg/40">
-                <td className="px-6 py-3 text-meta text-primary font-mono">{log.time}</td>
-                <td className="px-6 py-3 text-meta text-primary">{log.user}</td>
-                <td className={cn("px-6 py-3 text-meta", levelColors[log.level])}>{log.action}</td>
-                <td className={cn("px-6 py-3 text-meta font-semibold", levelColors[log.level])}>
-                  {log.level.toUpperCase()}
-                </td>
+        <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-mainbg">
+              <tr>
+                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Время</th>
+                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Пользователь</th>
+                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Действие</th>
+                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Уровень</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {MOCK_LOGS.map((log, i) => (
+                <tr
+                  key={i}
+                  onClick={() => setSelectedLog(log === selectedLog ? null : log)}
+                  className={cn(
+                    "border-t border-mainbg cursor-pointer transition-colors",
+                    log === selectedLog ? "bg-selected" : "hover:bg-mainbg/40"
+                  )}
+                >
+                  <td className="px-6 py-3 text-meta text-primary font-mono">{log.time}</td>
+                  <td className="px-6 py-3 text-meta text-primary">{log.user}</td>
+                  <td className={cn("px-6 py-3 text-meta", levelColors[log.level])}>{log.action}</td>
+                  <td className={cn("px-6 py-3 text-meta font-semibold", levelColors[log.level])}>
+                    {log.level.toUpperCase()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Right: detail panel */}
+      {selectedLog && <LogDetailPanel log={selectedLog} onClose={() => setSelectedLog(null)} />}
+    </div>
+  );
+}
+
+function LogDetailPanel({ log, onClose }: { log: LogEntry; onClose: () => void }) {
+  const criticalityLabel: Record<string, { label: string; color: string }> = {
+    info:  { label: "Низкий",   color: "#20BE4F" },
+    warn:  { label: "Средний",  color: "#FFA600" },
+    error: { label: "Высокий",  color: "#C22A2A" },
+  };
+  const crit = criticalityLabel[log.level];
+
+  return (
+    <div className="w-[420px] shrink-0 bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-mainbg">
+        <span className="text-[22px] font-bold text-primary">Детали действия</span>
+        <button
+          onClick={onClose}
+          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors"
+          aria-label="Закрыть"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+            <path d="M3 3 L13 13 M13 3 L3 13" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Fields */}
+      <div className="flex flex-col gap-[12px] px-6 py-5">
+        {[
+          { label: "Пользователь", value: log.user },
+          { label: "Действие",     value: log.action },
+          { label: "Время",        value: log.time },
+          { label: "IP",           value: log.ip },
+          { label: "Устройство",   value: log.device },
+        ].map(({ label, value }) => (
+          <div key={label} className="flex flex-col gap-[2px]">
+            <span className="text-[13px] text-primary/60">{label}</span>
+            <span className="text-[16px] text-primary">{value}</span>
+          </div>
+        ))}
+        <div className="flex flex-col gap-[2px]">
+          <span className="text-[13px] text-primary/60">Уровень критичности</span>
+          <span className="text-[16px] font-semibold" style={{ color: crit.color }}>{crit.label}</span>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-[15px] px-6 pb-5">
+        <button className="flex-1 h-[38px] border-2 border-cta rounded-[20px] text-[14px] font-semibold text-cta hover:bg-selected transition-colors">
+          Пометить как решённое
+        </button>
+        <button className="flex-1 h-[38px] border-2 border-cta rounded-[20px] text-[14px] font-semibold text-cta hover:bg-selected transition-colors">
+          Экспорт данных
+        </button>
+      </div>
+
+      {/* JSON log */}
+      <div className="flex flex-col gap-[10px] px-6 pb-6">
+        <span className="text-[18px] font-bold text-primary">Подробное сообщение лога</span>
+        <div className="bg-selected rounded-[5px] p-4">
+          <div className="text-[12px] font-semibold text-primary/60 mb-2">JSON / TEXT</div>
+          <pre className="text-[13px] text-primary font-mono whitespace-pre-wrap break-all">{log.json}</pre>
+        </div>
       </div>
     </div>
   );

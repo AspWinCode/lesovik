@@ -255,8 +255,8 @@ export function ViewEditorPage() {
 
           {/* Остальные секции */}
           <SectionDivider title="Отображение" />
-          <SectionDivider title="Поведение" />
-          <SectionDivider title="Документация" />
+          <BehaviorSection />
+          <DocumentationSection />
         </div>
       </div>
 
@@ -318,6 +318,105 @@ function SectionDivider({ title }: { title: string }) {
         <span className="text-[20px] leading-[150%] font-bold text-primary">{title}</span>
         <span className="w-3 h-3 shrink-0"><Chevron open={open} /></span>
       </button>
+    </div>
+  );
+}
+
+function BehaviorSection() {
+  const [open, setOpen] = useState(false);
+  const [offlineEnabled, setOfflineEnabled] = useState(true);
+  const [cacheContent, setCacheContent] = useState(true);
+
+  return (
+    <div className="border-y-2 border-white py-[10px] flex flex-col gap-[20px]">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center justify-between px-[40px] py-[7px]">
+        <span className="text-[20px] leading-[150%] font-bold text-primary">Поведение</span>
+        <span className="w-3 h-3 shrink-0"><Chevron open={open} /></span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-[20px] px-[40px] pb-[10px]">
+          {/* Info banner */}
+          <div className="flex items-center gap-[10px] px-5 py-[10px] bg-[#CBE3FF] rounded-[5px]">
+            <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5 shrink-0">
+              <circle cx="10" cy="10" r="8" stroke="#35A7FF" strokeWidth="2" />
+              <line x1="10" y1="9" x2="10" y2="14" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="10" cy="6.5" r="1" fill="#35A7FF" />
+            </svg>
+            <span className="text-[16px] text-primary">Настройте приложение для работы в автономном режиме.</span>
+          </div>
+
+          <div className="flex flex-col gap-[0px] bg-white rounded-[5px] overflow-hidden">
+            <div className="px-5 py-[15px] bg-[#CBE3FF]">
+              <span className="text-[18px] font-semibold text-primary">Автономное использование</span>
+            </div>
+            {/* Row 1 */}
+            <div className="flex items-center justify-between px-5 py-[20px] border-b border-mainbg">
+              <div className="flex flex-col gap-[5px] max-w-[440px]">
+                <span className="text-[18px] font-semibold text-primary">Приложение может запускаться в автономном режиме</span>
+                <span className="text-[14px] text-primary/70 leading-[1.4]">Разрешите приложению запускаться даже при отсутствии подключения к Интернету. Изменения не будут синхронизированы, пока пользователь снова не подключится к Интернету.</span>
+              </div>
+              <OfflineToggle on={offlineEnabled} onChange={() => setOfflineEnabled((v) => !v)} />
+            </div>
+            {/* Row 2 */}
+            <div className="flex items-center justify-between px-5 py-[20px]">
+              <div className="flex flex-col gap-[5px] max-w-[440px]">
+                <span className="text-[18px] font-semibold text-primary">Сохранить контент для использования в автономном режиме</span>
+                <span className="text-[14px] text-primary/70 leading-[1.4]">Сделать все изображения и файлы доступными в автономном режиме.</span>
+              </div>
+              <OfflineToggle on={cacheContent} onChange={() => setCacheContent((v) => !v)} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OfflineToggle({ on, onChange }: { on: boolean; onChange: () => void }) {
+  return (
+    <button
+      onClick={onChange}
+      role="switch"
+      aria-checked={on}
+      className="relative w-[55px] h-[28px] rounded-[30px] flex items-center px-[3px] transition-colors shrink-0"
+      style={{ background: on ? "#35A7FF" : "#C2DBF8" }}
+    >
+      <span
+        className="w-[22px] h-[22px] rounded-full bg-white shadow transition-transform"
+        style={{ transform: on ? "translateX(27px)" : "translateX(0)" }}
+      />
+    </button>
+  );
+}
+
+function DocumentationSection() {
+  const [open, setOpen] = useState(false);
+  const [link, setLink] = useState("");
+
+  return (
+    <div className="border-y-2 border-white py-[10px] flex flex-col gap-[20px]">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center justify-between px-[40px] py-[7px]">
+        <span className="text-[20px] leading-[150%] font-bold text-primary">Документация</span>
+        <span className="w-3 h-3 shrink-0"><Chevron open={open} /></span>
+      </button>
+      {open && (
+        <div className="flex items-start px-[40px] gap-[40px] pb-[10px]">
+          <div className="flex flex-col shrink-0" style={{ width: 232 }}>
+            <span className="text-[20px] leading-[150%] font-medium text-primary">Ссылка на приложение</span>
+            <span className="text-[14px] leading-[150%] text-primary">Комментарии помогут вам и вашим сотрудникам лучше зафиксировать и понять структуру приложения.</span>
+          </div>
+          <div className="flex-1 flex justify-end">
+            <div className="w-[538px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
+              <input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://..."
+                className="w-full bg-transparent text-[18px] text-primary outline-none placeholder:text-primary/30"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
