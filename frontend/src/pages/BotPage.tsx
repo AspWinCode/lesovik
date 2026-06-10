@@ -678,14 +678,14 @@ function BotFlow({
           <div className="relative w-full mb-[10px]">
             <div className="absolute left-0 right-0 top-1/2 border-t-2 border-selected" />
             <div className="flex justify-center">
-              <button className="relative flex items-center gap-[5px] px-[18px] py-[5px] bg-white border-2 border-cta rounded-[30px]">
+              <button onClick={(e) => e.stopPropagation()} className="relative flex items-center gap-[5px] px-[18px] py-[5px] bg-white border-2 border-cta rounded-[30px]">
                 <SortListIcon />
                 <span className="text-[16px] font-medium text-cta">Выполнить действие с данными</span>
               </button>
             </div>
           </div>
           <div className="w-full px-[30px]">
-            <button className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
+            <button onClick={(e) => e.stopPropagation()} className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
               <span className="text-[18px] text-primary">Пользовательская задача</span>
               <span className="w-3 h-3 rotate-180"><Chevron /></span>
             </button>
