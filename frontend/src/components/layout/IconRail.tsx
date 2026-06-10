@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 
 export type RailModule =
@@ -34,14 +35,30 @@ const items: { id: RailModule; label: string; icon: React.ReactNode }[] = [
  * Узкая (85px) панель-рельс с иконками модулей редактора.
  * Слева на канвасе 1920×1080, начинается под навбаром (top 70px).
  */
+const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
+  home: "/",
+  constructor: "/views",
+  data: "/data",
+  automation: "/bot",
+  security: "/admin",
+};
+
 export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailProps) {
+  const navigate = useNavigate();
+
+  function handleModuleClick(id: RailModule) {
+    onChange(id);
+    const route = MODULE_ROUTES[id];
+    if (route) navigate(route);
+  }
+
   return (
     <aside className="absolute left-0 top-[70px] w-[85px] h-[1010px] bg-white flex flex-col items-center px-[15px]">
       <nav className="flex flex-col gap-[15px] w-[55px] pt-0">
         {items.map((item) => (
           <button
             key={item.id}
-            onClick={() => onChange(item.id)}
+            onClick={() => handleModuleClick(item.id)}
             aria-label={item.label}
             title={item.label}
             className={cn(

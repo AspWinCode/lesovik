@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Navbar } from "@/components/layout/Navbar";
@@ -91,6 +92,7 @@ export function MainPage() {
   const [selectedProject, setSelected] = useState<string | null>(null);
   const [modal, setModal]              = useState<ModalType>(null);
 
+  const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
   const { data, isLoading, isError, refetch } = useApps();
   const createApp = useCreateApp();
@@ -211,6 +213,7 @@ export function MainPage() {
 
         {/* Bottom CTA */}
         <button
+          onClick={() => navigate("/data")}
           className="absolute flex items-center justify-center gap-5
                      bg-cta rounded-btn text-[24px] font-medium text-white
                      hover:bg-active transition-colors cursor-pointer"
