@@ -12,6 +12,7 @@ import {
   updatePage,
   updateView,
   type PageCreate,
+  type PageRead,
   type PageUpdate,
   type ViewCreate,
   type ViewUpdate,
@@ -86,7 +87,11 @@ export function useUpdatePage(appId: string) {
   return useMutation({
     mutationFn: ({ pageId, body }: { pageId: string; body: PageUpdate }) =>
       updatePage(appId, pageId, body),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: PAGES_KEY(appId) }); },
+    onSuccess: (updated: PageRead) => {
+      qc.setQueryData(PAGES_KEY(appId), (old: PageRead[] | undefined) =>
+        old ? old.map((p) => (p.id === updated.id ? updated : p)) : [updated],
+      );
+    },
   });
 }
 

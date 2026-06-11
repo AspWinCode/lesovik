@@ -107,6 +107,10 @@ export function ViewEditorPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   // All view settings live in page.layout (JSONB) so everything persists.
   const [layout, setLayout] = useState<Record<string, unknown>>({});
+  // Keep a ref so patchLayout always reads the latest layout even if called
+  // from a callback that captured a stale closure.
+  const layoutRef = useRef<Record<string, unknown>>({});
+  useEffect(() => { layoutRef.current = layout; }, [layout]);
 
   const viewType = (layout.view_type as ViewType) ?? "table";
   const selectedEntityId = (layout.entity_id as string) ?? "";
@@ -152,7 +156,7 @@ export function ViewEditorPage() {
 
   // Merge a partial into page.layout and persist to backend.
   function patchLayout(partial: Record<string, unknown>) {
-    const next = { ...layout, ...partial };
+    const next = { ...layoutRef.current, ...partial };
     setLayout(next);
     if (!activeView || !appId) return;
     updatePageMutation.mutate({ pageId: activeView, body: { layout: next } });
