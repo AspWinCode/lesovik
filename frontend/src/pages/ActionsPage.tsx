@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
+import { ActionOrderModal } from "@/components/modals/Modals";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useEntities } from "@/shared/hooks/useEntities";
@@ -17,6 +18,7 @@ export function ActionsPage() {
   const [position, setPosition] = useState("основной");
   const [displayOpen, setDisplayOpen] = useState(true);
   const [iconTab, setIconTab] = useState("Все");
+  const [actionOrderOpen, setActionOrderOpen] = useState(false);
 
   const appsQuery = useApps();
   const appId = appsQuery.data?.items[0]?.id;
@@ -99,10 +101,22 @@ export function ActionsPage() {
         style={{ left: 380, top: 70, width: 945, height: 1000 }}
       >
         {/* Title bar */}
-        <div className="h-[60px] flex items-center px-[41px] shrink-0">
+        <div className="h-[60px] flex items-center justify-between px-[41px] shrink-0">
           <h1 className="text-nav font-bold text-primary">
             {workflows.find((w) => w.id === activeAction)?.name ?? activeAction}
           </h1>
+          <button
+            onClick={() => setActionOrderOpen(true)}
+            className="flex items-center gap-2 px-4 h-[32px] border border-cta/40 rounded-btn text-cta text-[13px] hover:bg-cta/10 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+              <line x1="3" y1="4" x2="9" y2="4" stroke="#35A7FF" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="3" y1="8" x2="9" y2="8" stroke="#35A7FF" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="9" y2="12" stroke="#35A7FF" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M12 3v10M10 11l2 2 2-2" stroke="#35A7FF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Порядок
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -221,6 +235,13 @@ export function ActionsPage() {
       </div>
 
       <PreviewPanel projectName="Отчёты" />
+
+      {actionOrderOpen && (
+        <ActionOrderModal
+          viewName={openGroup ? (entities.find((e) => e.id === openGroup)?.display_name ?? "Аналитики") : "Аналитики"}
+          onClose={() => setActionOrderOpen(false)}
+        />
+      )}
     </div>
   );
 }

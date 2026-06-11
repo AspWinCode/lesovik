@@ -517,6 +517,392 @@ export function RolesModal({
 }
 
 /* ─────────────────────────────────────────────────
+   MODAL 5 — Delete confirmation
+───────────────────────────────────────────────── */
+
+export function DeleteDbModal({
+  onClose,
+  onConfirm,
+  name = "Дикая Сибирь",
+}: {
+  onClose: () => void;
+  onConfirm: () => void;
+  name?: string;
+}) {
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 505 }} className="px-10 pb-8">
+        <div className="pt-[30px] mb-4">
+          <h2 className="text-[22px] font-bold text-primary">Удалить «{name}»?</h2>
+        </div>
+        <p className="text-meta text-primary mb-4 leading-[1.6]">
+          Вы уверены, что хотите удалить приложение «{name}»? Это действие нельзя отменить.
+        </p>
+        <div
+          className="flex items-start gap-3 rounded-[10px] px-4 py-3 mb-6"
+          style={{ background: "#EBF4FF" }}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 shrink-0 mt-0.5 text-cta">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          <p className="text-[14px] text-cta leading-[1.5]">
+            При удалении базы данных будут удалены и ее таблицы
+          </p>
+        </div>
+        <ModalButtons onCancel={onClose} onConfirm={onConfirm} confirmLabel="Изменить" />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MODAL 6 — Select database
+───────────────────────────────────────────────── */
+
+export function SelectDbModal({
+  onClose,
+  onNew,
+}: {
+  onClose: () => void;
+  onNew: () => void;
+}) {
+  const [search, setSearch] = useState("");
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 505 }} className="px-10 pb-8">
+        {/* Header with back + close */}
+        <div className="flex items-center gap-3 pt-[30px] mb-5">
+          <button
+            onClick={onClose}
+            className="w-6 h-6 shrink-0 text-primary hover:opacity-70 flex items-center justify-center"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
+              <path d="M19 12H5M12 5l-7 7 7 7" stroke="#00205F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <span className="flex-1 text-[18px] font-bold text-primary">Выберете базу данных</span>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        {/* Search */}
+        <BlueField className="mb-4">
+          <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4 shrink-0 mr-3 text-primary/50">
+            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" />
+            <line x1="13.5" y1="13.5" x2="18" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск"
+            className="w-full bg-transparent outline-none text-[18px] text-primary placeholder-primary/40"
+          />
+        </BlueField>
+
+        {/* DB item */}
+        <div className="flex items-center justify-between px-4 py-3 rounded-[10px] hover:bg-mainbg cursor-pointer mb-3 group transition-colors">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+                <ellipse cx="12" cy="6" rx="8" ry="3" stroke="#35A7FF" strokeWidth="2" />
+                <path d="M4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6" stroke="#35A7FF" strokeWidth="2" />
+                <path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" stroke="#35A7FF" strokeWidth="2" />
+              </svg>
+            </span>
+            <div>
+              <p className="text-[16px] font-semibold text-primary">AppSheet Database</p>
+              <p className="text-[13px] text-primary/50">5 таблиц · you@example.com</p>
+            </div>
+          </div>
+          <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4 text-primary/40 group-hover:text-cta transition-colors">
+            <path d="M10 4h6v6M16 4L4 16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+
+        {/* New DB button */}
+        <button
+          onClick={onNew}
+          className="w-full flex items-center justify-center gap-2 h-[41px] border-2 border-cta rounded-btn text-cta text-meta hover:bg-cta/10 transition-colors"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4">
+            <path d="M10 3v14M3 10h14" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Создайте новую базу данных
+        </button>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MODAL 7 — Action order (drag-reorder)
+───────────────────────────────────────────────── */
+
+const MOCK_ORDERED_ACTIONS = [
+  { id: "1", num: 1, name: "Edit",   type: "Основной"   as const },
+  { id: "2", num: 2, name: "Add",    type: "Встроенный" as const },
+  { id: "3", num: 3, name: "Delire", type: "Встроенный" as const },
+];
+
+export function ActionOrderModal({
+  onClose,
+  viewName = "Аналитики",
+}: {
+  onClose: () => void;
+  viewName?: string;
+}) {
+  const [actions] = useState(MOCK_ORDERED_ACTIONS);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 580 }} className="px-10 pb-8">
+        <div className="flex items-center justify-between pt-[30px] mb-5">
+          <h2 className="text-[18px] font-bold text-primary">
+            Порядок действий для «{viewName}»
+          </h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-[5px] mb-6">
+          {actions.map((action) => (
+            <div
+              key={action.id}
+              className="flex items-center gap-3 h-[46px] px-3 rounded-[5px] bg-mainbg hover:bg-cardbg/60 transition-colors cursor-grab"
+            >
+              <span className="w-4 h-4 text-primary/30 shrink-0">
+                <svg viewBox="0 0 16 16" fill="none" className="w-full h-full">
+                  <circle cx="6"  cy="4"  r="1.2" fill="currentColor" />
+                  <circle cx="10" cy="4"  r="1.2" fill="currentColor" />
+                  <circle cx="6"  cy="8"  r="1.2" fill="currentColor" />
+                  <circle cx="10" cy="8"  r="1.2" fill="currentColor" />
+                  <circle cx="6"  cy="12" r="1.2" fill="currentColor" />
+                  <circle cx="10" cy="12" r="1.2" fill="currentColor" />
+                </svg>
+              </span>
+              <span className="w-5 text-[14px] font-medium text-primary/50 shrink-0">{action.num}</span>
+              <span className="w-5 h-5 shrink-0">
+                <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+                  <ellipse cx="10" cy="5" rx="6" ry="2" stroke="#00205F" strokeWidth="1.6" />
+                  <path d="M4 5v10c0 1.1 2.69 2 6 2s6-.9 6-2V5" stroke="#00205F" strokeWidth="1.6" />
+                  <path d="M4 10c0 1.1 2.69 2 6 2s6-.9 6-2" stroke="#00205F" strokeWidth="1.6" />
+                </svg>
+              </span>
+              <span className="flex-1 text-[15px] font-medium text-primary">{action.name}</span>
+              <span
+                className={cn(
+                  "px-3 py-0.5 rounded-[20px] text-[12px] font-semibold shrink-0",
+                  action.type === "Основной"
+                    ? "bg-cta/10 text-cta"
+                    : "bg-white border border-primary/20 text-primary/60"
+                )}
+              >
+                {action.type}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-5 py-[3px] h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-meta hover:bg-active transition-colors"
+          >
+            Готово
+          </button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MODAL 8 — Formula assistant
+───────────────────────────────────────────────── */
+
+const FORMULA_FUNC_TABS = [
+  "Да/нет", "Математика", "Текст", "Время",
+  "Столбцы", "Списки", "Глубокие ссылки", "Другие",
+];
+
+const FORMULA_ROWS: Record<string, { name: string; type: string; value: string }[]> = {
+  "Да/нет": [
+    { name: "{constant}", type: "boolean", value: "TRUE" },
+    { name: "AND()",      type: "boolean", value: "TRUE/FALSE" },
+    { name: "OR()",       type: "boolean", value: "TRUE/FALSE" },
+    { name: "NOT()",      type: "boolean", value: "TRUE/FALSE" },
+    { name: "IF()",       type: "any",     value: "any" },
+  ],
+  "Математика": [
+    { name: "{constant}", type: "number", value: "1" },
+    { name: "ABS()",      type: "number", value: "number" },
+    { name: "CEILING()",  type: "number", value: "number" },
+    { name: "FLOOR()",    type: "number", value: "number" },
+    { name: "MAX()",      type: "number", value: "number" },
+  ],
+  "Текст": [
+    { name: "{constant}",    type: "text",   value: "\"...\"" },
+    { name: "CONCATENATE()", type: "text",   value: "text" },
+    { name: "LEFT()",        type: "text",   value: "text" },
+    { name: "LEN()",         type: "number", value: "number" },
+    { name: "LOWER()",       type: "text",   value: "text" },
+  ],
+  "Время": [
+    { name: "NOW()",   type: "datetime", value: "datetime" },
+    { name: "TODAY()", type: "date",     value: "date" },
+    { name: "DAY()",   type: "number",   value: "number" },
+    { name: "MONTH()", type: "number",   value: "number" },
+    { name: "YEAR()",  type: "number",   value: "number" },
+  ],
+  "Столбцы": [
+    { name: "[_RowNumber]", type: "number", value: "row#" },
+    { name: "[Row ID]",     type: "text",   value: "id" },
+    { name: "[Модуль]",     type: "text",   value: "text" },
+    { name: "[view]",       type: "app",    value: "view" },
+  ],
+  "Списки": [
+    { name: "LIST()",   type: "list",    value: "list" },
+    { name: "COUNT()",  type: "number",  value: "number" },
+    { name: "IN()",     type: "boolean", value: "TRUE/FALSE" },
+    { name: "SELECT()", type: "list",    value: "list" },
+    { name: "FILTER()", type: "list",    value: "list" },
+  ],
+  "Глубокие ссылки": [
+    { name: "LINKTOROW()",  type: "url", value: "url" },
+    { name: "LINKTOVIEW()", type: "url", value: "url" },
+    { name: "LINKTOFORM()", type: "url", value: "url" },
+  ],
+  "Другие": [
+    { name: "USEREMAIL()", type: "email", value: "email" },
+    { name: "USERNAME()",  type: "name",  value: "name" },
+    { name: "USERROLE()",  type: "text",  value: "role" },
+    { name: "APP()",       type: "app",   value: "app" },
+  ],
+};
+
+export function FormulaAssistantModal({
+  onClose,
+  onSave,
+  columnName = "Название",
+}: {
+  onClose: () => void;
+  onSave: (expr: string) => void;
+  columnName?: string;
+}) {
+  const [expr, setExpr] = useState("=");
+  const [primaryTab, setPrimaryTab] = useState("Пример");
+  const [funcTab, setFuncTab] = useState("Да/нет");
+
+  const rows = FORMULA_ROWS[funcTab] ?? [];
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 680 }} className="px-10 pb-8">
+        <div className="flex items-center justify-between pt-[30px] mb-4">
+          <div>
+            <h2 className="text-[20px] font-bold text-primary">Помощник по формуле</h2>
+            <p className="text-[14px] text-primary/50">= [{columnName}]</p>
+          </div>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        {/* Expression textarea */}
+        <textarea
+          value={expr}
+          onChange={(e) => setExpr(e.target.value)}
+          placeholder="Начните с = для ввода формулы…"
+          rows={3}
+          className="w-full bg-cardbg rounded-[10px] px-5 py-3 text-[18px] text-primary outline-none resize-none placeholder-primary/40 mb-3"
+        />
+
+        {/* Validate row */}
+        <div className="flex items-center gap-4 mb-5">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 shrink-0 text-green-500">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          <button className="text-cta text-meta hover:underline flex items-center gap-1">
+            Тест
+            <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3">
+              <path d="M10 3h3v3M13 3L4 12" stroke="#35A7FF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Primary tabs: Пример / Проводник */}
+        <div className="flex items-center gap-[10px] mb-3">
+          {["Пример", "Проводник"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setPrimaryTab(t)}
+              className={cn(
+                "h-[28px] px-5 rounded-[20px] text-[14px] font-medium transition-colors",
+                primaryTab === t ? "bg-cta text-white" : "bg-mainbg text-primary hover:bg-cardbg"
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Function category tabs */}
+        <div className="flex flex-wrap gap-[6px] mb-3">
+          {FORMULA_FUNC_TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setFuncTab(t)}
+              className={cn(
+                "h-[25px] px-3 rounded-[20px] text-[12px] border transition-colors",
+                funcTab === t
+                  ? "border-cta text-cta bg-cta/10"
+                  : "border-cardbg text-primary/60 hover:border-cta/40"
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Formula table */}
+        <div className="bg-mainbg rounded-[10px] overflow-hidden mb-5" style={{ maxHeight: 200, overflowY: "auto" }}>
+          <table className="w-full text-[13px]">
+            <thead className="sticky top-0 bg-mainbg">
+              <tr className="border-b border-white">
+                <th className="text-left font-semibold text-primary px-4 py-2 w-[200px]">Функция</th>
+                <th className="text-left font-semibold text-primary px-4 py-2 w-[100px]">Тип</th>
+                <th className="text-left font-semibold text-primary px-4 py-2">Результат</th>
+                <th className="text-center font-semibold text-primary px-4 py-2 w-[90px]">Вставить</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i} className="border-b border-white/60 hover:bg-white/70 transition-colors">
+                  <td className="px-4 py-2 text-cta font-medium">{row.name}</td>
+                  <td className="px-4 py-2 text-primary/60">{row.type}</td>
+                  <td className="px-4 py-2 text-primary">{row.value}</td>
+                  <td className="px-4 py-2 text-center">
+                    <button
+                      onClick={() => setExpr((e) => e + row.name)}
+                      className="px-3 py-0.5 border border-cta rounded-[20px] text-cta text-[12px] hover:bg-cta/10 transition-colors"
+                    >
+                      Вставить
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onSave(expr)}
+          confirmLabel="Сохранить"
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
    ICONS (inline SVG stubs)
 ───────────────────────────────────────────────── */
 

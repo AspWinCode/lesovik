@@ -55,6 +55,7 @@ export function BotPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(true);
   const [selectedCard, setSelectedCard] = useState<SelectedCard>(null);
+  const [selectedProcessNode, setSelectedProcessNode] = useState<string | null>(null);
 
   const { data: appsData } = useApps();
   const appId = appsData?.items[0]?.id;
@@ -222,7 +223,14 @@ export function BotPage() {
               onSave={(ruleId, body) => updateRule.mutate({ ruleId, body })}
             />
           )}
-          {botTab === "Процесс" && <ProcessGraph rule={activeRule} appId={appId} />}
+          {botTab === "Процесс" && (
+            <ProcessGraph
+              rule={activeRule}
+              appId={appId}
+              selectedNode={selectedProcessNode}
+              onSelectNode={setSelectedProcessNode}
+            />
+          )}
         </div>
       </div>
 
@@ -230,7 +238,9 @@ export function BotPage() {
       {botTab === "События" ? (
         <PreviewPanel projectName="Profile" />
       ) : botTab === "Процесс" ? (
-        <AutomationPreview />
+        selectedProcessNode
+          ? <ProcessNodeSettingsPanel nodeId={selectedProcessNode} onClose={() => setSelectedProcessNode(null)} />
+          : <AutomationPreview />
       ) : (
         /* Бот tab — context-sensitive Настройки panel */
         <BotSettingsPanel
@@ -295,6 +305,151 @@ function BotItem({
       )}
     </div>
   );
+}
+
+/* ── Right panel: process node settings ── */
+const PROC_ACTION_TYPES = [
+  { id: "email",   label: "Отправить email" },
+  { id: "notify",  label: "Отправить уведомление" },
+  { id: "sms",     label: "SMS" },
+  { id: "webhook", label: "Вызвать webhook" },
+  { id: "file",    label: "Создать новый файл" },
+  { id: "script",  label: "Выполнить сценарий" },
+  { id: "ai",      label: "Задание ИИ" },
+] as const;
+type ProcActionId = typeof PROC_ACTION_TYPES[number]["id"];
+
+function ProcessNodeSettingsPanel({
+  nodeId: _nodeId,
+  onClose,
+}: {
+  nodeId: string;
+  onClose: () => void;
+}) {
+  const [activeType, setActiveType] = useState<ProcActionId>("email");
+  const [emailType, setEmailType] = useState<"attach" | "template">("attach");
+
+  return (
+    <div
+      className="absolute top-[70px] bg-mainbg flex flex-col overflow-y-auto"
+      style={{ left: 1330, width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-[40px] h-[55px] shrink-0">
+        <div className="flex items-center gap-[10px]">
+          <span className="w-6 h-6"><GearIcon /></span>
+          <span className="text-[20px] font-semibold text-primary">Настройки</span>
+        </div>
+        <button onClick={onClose} className="w-5 h-5 text-primary/40 hover:text-primary transition-colors">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-full h-full">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-[15px] px-[30px] pb-[30px]">
+        {/* Action type grid */}
+        <div className="grid grid-cols-3 gap-[10px]">
+          {PROC_ACTION_TYPES.map(({ id, label }) => {
+            const sel = activeType === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveType(id)}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-[6px] h-[80px] rounded-[5px] border-2 transition-colors px-2",
+                  sel ? "bg-selected border-cta" : "border-[#C2DBF8] hover:border-cta/40",
+                )}
+              >
+                <span className="w-[28px] h-[28px]"><ProcActionIcon id={id} active={sel} /></span>
+                <span className={cn("text-[11px] font-semibold text-center leading-[1.2]", sel ? "text-cta" : "text-[#C2DBF8]")}>
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {activeType === "email" && (
+          <>
+            {/* Email type section */}
+            <div className="flex flex-col gap-[8px]">
+              <span className="text-[18px] font-medium text-primary">Тип электронной почты</span>
+              <div className="flex items-center gap-[10px]">
+                {[
+                  { id: "attach" as const, label: "Просмотр вложений приложения" },
+                  { id: "template" as const, label: "Шаблон" },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    onClick={() => setEmailType(id)}
+                    className={cn(
+                      "flex-1 h-[41px] flex items-center justify-center rounded-btn text-[14px] font-medium border-2 transition-colors",
+                      emailType === id ? "border-cta bg-selected text-cta" : "border-cardbg text-primary hover:border-cta/40"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Email form */}
+            <div className="flex flex-col gap-[10px]">
+              <SettingsRow label="Таблица">
+                <button className="flex items-center justify-between gap-5 h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary w-full">
+                  <span>Отчеты</span>
+                  <span className="w-3 h-3 shrink-0"><Chevron /></span>
+                </button>
+              </SettingsRow>
+
+              <SettingsRow label="Кому">
+                <div className="flex items-center gap-[8px] h-[41px] w-full">
+                  <div className="flex-1 h-full bg-cardbg rounded-btn px-5 flex items-center gap-[8px]">
+                    <div className="flex items-center gap-[4px] bg-white rounded-[4px] px-[6px] h-[28px]">
+                      <span className="text-[14px] font-bold text-primary">T</span>
+                    </div>
+                    <input
+                      placeholder="email@example.com"
+                      className="flex-1 bg-transparent text-[16px] text-primary outline-none placeholder-primary/40"
+                    />
+                  </div>
+                  <button className="w-6 h-6 text-primary/40 hover:text-mistake shrink-0 transition-colors">
+                    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+                      <path d="M6 7L18 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      <path d="M9 7L9 5L15 5L15 7" stroke="currentColor" strokeWidth="2" />
+                      <path d="M7.5 7L8 19L16 19L16.5 7" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </SettingsRow>
+            </div>
+          </>
+        )}
+
+        {activeType !== "email" && (
+          <div className="flex flex-col gap-[8px]">
+            <SettingsRow label="Настройки">
+              <div className="h-[41px] bg-cardbg rounded-btn px-5 flex items-center text-[18px] text-primary/40 w-full">
+                Настройте параметры...
+              </div>
+            </SettingsRow>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProcActionIcon({ id, active }: { id: ProcActionId; active: boolean }) {
+  const c = active ? "#35A7FF" : "#C2DBF8";
+  if (id === "email") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><rect x="3" y="6" width="22" height="16" rx="2" stroke={c} strokeWidth="2"/><path d="M3 8l11 8 11-8" stroke={c} strokeWidth="2" strokeLinejoin="round"/></svg>;
+  if (id === "notify") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><path d="M6 20L22 20L22 19L20 16L20 11C20 7.7 17.3 5 14 5 C10.7 5 8 7.7 8 11L8 16L6 19Z" stroke={c} strokeWidth="2" strokeLinejoin="round"/><path d="M11.5 23C12 24 16 24 16.5 23" stroke={c} strokeWidth="2" strokeLinecap="round"/></svg>;
+  if (id === "sms") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><path d="M4 4L24 4C24.6 4 25 4.4 25 5L25 18C25 18.6 24.6 19 24 19L9 19L4 24L4 5C4 4.4 4.4 4 4 4Z" stroke={c} strokeWidth="2" strokeLinejoin="round"/><line x1="9" y1="10" x2="19" y2="10" stroke={c} strokeWidth="2" strokeLinecap="round"/><line x1="9" y1="14" x2="15" y2="14" stroke={c} strokeWidth="2" strokeLinecap="round"/></svg>;
+  if (id === "webhook") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><circle cx="8" cy="14" r="4" stroke={c} strokeWidth="2"/><circle cx="20" cy="8" r="4" stroke={c} strokeWidth="2"/><circle cx="20" cy="20" r="4" stroke={c} strokeWidth="2"/><line x1="12" y1="14" x2="16" y2="10" stroke={c} strokeWidth="2"/><line x1="12" y1="14" x2="16" y2="18" stroke={c} strokeWidth="2"/></svg>;
+  if (id === "file") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><path d="M6 3L18 3L22 7L22 25L6 25Z" stroke={c} strokeWidth="2" strokeLinejoin="round"/><path d="M18 3L18 7L22 7" stroke={c} strokeWidth="2" strokeLinejoin="round"/><line x1="10" y1="13" x2="18" y2="13" stroke={c} strokeWidth="2" strokeLinecap="round"/><line x1="14" y1="10" x2="14" y2="16" stroke={c} strokeWidth="2" strokeLinecap="round"/></svg>;
+  if (id === "script") return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><rect x="3" y="3" width="22" height="22" rx="2" stroke={c} strokeWidth="2"/><path d="M9 11L6 14L9 17" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M19 11L22 14L19 17" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="15" y1="9" x2="13" y2="19" stroke={c} strokeWidth="2" strokeLinecap="round"/></svg>;
+  return <svg viewBox="0 0 28 28" fill="none" className="w-full h-full"><circle cx="14" cy="10" r="4" stroke={c} strokeWidth="2"/><path d="M7 24C7 19.58 10.13 16 14 16S21 19.58 21 24" stroke={c} strokeWidth="2" strokeLinecap="round"/><path d="M20 7L22 9L18 13" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 }
 
 /* ── Right panel: gear illustration (Автоматизация) ── */
@@ -889,7 +1044,17 @@ function EventEditor({
 }
 
 /* ── Процесс tab (center) ── */
-function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | undefined }) {
+function ProcessGraph({
+  rule,
+  appId,
+  selectedNode,
+  onSelectNode,
+}: {
+  rule: Rule | null;
+  appId: string | undefined;
+  selectedNode: string | null;
+  onSelectNode: (id: string | null) => void;
+}) {
   const { data: entities = [] } = useEntities(appId);
   const entityName = entities.find((e) => e.id === rule?.entity_id)?.display_name
     ?? entities[0]?.display_name
@@ -926,7 +1091,12 @@ function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | unde
         </div>
         <span className="text-[12px] text-primary text-center mt-[5px]">К какой таблице применить процесс?</span>
         <span className="w-[43px] h-[43px] my-[5px]"><AddDashedIcon /></span>
-        <ProcCard icon={<ShuffleIcon />} title={`Запуск ${eventLabel}`} />
+        <ProcCard
+          icon={<ShuffleIcon />}
+          title={`Запуск ${eventLabel}`}
+          selected={selectedNode === "trigger"}
+          onClick={() => onSelectNode(selectedNode === "trigger" ? null : "trigger")}
+        />
         <svg viewBox="0 0 520 70" className="w-[520px] h-[70px]" fill="none">
           <path d="M260 0 L260 20 M260 20 L120 20 L120 50 M260 20 L400 20 L400 50" stroke="#35A7FF" strokeWidth="2" />
           <path d="M114 44 L120 50 L126 44 M394 44 L400 50 L406 44" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -935,11 +1105,32 @@ function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | unde
         </svg>
         <div className="flex gap-[78px] items-start">
           <div className="flex flex-col items-center gap-[15px]">
-            <ProcCard icon={<SendIcon />} title="Send_telegram" w={357} />
+            {selectedNode === "send_telegram" ? (
+              <ProcCardCondition
+                icon={<SendIcon />}
+                title="Send_telegram"
+                w={357}
+                onClick={() => onSelectNode(null)}
+              />
+            ) : (
+              <ProcCard
+                icon={<SendIcon />}
+                title="Send_telegram"
+                w={357}
+                selected={false}
+                onClick={() => onSelectNode("send_telegram")}
+              />
+            )}
             <span className="w-[43px] h-[43px]"><AddDashedIcon /></span>
           </div>
           <div className="flex flex-col items-center gap-[15px]">
-            <ProcCard icon={<StatusIcon />} title={`Установить статус\n"Отправлен"`} w={356} />
+            <ProcCard
+              icon={<StatusIcon />}
+              title={`Установить статус\n"Отправлен"`}
+              w={356}
+              selected={selectedNode === "set_status"}
+              onClick={() => onSelectNode(selectedNode === "set_status" ? null : "set_status")}
+            />
             <span className="w-[43px] h-[43px]"><AddDashedIcon /></span>
           </div>
         </div>
@@ -955,15 +1146,68 @@ function ProcessGraph({ rule, appId }: { rule: Rule | null; appId: string | unde
 }
 
 /* ── Shared blocks ── */
-function ProcCard({ icon, title, w = 356 }: { icon: ReactNode; title: string; w?: number }) {
+function ProcCard({
+  icon, title, w = 356, selected, onClick,
+}: {
+  icon: ReactNode; title: string; w?: number;
+  selected?: boolean; onClick?: () => void;
+}) {
   return (
-    <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[20px_30px_30px] flex flex-col items-end" style={{ width: w }}>
+    <div
+      onClick={onClick}
+      className={cn(
+        "bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[20px_30px_30px] flex flex-col items-end transition-all",
+        onClick && "cursor-pointer hover:shadow-md",
+        selected && "ring-2 ring-cta",
+      )}
+      style={{ width: w }}
+    >
       <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mb-[10px]">
         {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
       </button>
       <div className="w-full flex items-start justify-center gap-5">
         <span className="w-[30px] h-[30px] mt-[2px] shrink-0">{icon}</span>
         <span className="w-[209px] text-center text-[20px] font-medium text-primary whitespace-pre-line">{title}</span>
+      </div>
+    </div>
+  );
+}
+
+function ProcCardCondition({
+  icon, title, w = 356, onClick,
+}: {
+  icon: ReactNode; title: string; w?: number; onClick?: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] ring-2 ring-cta p-[20px_30px_20px] flex flex-col items-end cursor-pointer"
+      style={{ width: w }}
+    >
+      <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mb-[10px]">
+        {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
+      </button>
+      <div className="w-full flex items-start justify-center gap-5 mb-[15px]">
+        <span className="w-[30px] h-[30px] mt-[2px] shrink-0">{icon}</span>
+        <span className="w-[209px] text-center text-[20px] font-medium text-primary">{title}</span>
+      </div>
+      {/* Condition branching row */}
+      <div className="w-full flex flex-col gap-[8px]">
+        <div className="flex items-center gap-[8px]">
+          <span className="px-3 py-1 rounded-[20px] text-[12px] font-semibold bg-primary text-white shrink-0">
+            Ответвление по условию
+          </span>
+        </div>
+        <div className="flex items-center gap-[8px] w-full">
+          <div className="flex-1 h-[36px] bg-mainbg rounded-btn px-4 flex items-center text-[14px] text-primary/50">
+            Условие
+          </div>
+          <span className="w-6 h-6 shrink-0 text-primary/40">
+            <svg viewBox="0 0 32 32" fill="none" className="w-full h-full">
+              <path d="M5 7 L27 7 L18 16 L18 26 L14 23 L14 16 Z" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
+import { FormulaAssistantModal, SelectDbModal } from "@/components/modals/Modals";
 import { cn } from "@/lib/cn";
 
 type ColType = "Число" | "Текст" | "Приложение" | "Дата" | "Изображение" | "Список";
@@ -52,9 +53,13 @@ const COLUMNS_BY_SOURCE: Record<string, TableColumn[]> = {
 
 const COL_TYPES: ColType[] = ["Число", "Текст", "Приложение", "Дата", "Изображение", "Список"];
 
+type FormulaModal = { columnId: string; columnName: string } | null;
+
 export function DataSchemaPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
   const [activeSource, setActiveSource] = useState("analytics");
+  const [formulaModal, setFormulaModal] = useState<FormulaModal>(null);
+  const [selectDbOpen, setSelectDbOpen] = useState(false);
 
   const source = SOURCES.find((s) => s.id === activeSource);
   const columns = COLUMNS_BY_SOURCE[activeSource] ?? COLUMNS_BY_SOURCE["analytics"];
@@ -78,7 +83,7 @@ export function DataSchemaPage() {
                 <path fillRule="evenodd" d="M6 2a4 4 0 100 8 4 4 0 000-8zM0 6a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 010 6z" clipRule="evenodd" />
               </svg>
             </button>
-            <button className="text-cta hover:text-active">
+            <button onClick={() => setSelectDbOpen(true)} className="text-cta hover:text-active">
               <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M8 3v10M3 8h10" strokeLinecap="round" />
               </svg>
@@ -245,10 +250,19 @@ export function DataSchemaPage() {
                     </button>
                   </td>
                   <td className="py-2">
-                    <input
-                      defaultValue={col.formula}
-                      className="w-full bg-white border border-cardbg rounded-[6px] px-2 py-1 text-[13px] text-primary focus:outline-none focus:border-cta"
-                    />
+                    <div className="flex items-center gap-1">
+                      <input
+                        defaultValue={col.formula}
+                        className="flex-1 bg-white border border-cardbg rounded-[6px] px-2 py-1 text-[13px] text-primary focus:outline-none focus:border-cta"
+                      />
+                      <button
+                        onClick={() => setFormulaModal({ columnId: col.id, columnName: col.name })}
+                        title="Помощник по формуле"
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-cta/10 text-cta shrink-0 text-[11px] font-bold border border-cta/40"
+                      >
+                        fx
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -265,6 +279,20 @@ export function DataSchemaPage() {
       </main>
 
       <PreviewPanel projectName="Дикая Сибирь" />
+
+      {formulaModal && (
+        <FormulaAssistantModal
+          columnName={formulaModal.columnName}
+          onClose={() => setFormulaModal(null)}
+          onSave={() => setFormulaModal(null)}
+        />
+      )}
+      {selectDbOpen && (
+        <SelectDbModal
+          onClose={() => setSelectDbOpen(false)}
+          onNew={() => setSelectDbOpen(false)}
+        />
+      )}
     </div>
   );
 }
