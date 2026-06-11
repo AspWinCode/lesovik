@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel";
@@ -30,6 +30,30 @@ const POSITIONS = ["первый", "следующий", "средний", "по
 
 const EDITOR_TABS = ["Представления", "Правила формирования", "Дизайн"];
 
+interface PageBlock {
+  id: string;
+  type: "form" | "table" | "button" | "view" | "rich_text" | "metric" | "divider" | "iframe";
+  title: string | null;
+  config: Record<string, unknown>;
+}
+
+const BLOCK_TYPE_META: Record<string, { label: string }> = {
+  form:      { label: "Форма" },
+  table:     { label: "Таблица" },
+  button:    { label: "Кнопка" },
+  view:      { label: "Представление" },
+  rich_text: { label: "Текст" },
+  metric:    { label: "Метрика" },
+  divider:   { label: "Разделитель" },
+  iframe:    { label: "Фрейм" },
+};
+
+const ADDABLE_BLOCKS: { type: PageBlock["type"]; label: string }[] = [
+  { type: "form",   label: "Форма" },
+  { type: "table",  label: "Таблица" },
+  { type: "button", label: "Кнопка" },
+];
+
 export function ViewEditorPage() {
   const [railModule, setRailModule] = useState<RailModule>("constructor");
   const [activeView, setActiveView] = useState<string>("");
@@ -41,6 +65,9 @@ export function ViewEditorPage() {
   const [colMode, setColMode] = useState<"auto" | "manual">("manual");
   const [quickEdit, setQuickEdit] = useState(true);
   const [paramsOpen, setParamsOpen] = useState(true);
+  const [blocksOpen, setBlocksOpen] = useState(true);
+  const [blocks, setBlocks] = useState<PageBlock[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const appsQuery = useApps();
   const appId = appsQuery.data?.items[0]?.id;
@@ -59,7 +86,10 @@ export function ViewEditorPage() {
   // Update name when active view changes
   useEffect(() => {
     const page = pages.find((p) => p.id === activeView);
-    if (page) setName(page.title);
+    if (page) {
+      setName(page.title);
+      setBlocks((page.blocks ?? []) as unknown as PageBlock[]);
+    }
   }, [activeView, pages]);
 
   const navSections: NavSection[] = [
@@ -73,6 +103,25 @@ export function ViewEditorPage() {
   function handleNameBlur() {
     if (!activeView || !appId) return;
     updatePageMutation.mutate({ pageId: activeView, body: { title: name } });
+  }
+
+  function handleBlocksChange(newBlocks: PageBlock[]) {
+    setBlocks(newBlocks);
+    if (!activeView || !appId) return;
+    updatePageMutation.mutate({
+      pageId: activeView,
+      body: { blocks: newBlocks as unknown as Record<string, unknown>[] },
+    });
+  }
+
+  function handleAddBlock(type: PageBlock["type"]) {
+    const newBlock: PageBlock = {
+      id: crypto.randomUUID(),
+      type,
+      title: BLOCK_TYPE_META[type]?.label ?? type,
+      config: {},
+    };
+    handleBlocksChange([...blocks, newBlock]);
   }
 
   if (pagesQuery.isLoading) {
@@ -128,6 +177,19 @@ export function ViewEditorPage() {
         style={{ left: 380, top: 130, width: 945, height: 945 }}
       >
         <div className="flex flex-col gap-[30px] pt-[53px] pb-[40px]">
+          {/* Блоки страницы */}
+          <CollapsibleSection
+            title="Блоки страницы"
+            open={blocksOpen}
+            onToggle={() => setBlocksOpen((v) => !v)}
+          >
+            <BlockCanvas
+              blocks={blocks}
+              onBlocksChange={handleBlocksChange}
+              onAddClick={() => setPickerOpen(true)}
+            />
+          </CollapsibleSection>
+
           {/* Название */}
           <FieldRow title="Название" desc="Уникальное название для этого представления.">
             <div className="w-[538px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
@@ -261,6 +323,13 @@ export function ViewEditorPage() {
       </div>
 
       <PreviewPanel projectName="Предприятие" />
+
+      {pickerOpen && (
+        <BlockPickerModal
+          onAdd={handleAddBlock}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -702,6 +771,161 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   );
 }
 
+/* ── Block canvas ── */
+function BlockCanvas({
+  blocks,
+  onBlocksChange,
+  onAddClick,
+}: {
+  blocks: PageBlock[];
+  onBlocksChange: (b: PageBlock[]) => void;
+  onAddClick: () => void;
+}) {
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  function handleDragStart(index: number) {
+    dragIndexRef.current = index;
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    setDragOverIndex(index);
+  }
+
+  function handleDrop(e: React.DragEvent, dropIndex: number) {
+    e.preventDefault();
+    setDragOverIndex(null);
+    const from = dragIndexRef.current;
+    if (from === null || from === dropIndex) return;
+    const next = [...blocks];
+    const [item] = next.splice(from, 1);
+    next.splice(dropIndex, 0, item);
+    dragIndexRef.current = null;
+    onBlocksChange(next);
+  }
+
+  function handleDragEnd() {
+    setDragOverIndex(null);
+    dragIndexRef.current = null;
+  }
+
+  function handleDelete(id: string) {
+    onBlocksChange(blocks.filter((b) => b.id !== id));
+  }
+
+  const BLOCK_ICONS: Record<string, React.ReactNode> = {
+    form: <FormIcon />,
+    table: <TableIcon />,
+    button: <ButtonBlockIcon />,
+    view: <TableIcon />,
+    rich_text: <DetailsIcon />,
+    metric: <ChartIcon />,
+    divider: <DashboardIcon />,
+    iframe: <MapIcon />,
+  };
+
+  return (
+    <div className="flex flex-col gap-[10px] px-[40px]">
+      {blocks.length === 0 && (
+        <p className="text-[14px] text-primary/40 py-[5px]">
+          Добавьте блоки на страницу
+        </p>
+      )}
+      {blocks.map((block, index) => (
+        <div
+          key={block.id}
+          draggable
+          onDragStart={() => handleDragStart(index)}
+          onDragOver={(e) => handleDragOver(e, index)}
+          onDrop={(e) => handleDrop(e, index)}
+          onDragEnd={handleDragEnd}
+          className={cn(
+            "flex items-center gap-[12px] h-[50px] px-5 rounded-btn cursor-grab active:cursor-grabbing transition-all",
+            dragOverIndex === index && dragIndexRef.current !== index
+              ? "border-2 border-cta bg-cardbg"
+              : "bg-white"
+          )}
+        >
+          <span className="shrink-0 opacity-50"><DragVert /></span>
+          <span className="w-[22px] h-[22px] shrink-0 text-primary/60">
+            {BLOCK_ICONS[block.type] ?? <TableIcon />}
+          </span>
+          <span className="flex-1 text-[16px] text-primary font-medium truncate">
+            {block.title ?? BLOCK_TYPE_META[block.type]?.label ?? block.type}
+          </span>
+          <span className="text-[12px] text-primary/40 shrink-0 font-mono">
+            {BLOCK_TYPE_META[block.type]?.label}
+          </span>
+          <button
+            onClick={() => handleDelete(block.id)}
+            className="shrink-0 hover:bg-red-50 rounded-full p-1 transition-colors"
+            title="Удалить блок"
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={onAddClick}
+        className="flex items-center gap-[8px] w-fit h-[38px] px-5 bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active transition-colors mt-[5px]"
+      >
+        <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+          <line x1="8" y1="2" x2="8" y2="14" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          <line x1="2" y1="8" x2="14" y2="8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        Добавить блок
+      </button>
+    </div>
+  );
+}
+
+function BlockPickerModal({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (type: PageBlock["type"]) => void;
+  onClose: () => void;
+}) {
+  const ICONS: Record<string, React.ReactNode> = {
+    form:   <FormIcon />,
+    table:  <TableIcon />,
+    button: <ButtonBlockIcon />,
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-[10px] shadow-xl p-6 flex flex-col gap-4 min-w-[340px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="text-[20px] font-bold text-primary">Добавить блок</span>
+        <div className="flex gap-4">
+          {ADDABLE_BLOCKS.map((b) => (
+            <button
+              key={b.type}
+              onClick={() => { onAdd(b.type); onClose(); }}
+              className="flex flex-col items-center gap-[8px] w-[96px] h-[90px] bg-mainbg rounded-[8px] justify-center hover:bg-cardbg transition-colors border-2 border-transparent hover:border-cta"
+            >
+              <span className="w-[32px] h-[32px] text-primary">{ICONS[b.type]}</span>
+              <span className="text-[13px] text-primary font-medium">{b.label}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
+          className="text-[14px] text-primary/50 hover:text-primary self-end transition-colors"
+        >
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Small icons ── */
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -844,6 +1068,14 @@ function FormIcon() {
     <svg viewBox="0 0 30 27" fill="none" className="w-full h-full">
       <rect x="1" y="2" width="28" height="8" rx="1" stroke="currentColor" strokeWidth="3" />
       <rect x="1" y="17" width="28" height="8" rx="1" stroke="currentColor" strokeWidth="3" />
+    </svg>
+  );
+}
+function ButtonBlockIcon() {
+  return (
+    <svg viewBox="0 0 35 35" fill="none" className="w-full h-full">
+      <rect x="4" y="10" width="27" height="15" rx="4" stroke="currentColor" strokeWidth="3" />
+      <line x1="12" y1="17.5" x2="23" y2="17.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
     </svg>
   );
 }
