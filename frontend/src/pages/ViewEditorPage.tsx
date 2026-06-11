@@ -83,6 +83,17 @@ const ADDABLE_BLOCKS: { type: PageBlock["type"]; label: string }[] = [
   { type: "button", label: "Кнопка" },
 ];
 
+/**
+ * Generate a unique id. `crypto.randomUUID` only exists in secure contexts
+ * (HTTPS / localhost); the app is served over plain HTTP, where it is
+ * undefined and throws. Fall back to a timestamp+random string.
+ */
+function genId(): string {
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function ViewEditorPage() {
   const [railModule, setRailModule] = useState<RailModule>("constructor");
   const [activeView, setActiveView] = useState<string>("");
@@ -173,7 +184,7 @@ export function ViewEditorPage() {
 
   function handleAddBlock(type: PageBlock["type"]) {
     const newBlock: PageBlock = {
-      id: crypto.randomUUID(),
+      id: genId(),
       type,
       title: BLOCK_TYPE_META[type]?.label ?? type,
       config: {},
@@ -1034,7 +1045,7 @@ function RulesTab({
     const first = fields[0];
     onChange([
       ...rules,
-      { id: crypto.randomUUID(), field: first?.name ?? "", op: "eq", value: "" },
+      { id: genId(), field: first?.name ?? "", op: "eq", value: "" },
     ]);
   }
   function update(id: string, patch: Partial<RuleCond>) {
