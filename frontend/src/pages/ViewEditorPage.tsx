@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel";
-import { PreviewPanel } from "@/components/layout/PreviewPanel";
+import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { usePages, useUpdatePage, useCreatePage, useDeletePage } from "@/shared/hooks/useViews";
 import { useEntities } from "@/shared/hooks/useEntities";
+import { useRecords } from "@/shared/hooks/useRecords";
+import type { FieldRead, EntityRead } from "@/shared/api/entities";
 
 /* ── View types ── */
 type ViewType =
@@ -38,6 +40,32 @@ interface PageBlock {
   config: Record<string, unknown>;
 }
 
+interface RuleCond {
+  id: string;
+  field: string;
+  op: "eq" | "ne" | "gt" | "lt" | "contains" | "empty" | "not_empty";
+  value: string;
+}
+
+interface DesignConfig {
+  accent?: string;
+  theme?: "light" | "dark";
+  density?: "compact" | "normal" | "spacious";
+  show_header?: boolean;
+}
+
+const OP_LABELS: Record<RuleCond["op"], string> = {
+  eq: "равно",
+  ne: "не равно",
+  gt: "больше",
+  lt: "меньше",
+  contains: "содержит",
+  empty: "пусто",
+  not_empty: "не пусто",
+};
+
+const ACCENT_COLORS = ["#35A7FF", "#00205F", "#22C55E", "#F59E0B", "#EF4444", "#8B5CF6"];
+
 const BLOCK_TYPE_META: Record<string, { label: string }> = {
   form:      { label: "Форма" },
   table:     { label: "Таблица" },
@@ -61,16 +89,17 @@ export function ViewEditorPage() {
   const [editorTab, setEditorTab] = useState("Представления");
 
   const [name, setName] = useState("");
-  const [viewType, setViewType] = useState<ViewType>("table");
-  const [selectedEntityId, setSelectedEntityId] = useState<string>("");
   const [entityDdOpen, setEntityDdOpen] = useState(false);
-  const [position, setPosition] = useState("первый");
-  const [colMode, setColMode] = useState<"auto" | "manual">("manual");
-  const [quickEdit, setQuickEdit] = useState(true);
   const [paramsOpen, setParamsOpen] = useState(true);
   const [blocksOpen, setBlocksOpen] = useState(true);
   const [blocks, setBlocks] = useState<PageBlock[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // All view settings live in page.layout (JSONB) so everything persists.
+  const [layout, setLayout] = useState<Record<string, unknown>>({});
+
+  const viewType = (layout.view_type as ViewType) ?? "table";
+  const selectedEntityId = (layout.entity_id as string) ?? "";
+  const position = (layout.position as string) ?? "первый";
 
   const appsQuery = useApps();
   const apps = appsQuery.data?.items ?? [];
@@ -99,10 +128,7 @@ export function ViewEditorPage() {
     if (!activePage) return;
     setName(activePage.title);
     setBlocks((activePage.blocks ?? []) as unknown as PageBlock[]);
-    const eid = activePage.layout?.entity_id as string | undefined;
-    const vt = activePage.layout?.view_type as ViewType | undefined;
-    if (eid) setSelectedEntityId(eid);
-    if (vt) setViewType(vt);
+    setLayout(activePage.layout ?? {});
   }, [activeView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const navSections: NavSection[] = [
@@ -113,28 +139,27 @@ export function ViewEditorPage() {
     },
   ];
 
+  // Merge a partial into page.layout and persist to backend.
+  function patchLayout(partial: Record<string, unknown>) {
+    const next = { ...layout, ...partial };
+    setLayout(next);
+    if (!activeView || !appId) return;
+    updatePageMutation.mutate({ pageId: activeView, body: { layout: next } });
+  }
+
   function handleNameBlur() {
     if (!activeView || !appId) return;
     updatePageMutation.mutate({ pageId: activeView, body: { title: name } });
   }
 
   function handleEntityChange(entityId: string) {
-    setSelectedEntityId(entityId);
     setEntityDdOpen(false);
-    if (!activeView || !appId) return;
-    updatePageMutation.mutate({
-      pageId: activeView,
-      body: { layout: { ...(activePage?.layout ?? {}), entity_id: entityId } },
-    });
+    // Reset column/sort config when the table changes — they reference fields.
+    patchLayout({ entity_id: entityId, sort: [], group_by: [], hidden_columns: [] });
   }
 
   function handleViewTypeChange(vt: ViewType) {
-    setViewType(vt);
-    if (!activeView || !appId) return;
-    updatePageMutation.mutate({
-      pageId: activeView,
-      body: { layout: { ...(activePage?.layout ?? {}), view_type: vt } },
-    });
+    patchLayout({ view_type: vt });
   }
 
   function handleBlocksChange(newBlocks: PageBlock[]) {
@@ -180,6 +205,16 @@ export function ViewEditorPage() {
   }
 
   const selectedEntity = entities.find((e) => e.id === selectedEntityId);
+  const userFields = (selectedEntity?.fields ?? []).filter((f) => !f.is_system);
+
+  // Derived view settings (read from layout with defaults).
+  const sortRules = (layout.sort as { field: string; dir: "asc" | "desc" }[]) ?? [];
+  const hiddenColumns = (layout.hidden_columns as string[]) ?? [];
+  const columnWidth = (layout.column_width as string) ?? "Средняя";
+  const quickEdit = (layout.quick_edit as boolean) ?? true;
+  const colMode = (layout.column_order_mode as "auto" | "manual") ?? "manual";
+  const rules = (layout.rules as RuleCond[]) ?? [];
+  const design = (layout.design as DesignConfig) ?? {};
 
   if (pagesQuery.isLoading || appsQuery.isLoading) {
     return (
@@ -255,6 +290,17 @@ export function ViewEditorPage() {
           <div className="flex items-center justify-center h-full">
             <span className="text-[20px] text-primary/60">Выберите страницу</span>
           </div>
+        ) : editorTab === "Правила формирования" ? (
+          <RulesTab
+            fields={userFields}
+            rules={rules}
+            onChange={(r) => patchLayout({ rules: r })}
+          />
+        ) : editorTab === "Дизайн" ? (
+          <DesignTab
+            design={design}
+            onChange={(d) => patchLayout({ design: d })}
+          />
         ) : (
           <div className="flex flex-col gap-[30px] pt-[53px] pb-[40px]">
             {/* Блоки страницы */}
@@ -341,7 +387,7 @@ export function ViewEditorPage() {
                 {POSITIONS.map((p, i) => (
                   <button
                     key={p}
-                    onClick={() => setPosition(p)}
+                    onClick={() => patchLayout({ position: p })}
                     className={cn(
                       "h-[38px] px-[11px] flex items-center justify-center text-[12px] leading-[150%] font-medium transition-colors whitespace-nowrap box-border",
                       "bg-cardbg",
@@ -364,31 +410,29 @@ export function ViewEditorPage() {
             >
               {/* Сортировка */}
               <FieldRow title="Сортировка" desc="Отсортируйте строки по одному или нескольким столбцам.">
-                <div className="flex flex-col gap-[5px] w-[538px]">
-                  <SortRow column="_RowNumber" />
-                  <SortRow column="Row ID" />
-                  <AddButton />
-                </div>
+                <SortConfig
+                  fields={userFields}
+                  sort={sortRules}
+                  onChange={(s) => patchLayout({ sort: s })}
+                />
               </FieldRow>
 
               {/* Группировка */}
               <FieldRow title="Группировка" desc="Сгруппируйте строки по значениям в одном или нескольких их столбцах.">
-                <div className="w-[538px] py-[7px]">
-                  <AddButton />
-                </div>
-              </FieldRow>
-
-              {/* Групповой агрегат */}
-              <FieldRow title="Групповой агрегат" desc="Отобразить числовую сводку по строкам в каждой группе.">
-                <div className="w-[538px] py-[7px]">
-                  <DropdownPill value="Главное меню" />
-                </div>
+                <GroupConfig
+                  fields={userFields}
+                  groupBy={(layout.group_by as string[]) ?? []}
+                  onChange={(g) => patchLayout({ group_by: g })}
+                />
               </FieldRow>
 
               {viewType === "card" ? (
                 <FieldRow title="Стиль страницы" desc="Как отображаются страницы форм." labelWidth={252}>
                   <div className="flex flex-col gap-[33px] w-[538px]">
-                    <PageStyleSegmented />
+                    <PageStyleSegmented
+                      value={(layout.page_style as string) ?? "Карточки"}
+                      onChange={(v) => patchLayout({ page_style: v })}
+                    />
                     <CardStyleConfig />
                   </div>
                 </FieldRow>
@@ -396,36 +440,62 @@ export function ViewEditorPage() {
                 <>
                   <FieldRow
                     title="Порядок столбцов"
-                    desc="Автоматически или вручную упорядочьте столбцы, отображаемые в представлении."
+                    desc="Выберите, какие столбцы показывать в представлении."
                     labelWidth={267}
                   >
-                    <ColumnOrder mode={colMode} onMode={setColMode} />
+                    <ColumnOrder
+                      mode={colMode}
+                      onMode={(m) => patchLayout({ column_order_mode: m })}
+                      fields={userFields}
+                      hidden={hiddenColumns}
+                      onToggleColumn={(fieldName) => {
+                        const next = hiddenColumns.includes(fieldName)
+                          ? hiddenColumns.filter((c) => c !== fieldName)
+                          : [...hiddenColumns, fieldName];
+                        patchLayout({ hidden_columns: next });
+                      }}
+                    />
                   </FieldRow>
 
                   <FieldRow
                     title="Ширина колонки"
                     desc="Насколько широкими должны быть столбцы?"
                   >
-                    <div className="py-[7px]"><WidthSegmented /></div>
+                    <div className="py-[7px]">
+                      <WidthSegmented value={columnWidth} onChange={(v) => patchLayout({ column_width: v })} />
+                    </div>
                   </FieldRow>
 
                   <FieldRow title="Быстрое редактирование" desc="Разрешить вносить изменения непосредственно в табличное представление.">
                     <div className="py-[7px]">
-                      <Toggle on={quickEdit} onChange={() => setQuickEdit((v) => !v)} />
+                      <Toggle on={quickEdit} onChange={() => patchLayout({ quick_edit: !quickEdit })} />
                     </div>
                   </FieldRow>
                 </>
               )}
             </CollapsibleSection>
 
-            <SectionDivider title="Отображение" />
-            <BehaviorSection />
-            <DocumentationSection />
+            <BehaviorSection
+              behavior={(layout.behavior as { offline?: boolean; cache?: boolean }) ?? {}}
+              onChange={(b) => patchLayout({ behavior: b })}
+            />
+            <DocumentationSection
+              link={(layout.doc_link as string) ?? ""}
+              onChange={(l) => patchLayout({ doc_link: l })}
+            />
           </div>
         )}
       </div>
 
-      <PreviewPanel projectName={app?.name ?? "Приложение"} />
+      <LivePreview
+        appId={appId}
+        appName={app?.name ?? "Приложение"}
+        page={activePage}
+        blocks={blocks}
+        entity={selectedEntity ?? null}
+        hiddenColumns={hiddenColumns}
+        design={design}
+      />
 
       {pickerOpen && (
         <BlockPickerModal
@@ -482,22 +552,19 @@ function CollapsibleSection({
   );
 }
 
-function SectionDivider({ title }: { title: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border-y-2 border-white py-[10px]">
-      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-[40px] py-[7px]">
-        <span className="text-[20px] leading-[150%] font-bold text-primary">{title}</span>
-        <span className="w-3 h-3 shrink-0"><Chevron open={open} /></span>
-      </button>
-    </div>
-  );
-}
 
-function BehaviorSection() {
+function BehaviorSection({
+  behavior,
+  onChange,
+}: {
+  behavior: { offline?: boolean; cache?: boolean };
+  onChange: (b: { offline?: boolean; cache?: boolean }) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const [offlineEnabled, setOfflineEnabled] = useState(true);
-  const [cacheContent, setCacheContent] = useState(true);
+  const offlineEnabled = behavior.offline ?? true;
+  const cacheContent = behavior.cache ?? true;
+  const setOfflineEnabled = () => onChange({ ...behavior, offline: !offlineEnabled });
+  const setCacheContent = () => onChange({ ...behavior, cache: !cacheContent });
 
   return (
     <div className="border-y-2 border-white py-[10px] flex flex-col gap-[20px]">
@@ -527,7 +594,7 @@ function BehaviorSection() {
                 <span className="text-[18px] font-semibold text-primary">Приложение может запускаться в автономном режиме</span>
                 <span className="text-[14px] text-primary/70 leading-[1.4]">Разрешите приложению запускаться даже при отсутствии подключения к Интернету. Изменения не будут синхронизированы, пока пользователь снова не подключится к Интернету.</span>
               </div>
-              <OfflineToggle on={offlineEnabled} onChange={() => setOfflineEnabled((v) => !v)} />
+              <OfflineToggle on={offlineEnabled} onChange={setOfflineEnabled} />
             </div>
             {/* Row 2 */}
             <div className="flex items-center justify-between px-5 py-[20px]">
@@ -535,7 +602,7 @@ function BehaviorSection() {
                 <span className="text-[18px] font-semibold text-primary">Сохранить контент для использования в автономном режиме</span>
                 <span className="text-[14px] text-primary/70 leading-[1.4]">Сделать все изображения и файлы доступными в автономном режиме.</span>
               </div>
-              <OfflineToggle on={cacheContent} onChange={() => setCacheContent((v) => !v)} />
+              <OfflineToggle on={cacheContent} onChange={setCacheContent} />
             </div>
           </div>
         </div>
@@ -561,9 +628,16 @@ function OfflineToggle({ on, onChange }: { on: boolean; onChange: () => void }) 
   );
 }
 
-function DocumentationSection() {
+function DocumentationSection({
+  link,
+  onChange,
+}: {
+  link: string;
+  onChange: (l: string) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const [link, setLink] = useState("");
+  const [draft, setDraft] = useState(link);
+  useEffect(() => { setDraft(link); }, [link]);
 
   return (
     <div className="border-y-2 border-white py-[10px] flex flex-col gap-[20px]">
@@ -580,8 +654,10 @@ function DocumentationSection() {
           <div className="flex-1 flex justify-end">
             <div className="w-[538px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
               <input
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => draft !== link && onChange(draft)}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                 placeholder="https://..."
                 className="w-full bg-transparent text-[18px] text-primary outline-none placeholder:text-primary/30"
               />
@@ -648,56 +724,144 @@ function TypeTile({
   );
 }
 
-function SortRow({ column }: { column: string }) {
-  const [dir, setDir] = useState<"asc" | "desc">("asc");
+/* ── Sort config (real fields, persisted) ── */
+function SortConfig({
+  fields,
+  sort,
+  onChange,
+}: {
+  fields: FieldRead[];
+  sort: { field: string; dir: "asc" | "desc" }[];
+  onChange: (s: { field: string; dir: "asc" | "desc" }[]) => void;
+}) {
+  const usedFields = new Set(sort.map((s) => s.field));
+  const available = fields.filter((f) => !usedFields.has(f.name));
+
+  function addSort() {
+    const first = available[0];
+    if (!first) return;
+    onChange([...sort, { field: first.name, dir: "asc" }]);
+  }
+  function updateSort(idx: number, patch: Partial<{ field: string; dir: "asc" | "desc" }>) {
+    onChange(sort.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  }
+  function removeSort(idx: number) {
+    onChange(sort.filter((_, i) => i !== idx));
+  }
+
   return (
-    <div className="flex items-center gap-[12px] py-[7px]">
-      <div className="flex-1 flex items-center justify-center gap-[10px] h-[41px] px-5 bg-white rounded-btn">
-        <DragDots />
-        <div className="flex items-center gap-[5px]">
-          <BluePill label={column} />
-          <BluePill
-            label={dir === "asc" ? "По возрастанию" : "По убыванию"}
-            onClick={() => setDir((d) => (d === "asc" ? "desc" : "asc"))}
-          />
-        </div>
-      </div>
-      <IconButton label="Редактировать"><EditIcon /></IconButton>
-      <IconButton label="Удалить"><TrashIcon /></IconButton>
+    <div className="flex flex-col gap-[8px] w-[538px]">
+      {sort.length === 0 && (
+        <span className="text-[14px] text-primary/40">Сортировка не задана</span>
+      )}
+      {sort.map((s, idx) => {
+        const fieldLabel = fields.find((f) => f.name === s.field)?.display_name ?? s.field;
+        return (
+          <div key={idx} className="flex items-center gap-[12px]">
+            <div className="flex-1 flex items-center gap-[10px] h-[41px] px-3 bg-white rounded-btn">
+              <span className="w-5 h-5 opacity-40"><DragVert /></span>
+              <select
+                value={s.field}
+                onChange={(e) => updateSort(idx, { field: e.target.value })}
+                className="flex-1 bg-cardbg rounded-btn h-[33px] px-3 text-[16px] text-primary outline-none"
+              >
+                <option value={s.field}>{fieldLabel}</option>
+                {available.map((f) => (
+                  <option key={f.id} value={f.name}>{f.display_name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => updateSort(idx, { dir: s.dir === "asc" ? "desc" : "asc" })}
+                className="bg-cardbg rounded-btn h-[33px] px-3 text-[15px] text-primary whitespace-nowrap"
+              >
+                {s.dir === "asc" ? "По возрастанию" : "По убыванию"}
+              </button>
+            </div>
+            <IconButton label="Удалить"><span onClick={() => removeSort(idx)}><TrashIcon /></span></IconButton>
+          </div>
+        );
+      })}
+      {available.length > 0 && (
+        <button
+          onClick={addSort}
+          className="flex items-center gap-[6px] w-fit h-[36px] px-4 bg-white rounded-btn text-[14px] font-medium text-cta hover:bg-cardbg/40 transition-colors"
+        >
+          <PlusGlyph /> Добавить сортировку
+        </button>
+      )}
     </div>
   );
 }
 
-function BluePill({ label, onClick }: { label: string; onClick?: () => void }) {
+/* ── Group config (real fields, persisted) ── */
+function GroupConfig({
+  fields,
+  groupBy,
+  onChange,
+}: {
+  fields: FieldRead[];
+  groupBy: string[];
+  onChange: (g: string[]) => void;
+}) {
+  const groupable = fields.filter((f) =>
+    ["select", "boolean", "text", "multi_select"].includes(f.field_type),
+  );
+  const used = new Set(groupBy);
+  const available = groupable.filter((f) => !used.has(f.name));
+
   return (
-    <button
-      onClick={onClick}
-      className="flex items-center justify-between gap-2 min-w-[200px] h-[41px] px-[15px] bg-cardbg rounded-btn text-[18px] text-primary"
-    >
-      <span className="truncate">{label}</span>
-      <span className="w-3 h-3 shrink-0"><Chevron open={false} /></span>
-    </button>
+    <div className="flex flex-col gap-[8px] w-[538px] py-[7px]">
+      {groupBy.map((g) => {
+        const label = fields.find((f) => f.name === g)?.display_name ?? g;
+        return (
+          <div key={g} className="flex items-center justify-between h-[41px] px-5 bg-white rounded-btn">
+            <span className="text-[16px] text-primary">{label}</span>
+            <button onClick={() => onChange(groupBy.filter((x) => x !== g))} className="w-6 h-6"><TrashIcon /></button>
+          </div>
+        );
+      })}
+      {available.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => e.target.value && onChange([...groupBy, e.target.value])}
+          className="w-fit h-[36px] px-4 bg-white rounded-btn text-[14px] font-medium text-cta outline-none"
+        >
+          <option value="">+ Добавить группировку</option>
+          {available.map((f) => (
+            <option key={f.id} value={f.name}>{f.display_name}</option>
+          ))}
+        </select>
+      )}
+      {groupBy.length === 0 && available.length === 0 && (
+        <span className="text-[14px] text-primary/40">Нет полей для группировки</span>
+      )}
+    </div>
   );
 }
 
-function AddButton() {
+function PlusGlyph() {
   return (
-    <button
-      aria-label="Добавить"
-      className="w-[96px] h-[39px] flex items-center justify-center bg-white rounded-btn hover:bg-cardbg/40 transition-colors"
-    >
-      <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
-        <line x1="10" y1="3" x2="10" y2="17" stroke="#00205F" strokeWidth="2" strokeLinecap="round" />
-        <line x1="3" y1="10" x2="17" y2="10" stroke="#00205F" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    </button>
+    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+      <line x1="8" y1="3" x2="8" y2="13" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" />
+      <line x1="3" y1="8" x2="13" y2="8" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 
-function ColumnOrder({ mode, onMode }: { mode: "auto" | "manual"; onMode: (m: "auto" | "manual") => void }) {
-  const COLUMNS = ["Текст", "Редактировать", "Добавить"];
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
-
+/* ── Column order (real fields, show/hide persisted) ── */
+function ColumnOrder({
+  mode,
+  onMode,
+  fields,
+  hidden,
+  onToggleColumn,
+}: {
+  mode: "auto" | "manual";
+  onMode: (m: "auto" | "manual") => void;
+  fields: FieldRead[];
+  hidden: string[];
+  onToggleColumn: (fieldName: string) => void;
+}) {
   return (
     <div className="w-[538px]">
       {/* Tabs */}
@@ -723,67 +887,50 @@ function ColumnOrder({ mode, onMode }: { mode: "auto" | "manual"; onMode: (m: "a
       </div>
 
       {/* Panel */}
-      <div className="bg-white rounded-[0_10px_10px_10px] py-[15px] flex flex-col gap-5">
-        <div className="flex items-center justify-between px-[25px] pr-[15px] gap-[15px]">
-          <button className="text-[14px] font-bold text-cta">Выделить все</button>
-          <div className="flex items-center gap-[10px] px-5 py-[5px] bg-mainbg rounded-btn flex-1 max-w-[373px]">
-            <span className="w-[15px] h-[15px]"><SearchSmall /></span>
-            <span className="text-[14px] text-primary/60">Текст</span>
-          </div>
-        </div>
-
-        <div className="flex justify-between pl-[40px] pr-[15px] gap-[10px]">
-          <div className="flex flex-col gap-[15px] flex-1 max-w-[456px]">
-            {COLUMNS.map((c) => (
-              <div key={c} className="flex items-center justify-between h-[41px] px-5 bg-mainbg rounded-btn">
-                <button
-                  onClick={() => setChecked((p) => ({ ...p, [c]: !p[c] }))}
-                  className="flex items-center gap-[15px]"
-                >
-                  <span
-                    className={cn(
-                      "w-[23px] h-[23px] rounded-[5px] border-2 border-primary flex items-center justify-center",
-                      checked[c] && "bg-primary"
-                    )}
-                  >
-                    {checked[c] && (
-                      <svg viewBox="0 0 16 16" className="w-3 h-3"><path d="M3 8 L7 12 L13 4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                    )}
-                  </span>
-                  <span className="text-[18px] text-primary">{c}</span>
-                </button>
-                <div className="flex items-center gap-[15px]">
-                  <span className="w-5 h-5"><DragVert /></span>
-                  <IconButton label="Редактировать"><EditIcon /></IconButton>
-                  <IconButton label="Удалить"><TrashIcon /></IconButton>
-                </div>
-              </div>
-            ))}
-          </div>
-          {/* scrollbar track */}
-          <div className="w-[7px] bg-mainbg rounded-[5px] flex justify-center">
-            <div className="w-[7px] h-[29px] bg-cardbg rounded-[5px]" />
-          </div>
-        </div>
+      <div className="bg-white rounded-[0_10px_10px_10px] py-[15px] flex flex-col gap-3 px-[25px]">
+        {fields.length === 0 && (
+          <span className="text-[14px] text-primary/40">Выберите таблицу, чтобы настроить столбцы</span>
+        )}
+        {mode === "auto" && fields.length > 0 && (
+          <span className="text-[14px] text-primary/50">Все столбцы показываются автоматически</span>
+        )}
+        {mode === "manual" && fields.map((f) => {
+          const visible = !hidden.includes(f.name);
+          return (
+            <div key={f.id} className="flex items-center justify-between h-[41px] px-5 bg-mainbg rounded-btn">
+              <button onClick={() => onToggleColumn(f.name)} className="flex items-center gap-[15px]">
+                <span className={cn(
+                  "w-[23px] h-[23px] rounded-[5px] border-2 border-primary flex items-center justify-center",
+                  visible && "bg-primary",
+                )}>
+                  {visible && (
+                    <svg viewBox="0 0 16 16" className="w-3 h-3"><path d="M3 8 L7 12 L13 4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  )}
+                </span>
+                <span className="text-[18px] text-primary">{f.display_name}</span>
+              </button>
+              <span className="text-[13px] text-primary/40">{f.field_type}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function WidthSegmented() {
+function WidthSegmented({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const OPTS = ["Узкая", "Средняя", "Широкая"];
-  const [active, setActive] = useState("Узкая");
   return (
     <div className="flex">
       {OPTS.map((o, i) => (
         <button
           key={o}
-          onClick={() => setActive(o)}
+          onClick={() => onChange(o)}
           className={cn(
             "h-[41px] px-5 flex items-center text-[18px] font-medium text-primary bg-cardbg border-r border-white",
             i === 0 && "rounded-l-btn",
             i === OPTS.length - 1 && "rounded-r-btn border-r-0",
-            active === o && "border-2 border-cta text-cta z-10"
+            value === o && "border-2 border-cta text-cta z-10"
           )}
         >
           {o}
@@ -793,20 +940,19 @@ function WidthSegmented() {
   );
 }
 
-function PageStyleSegmented() {
+function PageStyleSegmented({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const OPTS = ["Полная", "Карточки", "Список", "Сетка"];
-  const [active, setActive] = useState("Карточки");
   return (
     <div className="flex">
       {OPTS.map((o, i) => (
         <button
           key={o}
-          onClick={() => setActive(o)}
+          onClick={() => onChange(o)}
           className={cn(
             "h-[38px] px-[27px] flex items-center justify-center text-[16px] font-medium text-primary bg-cardbg border-r border-white box-border whitespace-nowrap",
             i === 0 && "rounded-l-btn",
             i === OPTS.length - 1 && "rounded-r-btn border-r-0",
-            active === o && "border-2 border-cta z-10"
+            value === o && "border-2 border-cta z-10"
           )}
         >
           {o}
@@ -872,6 +1018,408 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
       />
     </button>
   );
+}
+
+/* ── Tab: Правила формирования (conditions stored in layout.rules) ── */
+function RulesTab({
+  fields,
+  rules,
+  onChange,
+}: {
+  fields: FieldRead[];
+  rules: RuleCond[];
+  onChange: (r: RuleCond[]) => void;
+}) {
+  function addRule() {
+    const first = fields[0];
+    onChange([
+      ...rules,
+      { id: crypto.randomUUID(), field: first?.name ?? "", op: "eq", value: "" },
+    ]);
+  }
+  function update(id: string, patch: Partial<RuleCond>) {
+    onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function remove(id: string) {
+    onChange(rules.filter((r) => r.id !== id));
+  }
+
+  const needsValue = (op: RuleCond["op"]) => op !== "empty" && op !== "not_empty";
+
+  return (
+    <div className="flex flex-col gap-[25px] pt-[40px] px-[40px] pb-[40px]">
+      <div className="flex flex-col gap-[6px]">
+        <h2 className="text-[22px] font-bold text-primary">Правила формирования</h2>
+        <p className="text-[15px] text-primary/70 max-w-[640px]">
+          Условия фильтрации записей. Показываются только строки, удовлетворяющие
+          всем правилам. Поля берутся из выбранной таблицы.
+        </p>
+      </div>
+
+      {fields.length === 0 && (
+        <div className="px-5 py-[14px] bg-[#CBE3FF] rounded-[8px] text-[15px] text-primary">
+          Сначала выберите таблицу на вкладке «Представления».
+        </div>
+      )}
+
+      <div className="flex flex-col gap-[12px]">
+        {rules.length === 0 && fields.length > 0 && (
+          <span className="text-[15px] text-primary/40">Правил пока нет — все записи отображаются.</span>
+        )}
+        {rules.map((r) => (
+          <div key={r.id} className="flex items-center gap-[10px] bg-white rounded-[10px] px-4 py-3">
+            <span className="text-[14px] text-primary/50 w-[40px]">где</span>
+            <select
+              value={r.field}
+              onChange={(e) => update(r.id, { field: e.target.value })}
+              className="bg-cardbg rounded-btn h-[38px] px-3 text-[15px] text-primary outline-none min-w-[160px]"
+            >
+              {fields.map((f) => (
+                <option key={f.id} value={f.name}>{f.display_name}</option>
+              ))}
+            </select>
+            <select
+              value={r.op}
+              onChange={(e) => update(r.id, { op: e.target.value as RuleCond["op"] })}
+              className="bg-cardbg rounded-btn h-[38px] px-3 text-[15px] text-primary outline-none"
+            >
+              {(Object.keys(OP_LABELS) as RuleCond["op"][]).map((op) => (
+                <option key={op} value={op}>{OP_LABELS[op]}</option>
+              ))}
+            </select>
+            {needsValue(r.op) && (
+              <input
+                value={r.value}
+                onChange={(e) => update(r.id, { value: e.target.value })}
+                placeholder="значение"
+                className="flex-1 bg-cardbg rounded-btn h-[38px] px-3 text-[15px] text-primary outline-none placeholder:text-primary/30"
+              />
+            )}
+            <button onClick={() => remove(r.id)} className="w-7 h-7 shrink-0"><TrashIcon /></button>
+          </div>
+        ))}
+      </div>
+
+      {fields.length > 0 && (
+        <button
+          onClick={addRule}
+          className="flex items-center gap-[8px] w-fit h-[40px] px-5 bg-cta text-white text-[15px] font-medium rounded-btn hover:bg-active transition-colors"
+        >
+          <PlusGlyphWhite /> Добавить правило
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PlusGlyphWhite() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+      <line x1="8" y1="3" x2="8" y2="13" stroke="white" strokeWidth="2" strokeLinecap="round" />
+      <line x1="3" y1="8" x2="13" y2="8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/* ── Tab: Дизайн (stored in layout.design) ── */
+function DesignTab({
+  design,
+  onChange,
+}: {
+  design: DesignConfig;
+  onChange: (d: DesignConfig) => void;
+}) {
+  const accent = design.accent ?? "#35A7FF";
+  const theme = design.theme ?? "light";
+  const density = design.density ?? "normal";
+  const showHeader = design.show_header ?? true;
+
+  return (
+    <div className="flex flex-col gap-[30px] pt-[40px] px-[40px] pb-[40px]">
+      <div className="flex flex-col gap-[6px]">
+        <h2 className="text-[22px] font-bold text-primary">Дизайн</h2>
+        <p className="text-[15px] text-primary/70">Оформление страницы в работающем приложении.</p>
+      </div>
+
+      {/* Accent color */}
+      <div className="flex flex-col gap-[10px]">
+        <span className="text-[18px] font-medium text-primary">Акцентный цвет</span>
+        <div className="flex items-center gap-[12px]">
+          {ACCENT_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => onChange({ ...design, accent: c })}
+              className={cn(
+                "w-[44px] h-[44px] rounded-full transition-transform",
+                accent === c ? "ring-4 ring-offset-2 ring-primary/30 scale-110" : "hover:scale-105",
+              )}
+              style={{ background: c }}
+              aria-label={c}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Theme */}
+      <div className="flex flex-col gap-[10px]">
+        <span className="text-[18px] font-medium text-primary">Тема</span>
+        <div className="flex">
+          {(["light", "dark"] as const).map((t, i) => (
+            <button
+              key={t}
+              onClick={() => onChange({ ...design, theme: t })}
+              className={cn(
+                "h-[41px] px-7 flex items-center text-[16px] font-medium bg-cardbg border-r border-white",
+                i === 0 ? "rounded-l-btn" : "rounded-r-btn border-r-0",
+                theme === t ? "border-2 border-cta text-cta z-10" : "text-primary",
+              )}
+            >
+              {t === "light" ? "Светлая" : "Тёмная"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Density */}
+      <div className="flex flex-col gap-[10px]">
+        <span className="text-[18px] font-medium text-primary">Плотность</span>
+        <div className="flex">
+          {(["compact", "normal", "spacious"] as const).map((d, i, arr) => (
+            <button
+              key={d}
+              onClick={() => onChange({ ...design, density: d })}
+              className={cn(
+                "h-[41px] px-7 flex items-center text-[16px] font-medium bg-cardbg border-r border-white",
+                i === 0 && "rounded-l-btn",
+                i === arr.length - 1 && "rounded-r-btn border-r-0",
+                density === d ? "border-2 border-cta text-cta z-10" : "text-primary",
+              )}
+            >
+              {d === "compact" ? "Компактная" : d === "normal" ? "Обычная" : "Просторная"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Show header */}
+      <div className="flex items-center justify-between max-w-[538px]">
+        <div className="flex flex-col">
+          <span className="text-[18px] font-medium text-primary">Показывать заголовок страницы</span>
+          <span className="text-[14px] text-primary/60">Название страницы вверху в приложении.</span>
+        </div>
+        <Toggle on={showHeader} onChange={() => onChange({ ...design, show_header: !showHeader })} />
+      </div>
+
+      {/* Live mini-preview of accent */}
+      <div className="flex flex-col gap-[10px]">
+        <span className="text-[14px] text-primary/50">Предпросмотр кнопки</span>
+        <button
+          className="w-fit px-6 h-[42px] rounded-btn text-white text-[15px] font-medium"
+          style={{ background: accent }}
+        >
+          Кнопка действия
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Live preview of the page being built (right panel) ── */
+function LivePreview({
+  appId,
+  appName,
+  page,
+  blocks,
+  entity,
+  hiddenColumns,
+  design,
+}: {
+  appId: string | undefined;
+  appName: string;
+  page: { title: string } | null;
+  blocks: PageBlock[];
+  entity: EntityRead | null;
+  hiddenColumns: string[];
+  design: DesignConfig;
+}) {
+  const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
+  const accent = design.accent ?? "#35A7FF";
+
+  const recordsQuery = useRecords(appId, entity?.id, { limit: 20 });
+  const records = recordsQuery.data?.items ?? [];
+  const cols = (entity?.fields ?? []).filter(
+    (f) => !f.is_system && !hiddenColumns.includes(f.name),
+  );
+
+  const tabs = [
+    { id: "mobile", label: "Смартфон", icon: (
+      <svg viewBox="0 0 23 23" fill="none" className="w-full h-full">
+        <rect x="4" y="1" width="15" height="21" rx="3" stroke="#00205F" strokeWidth="2"/>
+        <circle cx="11.5" cy="18.5" r="1" fill="#00205F"/>
+      </svg>
+    )},
+    { id: "desktop", label: "Десктоп", icon: (
+      <svg viewBox="0 0 23 23" fill="none" className="w-full h-full">
+        <rect x="1" y="2" width="21" height="14" rx="2" stroke="#00205F" strokeWidth="2"/>
+        <path d="M7 20 L16 20" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M11.5 16 L11.5 20" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      </svg>
+    )},
+  ];
+
+  const frameW = device === "mobile" ? 380 : 540;
+
+  return (
+    <div
+      className="absolute top-[70px] right-0 bg-mainbg flex flex-col items-center gap-[20px] pt-[7px]"
+      style={{ width: 580, height: 1000, borderRadius: "5px 20px 20px 5px" }}
+    >
+      <TabSwitcher
+        tabs={tabs}
+        activeId={device}
+        onChange={(id) => setDevice(id as "mobile" | "desktop")}
+        className="w-[348px]"
+      />
+
+      {/* Phone/desktop frame */}
+      <div
+        className="bg-white overflow-hidden shrink-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] flex flex-col"
+        style={{ width: frameW, height: 760, borderRadius: device === "mobile" ? 40 : 14 }}
+      >
+        {/* App header */}
+        {(design.show_header ?? true) && (
+          <div className="px-5 py-[14px] shrink-0 text-white font-semibold text-[17px]" style={{ background: accent }}>
+            {page?.title ?? appName}
+          </div>
+        )}
+
+        {/* Blocks */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+          {blocks.length === 0 && (
+            <div className="flex-1 flex items-center justify-center text-primary/30 text-[14px] text-center px-6">
+              Добавьте блоки на вкладке «Представления», чтобы увидеть страницу
+            </div>
+          )}
+          {blocks.map((b) => (
+            <PreviewBlock
+              key={b.id}
+              block={b}
+              entity={entity}
+              cols={cols}
+              records={records}
+              accent={accent}
+            />
+          ))}
+        </div>
+      </div>
+
+      <a
+        href="/app/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center gap-3 text-white text-[17px] font-medium rounded-btn px-10 py-[10px] hover:opacity-90 transition-opacity"
+        style={{ width: 331, background: accent }}
+      >
+        Открыть {appName}
+      </a>
+    </div>
+  );
+}
+
+function PreviewBlock({
+  block,
+  entity,
+  cols,
+  records,
+  accent,
+}: {
+  block: PageBlock;
+  entity: EntityRead | null;
+  cols: FieldRead[];
+  records: { id: string; payload: Record<string, unknown> }[];
+  accent: string;
+}) {
+  if (block.type === "button") {
+    return (
+      <button
+        className="w-full h-[42px] rounded-btn text-white text-[15px] font-medium shrink-0"
+        style={{ background: accent }}
+      >
+        {block.title ?? "Кнопка"}
+      </button>
+    );
+  }
+
+  if (block.type === "form") {
+    return (
+      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
+        <span className="text-[15px] font-semibold text-primary">{block.title ?? "Форма"}</span>
+        {cols.length === 0 && <span className="text-[13px] text-primary/40">Выберите таблицу</span>}
+        {cols.slice(0, 6).map((f) => (
+          <div key={f.id} className="flex flex-col gap-1">
+            <span className="text-[12px] text-primary/60">{f.display_name}{f.is_required && " *"}</span>
+            <div className="h-[34px] bg-mainbg rounded-btn px-3 flex items-center text-[13px] text-primary/30">
+              {f.field_type === "boolean" ? "☐" : `Введите ${f.display_name.toLowerCase()}`}
+            </div>
+          </div>
+        ))}
+        <button className="mt-1 h-[36px] rounded-btn text-white text-[14px] font-medium" style={{ background: accent }}>
+          Сохранить
+        </button>
+      </div>
+    );
+  }
+
+  // table (default)
+  return (
+    <div className="border border-cardbg rounded-[10px] overflow-hidden">
+      <div className="px-3 py-2 bg-mainbg text-[14px] font-semibold text-primary flex items-center justify-between">
+        <span>{block.title ?? entity?.display_name ?? "Таблица"}</span>
+        <span className="text-[12px] text-primary/40 font-normal">{records.length} записей</span>
+      </div>
+      {cols.length === 0 ? (
+        <div className="px-3 py-4 text-[13px] text-primary/40">Выберите таблицу на вкладке «Представления»</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-cardbg">
+                {cols.slice(0, 4).map((f) => (
+                  <th key={f.id} className="px-2 py-1.5 text-[11px] font-semibold text-primary/60 whitespace-nowrap">
+                    {f.display_name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.slice(0, 8).map((rec) => (
+                <tr key={rec.id} className="border-b border-mainbg last:border-0">
+                  {cols.slice(0, 4).map((f) => (
+                    <td key={f.id} className="px-2 py-1.5 text-[12px] text-primary whitespace-nowrap max-w-[120px] truncate">
+                      {formatPreviewCell(rec.payload[f.name], f)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {records.length === 0 && (
+                <tr><td colSpan={4} className="px-2 py-3 text-[12px] text-primary/30">Нет записей</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatPreviewCell(value: unknown, field: FieldRead): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (field.field_type === "boolean") return value ? "✓" : "✗";
+  if (field.field_type === "select") {
+    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    return choices.find((c) => c.value === value)?.label ?? String(value);
+  }
+  return String(value);
 }
 
 /* ── Block canvas ── */
@@ -1038,19 +1586,6 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-function DragDots() {
-  return (
-    <svg viewBox="0 0 13 21" fill="none" className="w-[13px] h-[20px]">
-      {[5, 10, 15].map((y) => (
-        <g key={y}>
-          <circle cx="4" cy={y} r="2" fill="#00205F" />
-          <circle cx="9" cy={y} r="2" fill="#00205F" />
-        </g>
-      ))}
-    </svg>
-  );
-}
-
 function DragVert() {
   return (
     <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
@@ -1080,15 +1615,6 @@ function TrashIcon() {
       <path d="M5 7 L19 7" stroke="#00205F" strokeWidth="2" strokeLinecap="round" />
       <path d="M9 7 L9 5 L15 5 L15 7" stroke="#00205F" strokeWidth="2" />
       <path d="M7 7 L7.5 20 L16.5 20 L17 7" stroke="#00205F" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function SearchSmall() {
-  return (
-    <svg viewBox="0 0 15 15" fill="none" className="w-full h-full">
-      <circle cx="6.5" cy="6.5" r="4.5" stroke="#00205F" strokeWidth="1.6" />
-      <line x1="10" y1="10" x2="14" y2="14" stroke="#00205F" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
