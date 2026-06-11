@@ -94,6 +94,11 @@ export function MainPage() {
 
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
+
+  function handleSidebarChange(tab: SidebarTab) {
+    if (tab === "templates") { navigate("/templates"); return; }
+    setSidebarTab(tab);
+  }
   const { data, isLoading, isError, refetch } = useApps();
   const createApp = useCreateApp();
 
@@ -116,7 +121,7 @@ export function MainPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar onGroupAddClick={() => setModal("roles")} />
-      <Sidebar active={sidebarTab} onChange={setSidebarTab} />
+      <Sidebar active={sidebarTab} onChange={handleSidebarChange} />
 
       {/* Main content area */}
       <main
