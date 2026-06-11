@@ -67,7 +67,7 @@ export function BotPage() {
   const updateRule    = useUpdateRule(appId ?? "");
   const createRule    = useCreateRule(appId ?? "");
 
-  const { data: allEntities = [] } = useEntities(appId);
+  const { data: allEntities = [], isLoading: entitiesLoading } = useEntities(appId);
 
   useEffect(() => {
     if (rules.length > 0 && !activeRuleId) setActiveRuleId(rules[0].id);
@@ -93,8 +93,9 @@ export function BotPage() {
   }
 
   function handleCreate() {
+    if (!appId || entitiesLoading) return;
     const firstEntityId = allEntities[0]?.id;
-    if (!appId || !firstEntityId) {
+    if (!firstEntityId) {
       window.alert("Сначала создайте таблицу в разделе Данные");
       return;
     }
