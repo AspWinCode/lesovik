@@ -18,18 +18,16 @@ interface ViewNavPanelProps {
   activeViewId: string;
   onSelect: (id: string) => void;
   onAddView?: (sectionId: string) => void;
+  onDeleteView?: (viewId: string) => void;
 }
 
-/**
- * Панель навигации по представлениям приложения (290px).
- * Расположена справа от IconRail: left 85px, top 70px.
- */
 export function ViewNavPanel({
   title = "UX/UI",
   sections,
   activeViewId,
   onSelect,
   onAddView,
+  onDeleteView,
 }: ViewNavPanelProps) {
   const [systemOpen, setSystemOpen] = useState(false);
 
@@ -59,12 +57,7 @@ export function ViewNavPanel({
         {sections.map((section, idx) => (
           <div key={section.id} className="flex flex-col gap-[10px]">
             <div className="flex items-center justify-between px-[15px] h-[27px]">
-              <span
-                className={cn(
-                  "text-[18px] leading-[150%] font-bold",
-                  idx === 0 ? "text-cta" : "text-primary"
-                )}
-              >
+              <span className={cn("text-[18px] leading-[150%] font-bold", idx === 0 ? "text-cta" : "text-primary")}>
                 {section.title}
               </span>
               <button
@@ -76,12 +69,17 @@ export function ViewNavPanel({
               </button>
             </div>
 
+            {section.views.length === 0 && (
+              <p className="text-[13px] text-primary/40 px-[15px]">Нет страниц — нажмите +</p>
+            )}
+
             {section.views.map((view) => (
               <NavPill
                 key={view.id}
                 label={view.label}
                 active={view.id === activeViewId}
                 onClick={() => onSelect(view.id)}
+                onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
               />
             ))}
           </div>
@@ -109,20 +107,47 @@ export function ViewNavPanel({
   );
 }
 
-function NavPill({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function NavPill({
+  label,
+  active,
+  onClick,
+  onDelete,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  onDelete?: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-[7px] w-[290px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
-        active ? "bg-selected" : "hover:bg-cardbg/50"
-      )}
+    <div
+      className="relative flex items-center"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      <span className="w-6 h-6 shrink-0">
-        <DbPillIcon highlight={active} />
-      </span>
-      <span className={cn("text-[18px] leading-[150%] font-medium truncate", active ? "text-cta" : "text-primary")}>{label}</span>
-    </button>
+      <button
+        onClick={onClick}
+        className={cn(
+          "flex items-center gap-[7px] w-[290px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
+          active ? "bg-selected" : "hover:bg-cardbg/50"
+        )}
+      >
+        <span className="w-6 h-6 shrink-0"><DbPillIcon highlight={active} /></span>
+        <span className={cn("text-[18px] leading-[150%] font-medium truncate flex-1", active ? "text-cta" : "text-primary")}>
+          {label}
+        </span>
+      </button>
+      {onDelete && hovered && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="absolute right-[10px] w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-100 transition-colors"
+          title="Удалить страницу"
+        >
+          <TrashSmIcon />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -170,6 +195,16 @@ function DbPillIcon({ highlight }: { highlight?: boolean }) {
       <ellipse cx="12" cy="5" rx="8" ry="3" stroke={c} strokeWidth="2" />
       <path d="M4 5 L4 19 C4 20.66 7.58 22 12 22 C16.42 22 20 20.66 20 19 L20 5" stroke={c} strokeWidth="2" />
       <path d="M4 12 C4 13.66 7.58 15 12 15 C16.42 15 20 13.66 20 12" stroke={c} strokeWidth="2" />
+    </svg>
+  );
+}
+
+function TrashSmIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4">
+      <path d="M4 6 L16 6" stroke="#EF4444" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7 6 L7 4 L13 4 L13 6" stroke="#EF4444" strokeWidth="1.6" />
+      <path d="M5.5 6 L6 17 L14 17 L14.5 6" stroke="#EF4444" strokeWidth="1.6" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -5,7 +5,8 @@ import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel"
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
-import { usePages, useUpdatePage } from "@/shared/hooks/useViews";
+import { usePages, useUpdatePage, useCreatePage, useDeletePage } from "@/shared/hooks/useViews";
+import { useEntities } from "@/shared/hooks/useEntities";
 
 /* ── View types ── */
 type ViewType =
@@ -61,6 +62,8 @@ export function ViewEditorPage() {
 
   const [name, setName] = useState("");
   const [viewType, setViewType] = useState<ViewType>("table");
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("");
+  const [entityDdOpen, setEntityDdOpen] = useState(false);
   const [position, setPosition] = useState("первый");
   const [colMode, setColMode] = useState<"auto" | "manual">("manual");
   const [quickEdit, setQuickEdit] = useState(true);
@@ -70,27 +73,37 @@ export function ViewEditorPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const appsQuery = useApps();
-  const appId = appsQuery.data?.items[0]?.id;
+  const apps = appsQuery.data?.items ?? [];
+  const app = apps.find((a) => a.name === "Чат-бот помощник") ?? apps[0];
+  const appId = app?.id;
+
   const pagesQuery = usePages(appId);
   const pages = pagesQuery.data ?? [];
   const updatePageMutation = useUpdatePage(appId ?? "");
+  const createPageMutation = useCreatePage(appId ?? "");
+  const deletePageMutation = useDeletePage(appId ?? "");
 
-  // Set initial active view and name when pages load
+  const { data: entities = [] } = useEntities(appId);
+
+  const activePage = pages.find((p) => p.id === activeView) ?? null;
+
+  // Set initial active view when pages load
   useEffect(() => {
     if (pages.length > 0 && !activeView) {
       setActiveView(pages[0].id);
-      setName(pages[0].title);
     }
   }, [pages, activeView]);
 
-  // Update name when active view changes
+  // Sync local state from active page
   useEffect(() => {
-    const page = pages.find((p) => p.id === activeView);
-    if (page) {
-      setName(page.title);
-      setBlocks((page.blocks ?? []) as unknown as PageBlock[]);
-    }
-  }, [activeView, pages]);
+    if (!activePage) return;
+    setName(activePage.title);
+    setBlocks((activePage.blocks ?? []) as unknown as PageBlock[]);
+    const eid = activePage.layout?.entity_id as string | undefined;
+    const vt = activePage.layout?.view_type as ViewType | undefined;
+    if (eid) setSelectedEntityId(eid);
+    if (vt) setViewType(vt);
+  }, [activeView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const navSections: NavSection[] = [
     {
@@ -103,6 +116,25 @@ export function ViewEditorPage() {
   function handleNameBlur() {
     if (!activeView || !appId) return;
     updatePageMutation.mutate({ pageId: activeView, body: { title: name } });
+  }
+
+  function handleEntityChange(entityId: string) {
+    setSelectedEntityId(entityId);
+    setEntityDdOpen(false);
+    if (!activeView || !appId) return;
+    updatePageMutation.mutate({
+      pageId: activeView,
+      body: { layout: { ...(activePage?.layout ?? {}), entity_id: entityId } },
+    });
+  }
+
+  function handleViewTypeChange(vt: ViewType) {
+    setViewType(vt);
+    if (!activeView || !appId) return;
+    updatePageMutation.mutate({
+      pageId: activeView,
+      body: { layout: { ...(activePage?.layout ?? {}), view_type: vt } },
+    });
   }
 
   function handleBlocksChange(newBlocks: PageBlock[]) {
@@ -124,7 +156,32 @@ export function ViewEditorPage() {
     handleBlocksChange([...blocks, newBlock]);
   }
 
-  if (pagesQuery.isLoading) {
+  function handleAddPage(_sectionId: string) {
+    if (!appId) return;
+    const title = window.prompt("Название страницы:", "Новая страница");
+    if (!title?.trim()) return;
+    const base = title.trim().toLowerCase()
+      .replace(/[а-яё]/gi, (c) => ({ а:"a",б:"b",в:"v",г:"g",д:"d",е:"e",ё:"yo",ж:"zh",з:"z",и:"i",й:"j",к:"k",л:"l",м:"m",н:"n",о:"o",п:"p",р:"r",с:"s",т:"t",у:"u",ф:"f",х:"h",ц:"ts",ч:"ch",ш:"sh",щ:"sch",ъ:"",ы:"y",ь:"",э:"e",ю:"yu",я:"ya" }[c.toLowerCase()] ?? c))
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
+    createPageMutation.mutate(
+      { slug: `${base}-${Date.now().toString(36)}`, title: title.trim() },
+      { onSuccess: (page) => setActiveView(page.id) },
+    );
+  }
+
+  function handleDeletePage(pageId: string) {
+    if (!appId) return;
+    if (!window.confirm("Удалить страницу?")) return;
+    deletePageMutation.mutate(pageId);
+    if (activeView === pageId) {
+      const next = pages.find((p) => p.id !== pageId);
+      setActiveView(next?.id ?? "");
+    }
+  }
+
+  const selectedEntity = entities.find((e) => e.id === selectedEntityId);
+
+  if (pagesQuery.isLoading || appsQuery.isLoading) {
     return (
       <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden flex items-center justify-center">
         <span className="text-[20px] text-primary">Загрузка...</span>
@@ -133,13 +190,18 @@ export function ViewEditorPage() {
   }
 
   return (
-    <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
+    <div
+      className="relative w-[1920px] h-[1080px] bg-white overflow-hidden"
+      onClick={() => setEntityDdOpen(false)}
+    >
       <Navbar />
       <IconRail active={railModule} onChange={setRailModule} />
       <ViewNavPanel
         sections={navSections}
         activeViewId={activeView}
         onSelect={setActiveView}
+        onAddView={handleAddPage}
+        onDeleteView={handleDeletePage}
       />
 
       {/* ── Top tab bar ── */}
@@ -161,14 +223,17 @@ export function ViewEditorPage() {
             </button>
           ))}
         </div>
-        <button
+        <a
+          href={`/app/`}
+          target="_blank"
+          rel="noopener noreferrer"
           className="absolute flex items-center justify-center gap-[10px] px-5 py-[5px]
                      border-2 border-primary rounded-[20px] text-meta font-semibold text-primary
                      hover:bg-cardbg/40 transition-colors"
           style={{ left: 744, top: 10.5, height: 34 }}
         >
           Предпросмотр
-        </button>
+        </a>
       </div>
 
       {/* ── Editor scroll panel ── */}
@@ -176,153 +241,191 @@ export function ViewEditorPage() {
         className="absolute bg-mainbg rounded-[5px] overflow-y-auto"
         style={{ left: 380, top: 130, width: 945, height: 945 }}
       >
-        <div className="flex flex-col gap-[30px] pt-[53px] pb-[40px]">
-          {/* Блоки страницы */}
-          <CollapsibleSection
-            title="Блоки страницы"
-            open={blocksOpen}
-            onToggle={() => setBlocksOpen((v) => !v)}
-          >
-            <BlockCanvas
-              blocks={blocks}
-              onBlocksChange={handleBlocksChange}
-              onAddClick={() => setPickerOpen(true)}
-            />
-          </CollapsibleSection>
-
-          {/* Название */}
-          <FieldRow title="Название" desc="Уникальное название для этого представления.">
-            <div className="w-[538px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={handleNameBlur}
-                className="w-full bg-transparent text-[18px] text-primary outline-none placeholder:text-primary/40"
-                placeholder="Текст"
+        {pages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-[20px]">
+            <span className="text-[20px] text-primary/60">Нет страниц</span>
+            <button
+              onClick={() => handleAddPage("main")}
+              className="px-6 h-[42px] bg-cta text-white rounded-btn text-[16px] font-medium hover:bg-active transition-colors"
+            >
+              + Создать первую страницу
+            </button>
+          </div>
+        ) : !activePage ? (
+          <div className="flex items-center justify-center h-full">
+            <span className="text-[20px] text-primary/60">Выберите страницу</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-[30px] pt-[53px] pb-[40px]">
+            {/* Блоки страницы */}
+            <CollapsibleSection
+              title="Блоки страницы"
+              open={blocksOpen}
+              onToggle={() => setBlocksOpen((v) => !v)}
+            >
+              <BlockCanvas
+                blocks={blocks}
+                onBlocksChange={handleBlocksChange}
+                onAddClick={() => setPickerOpen(true)}
               />
-            </div>
-          </FieldRow>
+            </CollapsibleSection>
 
-          {/* База данных */}
-          <FieldRow title="База данных" desc="Какая таблица или срез будет отображаться.">
-            <div className="flex items-center gap-5 w-[538px]">
-              <DropdownPill value={name} className="flex-1" />
-              <IconButton label="Редактировать"><EditIcon /></IconButton>
-            </div>
-          </FieldRow>
-
-          {/* Тип представления */}
-          <FieldRow title="Тип представления" desc="Каким будет представление." labelWidth={236}>
-            <div className="flex flex-wrap gap-x-[6px] gap-y-[17px] w-[540px] py-[7px]">
-              {VIEW_TYPES.map((t) => (
-                <TypeTile
-                  key={t.id}
-                  label={t.label}
-                  icon={t.icon}
-                  selected={viewType === t.id}
-                  onClick={() => setViewType(t.id)}
+            {/* Название */}
+            <FieldRow title="Название" desc="Уникальное название для этого представления.">
+              <div className="w-[538px] h-[41px] bg-cardbg rounded-btn px-5 flex items-center">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={handleNameBlur}
+                  onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  className="w-full bg-transparent text-[18px] text-primary outline-none placeholder:text-primary/40"
+                  placeholder="Текст"
                 />
-              ))}
-            </div>
-          </FieldRow>
+              </div>
+            </FieldRow>
 
-          {/* Положение */}
-          <FieldRow title="Положение" desc="Где находится кнопка для доступа к представлению.">
-            <div className="flex py-[7px]">
-              {POSITIONS.map((p, i) => (
-                <button
-                  key={p}
-                  onClick={() => setPosition(p)}
-                  className={cn(
-                    "h-[38px] px-[11px] flex items-center justify-center text-[12px] leading-[150%] font-medium transition-colors whitespace-nowrap box-border",
-                    "bg-cardbg",
-                    position === p ? "border-2 border-cta text-cta z-10" : "border border-mainbg text-primary",
-                    i === 0 && "rounded-l-[18px]",
-                    i === POSITIONS.length - 1 && "rounded-r-[18px]"
+            {/* База данных */}
+            <FieldRow title="База данных" desc="Какая таблица будет отображаться.">
+              <div className="flex items-center gap-5 w-[538px]" onClick={(e) => e.stopPropagation()}>
+                <div className="relative flex-1">
+                  <button
+                    onClick={() => setEntityDdOpen((v) => !v)}
+                    className="flex items-center justify-between gap-5 w-full h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary"
+                  >
+                    <span className="truncate">
+                      {selectedEntity?.display_name ?? (entities.length === 0 ? "Нет таблиц" : "Выберите таблицу")}
+                    </span>
+                    <span className={cn("w-3 h-3 shrink-0 transition-transform", entityDdOpen && "rotate-180")}>
+                      <Chevron open={false} />
+                    </span>
+                  </button>
+                  {entityDdOpen && entities.length > 0 && (
+                    <div className="absolute top-[44px] left-0 z-50 w-full bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.15)] p-[5px] flex flex-col max-h-[280px] overflow-y-auto">
+                      {entities.map((ent) => (
+                        <button
+                          key={ent.id}
+                          onClick={() => handleEntityChange(ent.id)}
+                          className={cn(
+                            "flex items-center px-[20px] py-[10px] rounded-[20px] text-[16px] font-medium text-primary transition-colors text-left",
+                            ent.id === selectedEntityId ? "bg-selected text-cta" : "hover:bg-selected/60",
+                          )}
+                        >
+                          {ent.display_name}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </FieldRow>
-
-          {/* ── Параметры представления ── */}
-          <CollapsibleSection
-            title="Параметры представления"
-            open={paramsOpen}
-            onToggle={() => setParamsOpen((v) => !v)}
-          >
-            {/* Сортировка */}
-            <FieldRow title="Сортировка" desc="Отсортируйте строки по одному или нескольким столбцам.">
-              <div className="flex flex-col gap-[5px] w-[538px]">
-                <SortRow column="_RowNumber" />
-                <SortRow column="Row ID" />
-                <AddButton />
+                </div>
+                <IconButton label="Редактировать"><EditIcon /></IconButton>
               </div>
             </FieldRow>
 
-            {/* Группировка */}
-            <FieldRow title="Группировка" desc="Сгруппируйте строки по значениям в одном или нескольких их столбцах.">
-              <div className="w-[538px] py-[7px]">
-                <AddButton />
+            {/* Тип представления */}
+            <FieldRow title="Тип представления" desc="Каким будет представление." labelWidth={236}>
+              <div className="flex flex-wrap gap-x-[6px] gap-y-[17px] w-[540px] py-[7px]">
+                {VIEW_TYPES.map((t) => (
+                  <TypeTile
+                    key={t.id}
+                    label={t.label}
+                    icon={t.icon}
+                    selected={viewType === t.id}
+                    onClick={() => handleViewTypeChange(t.id)}
+                  />
+                ))}
               </div>
             </FieldRow>
 
-            {/* Групповой агрегат */}
-            <FieldRow title="Групповой агрегат" desc="Отобразить числовую сводку по строкам в каждой группе.">
-              <div className="w-[538px] py-[7px]">
-                <DropdownPill value="Главное меню" />
+            {/* Положение */}
+            <FieldRow title="Положение" desc="Где находится кнопка для доступа к представлению.">
+              <div className="flex py-[7px]">
+                {POSITIONS.map((p, i) => (
+                  <button
+                    key={p}
+                    onClick={() => setPosition(p)}
+                    className={cn(
+                      "h-[38px] px-[11px] flex items-center justify-center text-[12px] leading-[150%] font-medium transition-colors whitespace-nowrap box-border",
+                      "bg-cardbg",
+                      position === p ? "border-2 border-cta text-cta z-10" : "border border-mainbg text-primary",
+                      i === 0 && "rounded-l-[18px]",
+                      i === POSITIONS.length - 1 && "rounded-r-[18px]"
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
               </div>
             </FieldRow>
 
-            {viewType === "card" ? (
-              /* ── Параметры карточного представления ── */
-              <FieldRow title="Стиль страницы" desc="Как отображаются страницы форм." labelWidth={252}>
-                <div className="flex flex-col gap-[33px] w-[538px]">
-                  <PageStyleSegmented />
-                  <CardStyleConfig />
+            {/* ── Параметры представления ── */}
+            <CollapsibleSection
+              title="Параметры представления"
+              open={paramsOpen}
+              onToggle={() => setParamsOpen((v) => !v)}
+            >
+              {/* Сортировка */}
+              <FieldRow title="Сортировка" desc="Отсортируйте строки по одному или нескольким столбцам.">
+                <div className="flex flex-col gap-[5px] w-[538px]">
+                  <SortRow column="_RowNumber" />
+                  <SortRow column="Row ID" />
+                  <AddButton />
                 </div>
               </FieldRow>
-            ) : (
-              <>
-                {/* Порядок столбцов */}
-                <FieldRow
-                  title="Порядок столбцов"
-                  desc="Автоматически или вручную упорядочьте столбцы, отображаемые в представлении."
-                  labelWidth={267}
-                >
-                  <ColumnOrder mode={colMode} onMode={setColMode} />
-                </FieldRow>
 
-                {/* Ширина колонки */}
-                <FieldRow
-                  title="Ширина колонки"
-                  desc="Насколько широкими должны быть столбцы? Более узкая ширина позволяет разместить больше данных на экране."
-                >
-                  <div className="py-[7px]">
-                    <WidthSegmented />
+              {/* Группировка */}
+              <FieldRow title="Группировка" desc="Сгруппируйте строки по значениям в одном или нескольких их столбцах.">
+                <div className="w-[538px] py-[7px]">
+                  <AddButton />
+                </div>
+              </FieldRow>
+
+              {/* Групповой агрегат */}
+              <FieldRow title="Групповой агрегат" desc="Отобразить числовую сводку по строкам в каждой группе.">
+                <div className="w-[538px] py-[7px]">
+                  <DropdownPill value="Главное меню" />
+                </div>
+              </FieldRow>
+
+              {viewType === "card" ? (
+                <FieldRow title="Стиль страницы" desc="Как отображаются страницы форм." labelWidth={252}>
+                  <div className="flex flex-col gap-[33px] w-[538px]">
+                    <PageStyleSegmented />
+                    <CardStyleConfig />
                   </div>
                 </FieldRow>
+              ) : (
+                <>
+                  <FieldRow
+                    title="Порядок столбцов"
+                    desc="Автоматически или вручную упорядочьте столбцы, отображаемые в представлении."
+                    labelWidth={267}
+                  >
+                    <ColumnOrder mode={colMode} onMode={setColMode} />
+                  </FieldRow>
 
-                {/* Быстрое редактирование */}
-                <FieldRow title="Быстрое редактирование" desc="Разрешить вносить изменения непосредственно в табличное представление.">
-                  <div className="py-[7px]">
-                    <Toggle on={quickEdit} onChange={() => setQuickEdit((v) => !v)} />
-                  </div>
-                </FieldRow>
-              </>
-            )}
-          </CollapsibleSection>
+                  <FieldRow
+                    title="Ширина колонки"
+                    desc="Насколько широкими должны быть столбцы?"
+                  >
+                    <div className="py-[7px]"><WidthSegmented /></div>
+                  </FieldRow>
 
-          {/* Остальные секции */}
-          <SectionDivider title="Отображение" />
-          <BehaviorSection />
-          <DocumentationSection />
-        </div>
+                  <FieldRow title="Быстрое редактирование" desc="Разрешить вносить изменения непосредственно в табличное представление.">
+                    <div className="py-[7px]">
+                      <Toggle on={quickEdit} onChange={() => setQuickEdit((v) => !v)} />
+                    </div>
+                  </FieldRow>
+                </>
+              )}
+            </CollapsibleSection>
+
+            <SectionDivider title="Отображение" />
+            <BehaviorSection />
+            <DocumentationSection />
+          </div>
+        )}
       </div>
 
-      <PreviewPanel projectName="Предприятие" />
+      <PreviewPanel projectName={app?.name ?? "Приложение"} />
 
       {pickerOpen && (
         <BlockPickerModal
