@@ -38,12 +38,13 @@ const items: { id: RailModule; label: string; icon: React.ReactNode }[] = [
 const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   home: "/",
   constructor: "/views",
-  data: "/data",
+  data: "/database",      // реальные данные (записи)
   automation: "/bot",
-  analytics: "/learning",
-  notifications: "/intel",
-  documents: "/deploy",
+  analytics: "/intel",    // AI / Intelligence
+  notifications: "/admin",// административная панель
+  documents: "/deploy",   // деплой / версии
   security: "/security",
+  docs: "/learning",      // обучение / документация
 };
 
 export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailProps) {
