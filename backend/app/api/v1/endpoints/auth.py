@@ -1,16 +1,19 @@
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthDep, DbDep
 from app.core.rate_limit import limiter
 from app.schemas.auth import (
     ChangePasswordRequest,
+    LdapLoginRequest,
     LoginRequest,
     RefreshRequest,
     TOTPSetupResponse,
     TOTPVerifyRequest,
     TokenPair,
+    YandexCallbackRequest,
 )
 from app.services.auth import AuthError, AuthService
 
@@ -123,5 +126,40 @@ async def totp_disable(req: TOTPVerifyRequest, current_user: AuthDep, db: DbDep)
         raise HTTPException(status_code=404, detail="User not found")
     try:
         await _svc(db).totp_disable(user, req.code)
+    except AuthError as exc:
+        raise _map_auth_error(exc) from exc
+
+
+# ---- LDAP ----
+
+@router.post("/ldap-login", response_model=TokenPair, summary="LDAP/AD login")
+@limiter.limit("10/minute")
+async def ldap_login(req: LdapLoginRequest, request: Request, db: DbDep) -> TokenPair:
+    try:
+        return await _svc(db).ldap_login(
+            req,
+            user_agent=request.headers.get("user-agent"),
+            ip=request.client.host if request.client else None,
+        )
+    except AuthError as exc:
+        raise _map_auth_error(exc) from exc
+
+
+# ---- Яндекс ID ----
+
+@router.get("/yandex", summary="Redirect to Yandex OAuth")
+async def yandex_redirect() -> RedirectResponse:
+    url = AuthService.yandex_auth_url()
+    return RedirectResponse(url)
+
+
+@router.post("/yandex/callback", response_model=TokenPair, summary="Yandex OAuth callback")
+async def yandex_callback(req: YandexCallbackRequest, request: Request, db: DbDep) -> TokenPair:
+    try:
+        return await _svc(db).yandex_callback(
+            req,
+            user_agent=request.headers.get("user-agent"),
+            ip=request.client.host if request.client else None,
+        )
     except AuthError as exc:
         raise _map_auth_error(exc) from exc

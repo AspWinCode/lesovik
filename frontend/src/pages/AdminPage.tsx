@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
-import { useUsers, useDeactivateUser, useUpdateUser } from "@/shared/hooks/useUsers";
+import { useUsers, useDeactivateUser, useUpdateUser, useInviteUser, useRoles } from "@/shared/hooks/useUsers";
+import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
 
 /* ── Types ── */
@@ -246,24 +247,36 @@ interface LogEntry {
   json: string;
 }
 
-const MOCK_LOGS: LogEntry[] = [
-  { time: "2026-05-29 12:03", user: "ivan.petrov@company.ru",  action: "Создание проекта",           level: "info",  ip: "192.168.1.33", device: "Chrome / Windows 11", json: '{\n  "timestamp": "2026-05-29T12:03:00.000Z",\n  "project_id": "abc-123",\n  "name": "Fitness App"\n}' },
-  { time: "2026-05-29 11:55", user: "admin",                    action: "Изменил роль пользователя",  level: "warn",  ip: "10.0.0.1",     device: "Firefox / macOS",     json: '{\n  "timestamp": "2026-05-29T11:55:00.000Z",\n  "user_id": "usr-456",\n  "role": "editor"\n}' },
-  { time: "2026-05-29 11:40", user: "anna@corp.ru",             action: "Экспортировал базу данных",  level: "info",  ip: "192.168.2.10", device: "Chrome / Linux",       json: '{\n  "timestamp": "2026-05-29T11:40:00.000Z",\n  "db_id": "db-789",\n  "format": "csv"\n}' },
-  { time: "2026-05-29 11:12", user: "dev@example.com",          action: "Ошибка сборки прототипа",    level: "error", ip: "172.16.0.5",   device: "Safari / iOS",        json: '{\n  "timestamp": "2026-05-29T11:12:00.000Z",\n  "app_id": "app-111",\n  "error": "Build failed"\n}' },
-  { time: "2026-05-29 10:58", user: "ivan.petrov@company.ru",   action: "Добавил пользователя",       level: "info",  ip: "192.168.1.33", device: "Chrome / Windows 11", json: '{\n  "timestamp": "2026-05-29T10:58:00.000Z",\n  "invited": "new@corp.ru"\n}' },
-  { time: "2026-05-29 10:30", user: "anna@corp.ru",             action: "Изменил настройки безопасности", level: "warn", ip: "192.168.2.10", device: "Chrome / Linux",  json: '{\n  "timestamp": "2026-05-29T10:30:00.000Z",\n  "setting": "2fa_required"\n}' },
-];
-
 const levelColors: Record<string, string> = {
   info:  "text-primary",
   warn:  "text-[#FFA600]",
   error: "text-[#C22A2A]",
 };
 
+const ACTION_LABELS: Record<string, string> = {
+  login:            "Вход в систему",
+  login_ldap:       "Вход через LDAP",
+  login_yandex:     "Вход через Яндекс ID",
+  user_created:     "Создание пользователя",
+  user_invited:     "Приглашение пользователя",
+  user_updated:     "Изменение пользователя",
+  user_deactivated: "Деактивация пользователя",
+};
+
 function AdminLogs() {
   const [activeTab, setActiveTab] = useState("user");
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const { data: rawLogs, isLoading } = useAuditLogs({ limit: 100 });
+
+  const logs: LogEntry[] = (rawLogs ?? []).map((e) => ({
+    time:   new Date(e.created_at).toLocaleString("ru", { dateStyle: "short", timeStyle: "short" }),
+    user:   e.actor_email ?? e.user_id ?? "—",
+    action: ACTION_LABELS[e.action] ?? e.action,
+    level:  e.level as "info" | "warn" | "error",
+    ip:     e.ip_address ?? "—",
+    device: e.user_agent ?? "—",
+    json:   JSON.stringify({ action: e.action, resource: e.resource_type, id: e.resource_id, ...e.details }, null, 2),
+  }));
 
   return (
     <div className="flex gap-[30px] items-start">
@@ -302,7 +315,13 @@ function AdminLogs() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_LOGS.map((log, i) => (
+              {isLoading && (
+                <tr><td colSpan={4} className="px-6 py-4 text-center text-primary/50 text-[16px]">Загрузка…</td></tr>
+              )}
+              {!isLoading && logs.length === 0 && (
+                <tr><td colSpan={4} className="px-6 py-4 text-center text-primary/50 text-[16px]">Записей пока нет</td></tr>
+              )}
+              {logs.map((log, i) => (
                 <tr
                   key={i}
                   onClick={() => setSelectedLog(log === selectedLog ? null : log)}
@@ -396,9 +415,99 @@ function LogDetailPanel({ log, onClose }: { log: LogEntry; onClose: () => void }
   );
 }
 
+/* ── Invite dialog ── */
+function InviteUserDialog({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const { data: rolesData } = useRoles();
+  const invite = useInviteUser();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email || !name) return;
+    invite.mutate(
+      { email, display_name: name, roles: role ? [role] : [] },
+      { onSuccess: onClose },
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-[10px] shadow-lg w-[480px] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-8 py-5 border-b border-mainbg">
+          <span className="text-[22px] font-bold text-primary">Пригласить пользователя</span>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg">
+            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+              <path d="M3 3L13 13M13 3L3 13" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5 px-8 py-6">
+          <div className="flex flex-col gap-1">
+            <label className="text-[14px] text-primary/60">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="user@company.ru"
+              className="h-[42px] px-4 bg-mainbg rounded-[5px] text-[16px] text-primary outline-none border border-transparent focus:border-cta"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[14px] text-primary/60">Имя</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="Иванов Иван"
+              className="h-[42px] px-4 bg-mainbg rounded-[5px] text-[16px] text-primary outline-none border border-transparent focus:border-cta"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[14px] text-primary/60">Роль</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="h-[42px] px-4 bg-mainbg rounded-[5px] text-[16px] text-primary outline-none border border-transparent focus:border-cta"
+            >
+              <option value="">— без роли —</option>
+              {(rolesData ?? []).map((r) => (
+                <option key={r.id} value={r.id}>{r.display_name}</option>
+              ))}
+            </select>
+          </div>
+          {invite.isError && (
+            <p className="text-[14px] text-[#C22A2A]">Ошибка приглашения. Попробуйте снова.</p>
+          )}
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={onClose}
+              className="h-[38px] px-6 border border-primary/30 rounded-[20px] text-[14px] text-primary hover:bg-mainbg">
+              Отмена
+            </button>
+            <button type="submit" disabled={invite.isPending}
+              className="h-[38px] px-6 bg-cta rounded-[20px] text-[14px] font-semibold text-white hover:bg-cta/90 disabled:opacity-50">
+              {invite.isPending ? "Отправка…" : "Пригласить"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ── Users ── */
 function AdminUsers() {
   const [search, setSearch] = useState("");
+  const [inviteOpen, setInviteOpen] = useState(false);
   const { data, isLoading } = useUsers(search ? { search } : undefined);
   const deactivate = useDeactivateUser();
   const activate = useUpdateUser();
@@ -411,9 +520,19 @@ function AdminUsers() {
 
   return (
     <div className="flex flex-col gap-[40px]">
+      {inviteOpen && <InviteUserDialog onClose={() => setInviteOpen(false)} />}
       <div className="flex items-center justify-between">
         <h1 className="text-[40px] font-bold text-primary leading-[150%]">Пользователи</h1>
-        <span className="text-[18px] text-primary/60">{data?.total != null ? `Всего: ${data.total}` : ""}</span>
+        <button
+          onClick={() => setInviteOpen(true)}
+          className="flex items-center gap-2 h-[42px] px-6 bg-cta rounded-[20px] text-[16px] font-semibold text-white hover:bg-cta/90 transition-colors"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
+            <line x1="10" y1="3" x2="10" y2="17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+            <line x1="3" y1="10" x2="17" y2="10" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Пригласить
+        </button>
       </div>
 
       {/* Search */}

@@ -7,6 +7,16 @@ class LoginRequest(BaseModel):
     totp_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
+class LdapLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=256)
+
+
+class YandexCallbackRequest(BaseModel):
+    code: str
+    state: str | None = None
+
+
 class TokenPair(BaseModel):
     access_token: str
     refresh_token: str

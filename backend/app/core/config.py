@@ -77,6 +77,27 @@ class Settings(BaseSettings):
     CLAMAV_HOST: str = "clamav"
     CLAMAV_PORT: int = 3310
 
+    # Password policy
+    PASSWORD_MIN_LENGTH: int = 10
+    PASSWORD_REQUIRE_UPPERCASE: bool = True
+    PASSWORD_REQUIRE_DIGIT: bool = True
+    PASSWORD_REQUIRE_SPECIAL: bool = True
+
+    # Session timeout (minutes), configurable by admin via env
+    SESSION_TIMEOUT_MINUTES: int = 30
+
+    # LDAP / Active Directory
+    LDAP_ENABLED: bool = False
+    LDAP_URL: str = "ldap://localhost:389"
+    LDAP_BIND_DN: str = ""
+    LDAP_BIND_PASSWORD: str = ""
+    LDAP_SEARCH_BASE: str = "dc=example,dc=com"
+
+    # Яндекс ID OAuth 2.0
+    YANDEX_CLIENT_ID: str = ""
+    YANDEX_CLIENT_SECRET: str = ""
+    YANDEX_REDIRECT_URI: str = "http://localhost:5173/editor/auth/yandex/callback"
+
     # Celery
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"

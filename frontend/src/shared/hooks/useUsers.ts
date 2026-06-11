@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createUser,
   deactivateUser,
+  inviteUser,
   listRoles,
   listUsers,
   updateUser,
+  type InviteUserRequest,
   type UserCreate,
   type UserListParams,
   type UserUpdate,
@@ -49,6 +51,14 @@ export function useDeactivateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: USERS_KEY }); },
+  });
+}
+
+export function useInviteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: InviteUserRequest) => inviteUser(body),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: USERS_KEY }); },
   });
 }

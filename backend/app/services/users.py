@@ -1,4 +1,5 @@
 import base64
+import secrets
 import uuid
 from datetime import UTC, datetime
 
@@ -7,10 +8,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.password_policy import PasswordPolicyError, validate_password
 from app.core.security import hash_password
 from app.models.identity import Role, User, UserRole
 from app.schemas.common import CursorPage
-from app.schemas.users import UserCreate, UserListParams, UserRead, UserUpdate
+from app.schemas.users import AuditLogRead, InviteUserRequest, UserCreate, UserListParams, UserRead, UserUpdate
+from app.services.audit import AuditService
 
 logger = structlog.get_logger(__name__)
 
@@ -84,7 +87,18 @@ class UserService:
         user = await self._fetch_user(user_id)
         return UserRead.model_validate(user)
 
-    async def create_user(self, data: UserCreate, granted_by: uuid.UUID | None = None) -> UserRead:
+    async def create_user(
+        self,
+        data: UserCreate,
+        granted_by: uuid.UUID | None = None,
+        actor_email: str | None = None,
+    ) -> UserRead:
+        # Validate password policy
+        try:
+            validate_password(data.password)
+        except PasswordPolicyError as exc:
+            raise ValueError(str(exc)) from exc
+
         # Check email uniqueness
         existing = await self._db.execute(select(User).where(User.email == data.email))
         if existing.scalar_one_or_none():
@@ -96,38 +110,128 @@ class UserService:
             password_hash=hash_password(data.password),
         )
         self._db.add(user)
-        await self._db.flush()  # get user.id
+        await self._db.flush()
 
         if data.roles:
             await self._set_roles(user.id, data.roles, granted_by=granted_by)
 
         await self._db.flush()
         logger.info("user_created", user_id=str(user.id), email=data.email)
+        await AuditService(self._db).log(
+            "user_created",
+            user_id=granted_by,
+            actor_email=actor_email,
+            resource_type="user",
+            resource_id=str(user.id),
+            level="info",
+            details={"email": data.email, "roles": data.roles},
+        )
         return await self.get_by_id(user.id)
 
+    async def invite_user(
+        self,
+        data: InviteUserRequest,
+        granted_by: uuid.UUID | None = None,
+        actor_email: str | None = None,
+    ) -> tuple[UserRead, str]:
+        """Create user with random password, return (user, temp_password)."""
+        existing = await self._db.execute(select(User).where(User.email == data.email))
+        if existing.scalar_one_or_none():
+            raise UserConflictError(f"Email already registered: {data.email}")
+
+        temp_password = secrets.token_urlsafe(12)
+        user = User(
+            email=data.email,
+            display_name=data.display_name,
+            password_hash=hash_password(temp_password),
+        )
+        self._db.add(user)
+        await self._db.flush()
+
+        if data.roles:
+            await self._set_roles(user.id, data.roles, granted_by=granted_by)
+
+        await self._db.flush()
+        logger.info("user_invited", user_id=str(user.id), email=data.email)
+        await AuditService(self._db).log(
+            "user_invited",
+            user_id=granted_by,
+            actor_email=actor_email,
+            resource_type="user",
+            resource_id=str(user.id),
+            level="info",
+            details={"email": data.email, "roles": data.roles},
+        )
+        return await self.get_by_id(user.id), temp_password
+
     async def update_user(
-        self, user_id: uuid.UUID, data: UserUpdate, updated_by: uuid.UUID | None = None
+        self,
+        user_id: uuid.UUID,
+        data: UserUpdate,
+        updated_by: uuid.UUID | None = None,
+        actor_email: str | None = None,
     ) -> UserRead:
         user = await self._fetch_user(user_id)
+        changed: dict[str, object] = {}
 
         if data.display_name is not None:
             user.display_name = data.display_name
+            changed["display_name"] = data.display_name
         if data.is_active is not None:
             user.is_active = data.is_active
+            changed["is_active"] = data.is_active
         if data.roles is not None:
             await self._set_roles(user_id, data.roles, granted_by=updated_by)
+            changed["roles"] = data.roles
 
         await self._db.flush()
         logger.info("user_updated", user_id=str(user_id))
+        level = "warn" if "roles" in changed or "is_active" in changed else "info"
+        await AuditService(self._db).log(
+            "user_updated",
+            user_id=updated_by,
+            actor_email=actor_email,
+            resource_type="user",
+            resource_id=str(user_id),
+            level=level,
+            details=changed,
+        )
         return await self.get_by_id(user_id)
 
-    async def delete_user(self, user_id: uuid.UUID) -> None:
+    async def delete_user(
+        self,
+        user_id: uuid.UUID,
+        deleted_by: uuid.UUID | None = None,
+        actor_email: str | None = None,
+    ) -> None:
         user = await self._fetch_user(user_id)
         if user.is_superuser:
             raise PermissionError("Cannot delete superuser")
         user.is_active = False
         await self._db.flush()
         logger.info("user_deactivated", user_id=str(user_id))
+        await AuditService(self._db).log(
+            "user_deactivated",
+            user_id=deleted_by,
+            actor_email=actor_email,
+            resource_type="user",
+            resource_id=str(user_id),
+            level="warn",
+        )
+
+    async def list_audit_logs(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        level: str | None = None,
+        action: str | None = None,
+    ) -> list[AuditLogRead]:
+        from app.services.audit import AuditService
+        logs = await AuditService(self._db).list_logs(
+            limit=limit, offset=offset, level=level, action=action
+        )
+        return [AuditLogRead.model_validate(e) for e in logs]
 
     async def get_roles(self) -> list[dict[str, str]]:
         result = await self._db.execute(select(Role).order_by(Role.id))

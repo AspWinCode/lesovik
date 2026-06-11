@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -51,3 +52,25 @@ class UserListParams(BaseModel):
     search: str | None = None
     role: str | None = None
     is_active: bool | None = None
+
+
+class InviteUserRequest(BaseModel):
+    email: EmailStr
+    display_name: str = Field(min_length=2, max_length=256)
+    roles: list[str] = Field(default_factory=list)
+
+
+class AuditLogRead(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID | None
+    actor_email: str | None
+    action: str
+    resource_type: str | None
+    resource_id: str | None
+    level: str
+    ip_address: str | None
+    user_agent: str | None
+    details: dict[str, Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

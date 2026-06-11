@@ -5,7 +5,15 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AuthDep, DbDep
 from app.schemas.common import CursorPage
-from app.schemas.users import RoleRead, UserCreate, UserListParams, UserRead, UserUpdate
+from app.schemas.users import (
+    AuditLogRead,
+    InviteUserRequest,
+    RoleRead,
+    UserCreate,
+    UserListParams,
+    UserRead,
+    UserUpdate,
+)
 from app.services.users import UserConflictError, UserNotFoundError, UserService
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +46,40 @@ async def create_user(body: UserCreate, current_user: AuthDep, db: DbDep) -> Use
     if not current_user.has_role("platform_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
-        return await UserService(db).create_user(body, granted_by=current_user.user_id)
+        return await UserService(db).create_user(
+            body,
+            granted_by=current_user.user_id,
+            actor_email=current_user.email if hasattr(current_user, "email") else None,
+        )
+    except UserConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.post(
+    "/invite",
+    response_model=UserRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Invite user by email (sends invitation email with temp password)",
+)
+async def invite_user(body: InviteUserRequest, current_user: AuthDep, db: DbDep) -> UserRead:
+    if not current_user.has_role("platform_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    try:
+        svc = UserService(db)
+        user, temp_password = await svc.invite_user(
+            body,
+            granted_by=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+        )
+        # Send invitation email (non-blocking — swallows errors)
+        import asyncio
+        from app.services.email import send_invitation_email
+        asyncio.ensure_future(
+            send_invitation_email(body.email, body.display_name, temp_password)
+        )
+        return user
     except UserConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
@@ -92,3 +133,19 @@ async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> N
 async def list_roles(current_user: AuthDep, db: DbDep) -> list[RoleRead]:
     roles = await UserService(db).get_roles()
     return [RoleRead(id=r["id"], display_name=r["display_name"]) for r in roles]
+
+
+@router.get("/audit-logs", response_model=list[AuditLogRead], summary="Get audit log (admin only)")
+async def get_audit_logs(
+    current_user: AuthDep,
+    db: DbDep,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    level: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+) -> list[AuditLogRead]:
+    if not current_user.has_role("platform_admin", "auditor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return await UserService(db).list_audit_logs(
+        limit=limit, offset=offset, level=level, action=action
+    )

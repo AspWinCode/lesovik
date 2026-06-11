@@ -68,3 +68,14 @@ export async function listRoles(): Promise<UserRole[]> {
   const { data } = await apiClient.get<UserRole[]>("/users/roles");
   return data;
 }
+
+export interface InviteUserRequest {
+  email: string;
+  display_name: string;
+  roles: string[];
+}
+
+export async function inviteUser(body: InviteUserRequest): Promise<User> {
+  const { data } = await apiClient.post<User>("/users/invite", body);
+  return data;
+}

@@ -135,6 +135,9 @@ class ViewFieldConfigBulkUpdate(BaseModel):
 
 class BlockType(str, Enum):
     VIEW      = "view"
+    FORM      = "form"
+    TABLE     = "table"
+    BUTTON    = "button"
     RICH_TEXT = "rich_text"
     METRIC    = "metric"
     DIVIDER   = "divider"
