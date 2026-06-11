@@ -58,7 +58,9 @@ export function BotPage() {
   const [selectedProcessNode, setSelectedProcessNode] = useState<string | null>(null);
 
   const { data: appsData } = useApps();
-  const appId = appsData?.items[0]?.id;
+  const apps = appsData?.items ?? [];
+  const app = apps.find((a) => a.name === "Чат-бот помощник") ?? apps[0];
+  const appId = app?.id;
 
   const { data: rules = [], isLoading } = useRules(appId);
   const activateRule  = useActivateRule(appId ?? "");
