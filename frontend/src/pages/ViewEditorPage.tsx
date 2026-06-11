@@ -950,7 +950,7 @@ function BlockCanvas({
               : "bg-white"
           )}
         >
-          <span className="shrink-0 opacity-50"><DragVert /></span>
+          <span className="w-5 h-5 shrink-0 opacity-50"><DragVert /></span>
           <span className="w-[22px] h-[22px] shrink-0 text-primary/60">
             {BLOCK_ICONS[block.type] ?? <TableIcon />}
           </span>
