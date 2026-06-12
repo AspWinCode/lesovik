@@ -4,9 +4,10 @@ import { TabSwitcher } from "@/components/ui/TabSwitcher";
 interface PreviewPanelProps {
   projectName?: string;
   previewImageUrl?: string;
+  onOpen?: () => void;
 }
 
-export function PreviewPanel({ projectName = "Fitness App", previewImageUrl }: PreviewPanelProps) {
+export function PreviewPanel({ projectName = "Fitness App", previewImageUrl, onOpen }: PreviewPanelProps) {
   const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
 
   const tabs = [
@@ -71,11 +72,12 @@ export function PreviewPanel({ projectName = "Fitness App", previewImageUrl }: P
 
       {/* Open app button */}
       <button
+        onClick={onOpen}
         className="flex items-center justify-center gap-5 bg-cta text-white text-cta-lg
                    rounded-btn px-10 py-[10px] hover:bg-active transition-colors"
         style={{ width: 331 }}
       >
-        {projectName}
+        Открыть {projectName}
       </button>
     </div>
   );

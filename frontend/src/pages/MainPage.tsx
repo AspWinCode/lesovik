@@ -14,7 +14,7 @@ import {
   ShareModal,
   RolesModal,
 } from "@/components/modals/Modals";
-import { useApps, useCreateApp } from "@/shared/hooks/useApps";
+import { useApps, useCreateApp, useUpdateApp, useDeleteApp } from "@/shared/hooks/useApps";
 import { useAuthStore } from "@/shared/auth/store";
 import type { App } from "@/shared/api/apps";
 
@@ -101,9 +101,31 @@ export function MainPage() {
   }
   const { data, isLoading, isError, refetch } = useApps();
   const createApp = useCreateApp();
+  const updateApp = useUpdateApp();
+  const deleteAppMutation = useDeleteApp();
 
   const apps = data?.items ?? [];
-  const projects = apps.map((a) => toProject(a, currentUser?.id));
+
+  const filteredApps =
+    sidebarTab === "my"
+      ? apps.filter((a) => a.owner_id === currentUser?.id)
+      : sidebarTab === "shared"
+      ? apps.filter((a) => a.owner_id !== currentUser?.id)
+      : apps;
+
+  const projects = filteredApps.map((a) => toProject(a, currentUser?.id));
+
+  function handleRenameApp(appId: string, currentName: string) {
+    const name = window.prompt("Новое название:", currentName);
+    if (!name?.trim() || name.trim() === currentName) return;
+    updateApp.mutate({ appId, body: { name: name.trim() } });
+  }
+
+  function handleDeleteApp(appId: string) {
+    if (!window.confirm("Удалить приложение?")) return;
+    deleteAppMutation.mutate(appId);
+    if (selectedProject === appId) setSelected(null);
+  }
 
   const isApps = topTab === "apps";
   const infoCards = isApps ? INFO_CARDS_APPS : INFO_CARDS_DB;
@@ -182,6 +204,8 @@ export function MainPage() {
                 isSelected={p.id === effectiveSelected}
                 onClick={() => setSelected(p.id)}
                 onShareClick={() => { setSelected(p.id); setModal("share"); }}
+                onRename={() => handleRenameApp(p.id, p.name)}
+                onDelete={() => handleDeleteApp(p.id)}
               />
             ))}
 
@@ -230,6 +254,7 @@ export function MainPage() {
 
       <PreviewPanel
         projectName={selected?.name ?? "Fitness App"}
+        onOpen={effectiveSelected ? () => navigate(`/views?app=${effectiveSelected}`) : undefined}
       />
 
       {/* Modals */}

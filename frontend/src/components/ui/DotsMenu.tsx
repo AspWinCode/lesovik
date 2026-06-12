@@ -4,9 +4,13 @@ import { useState, useRef, useEffect } from "react";
 export function DotsMenu({
   className,
   onShare,
+  onRename,
+  onDelete,
 }: {
   className?: string;
   onShare?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -46,11 +50,13 @@ export function DotsMenu({
             Поделиться
           </button>
           <button
+            onClick={() => { setOpen(false); onRename?.(); }}
             className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
           >
             Переименовать
           </button>
           <button
+            onClick={() => { setOpen(false); onDelete?.(); }}
             className="w-full text-left px-4 py-2 text-meta text-[#C22A2A] hover:bg-cardbg transition-colors"
           >
             Удалить

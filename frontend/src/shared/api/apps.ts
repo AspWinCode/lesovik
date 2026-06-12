@@ -40,7 +40,23 @@ export async function listApps(params?: {
   return data;
 }
 
+export interface AppUpdate {
+  name?: string;
+  description?: string | null;
+  icon?: string | null;
+  color?: string | null;
+}
+
 export async function createApp(body: AppCreate): Promise<App> {
   const { data } = await apiClient.post<App>("/apps", body);
   return data;
+}
+
+export async function updateApp(appId: string, body: AppUpdate): Promise<App> {
+  const { data } = await apiClient.patch<App>(`/apps/${appId}`, body);
+  return data;
+}
+
+export async function deleteApp(appId: string): Promise<void> {
+  await apiClient.delete(`/apps/${appId}`);
 }

@@ -18,9 +18,11 @@ interface ProjectCardProps {
   isSelected?: boolean;
   onClick?: () => void;
   onShareClick?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
 }
 
-export function ProjectCard({ project, variant, isSelected, onClick, onShareClick }: ProjectCardProps) {
+export function ProjectCard({ project, variant, isSelected, onClick, onShareClick, onRename, onDelete }: ProjectCardProps) {
   const isApps = variant === "apps";
 
   return (
@@ -39,7 +41,7 @@ export function ProjectCard({ project, variant, isSelected, onClick, onShareClic
         {/* Header: name + dots */}
         <div className="flex items-center justify-between px-[30px] h-[30px] shrink-0">
           <span className="text-card-h text-primary flex-1 truncate">{project.name}</span>
-          <DotsMenu onShare={onShareClick} />
+          <DotsMenu onShare={onShareClick} onRename={onRename} onDelete={onDelete} />
         </div>
 
         {/* Body */}
