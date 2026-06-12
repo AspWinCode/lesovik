@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/cn";
 
 export type RailModule =
@@ -49,16 +49,24 @@ const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
 
 export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailProps) {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+
+  // Preserve the active app across module switches so the editor, data and
+  // automation screens stay on the same app the user opened.
+  function withApp(route: string): string {
+    const appId = params.get("app");
+    return appId ? `${route}?app=${appId}` : route;
+  }
 
   function handleModuleClick(id: RailModule) {
     onChange(id);
     const route = MODULE_ROUTES[id];
-    if (route) navigate(route);
+    if (route) navigate(withApp(route));
   }
 
   function handleSettings() {
     onSettings?.();
-    navigate("/settings");
+    navigate(withApp("/settings"));
   }
 
   return (

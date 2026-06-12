@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import type { FieldRead } from "@/shared/api/entities";
@@ -26,7 +27,7 @@ export function DatabasePage() {
   /* ── Data ── */
   const appsQuery = useApps();
   const apps = appsQuery.data?.items ?? [];
-  const app = apps.find((a) => a.name === "Чат-бот помощник") ?? apps[0];
+  const app = useActiveApp(apps);
   const appId = app?.id;
 
   const entitiesQuery = useEntities(appId);
@@ -123,8 +124,9 @@ export function DatabasePage() {
           ))
         )}
         <button
-          className="h-full px-5 text-[14px] text-cta flex items-center gap-1 hover:bg-mainbg transition-colors whitespace-nowrap"
-          title="Новая таблица (функция в разработке)"
+          disabled
+          className="h-full px-5 text-[14px] text-cta/40 flex items-center gap-1 cursor-not-allowed whitespace-nowrap"
+          title="В разработке"
         >
           <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M8 3v10M3 8h10" strokeLinecap="round" />
@@ -202,7 +204,7 @@ export function DatabasePage() {
                   </th>
                 ))}
                 <th className="px-4 py-2 text-left">
-                  <button className="flex items-center gap-1 text-cta text-[13px] font-medium hover:underline whitespace-nowrap">
+                  <button disabled title="В разработке" className="flex items-center gap-1 text-cta/40 text-[13px] font-medium cursor-not-allowed whitespace-nowrap">
                     <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M8 3v10M3 8h10" strokeLinecap="round" />
                     </svg>
@@ -346,11 +348,16 @@ function canInlineEdit(ft: string): boolean {
 
 /* ── Small helpers ── */
 function ToolButton({ icon, onClick, title }: { icon: React.ReactNode; onClick?: () => void; title?: string }) {
+  const inert = !onClick;
   return (
     <button
       onClick={onClick}
-      title={title}
-      className="w-8 h-8 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-primary/60 hover:text-primary transition-colors"
+      disabled={inert}
+      title={inert ? "В разработке" : title}
+      className={cn(
+        "w-8 h-8 flex items-center justify-center rounded-[6px] text-primary/60 transition-colors",
+        inert ? "opacity-40 cursor-not-allowed" : "hover:bg-mainbg hover:text-primary",
+      )}
     >
       {icon}
     </button>
@@ -359,10 +366,13 @@ function ToolButton({ icon, onClick, title }: { icon: React.ReactNode; onClick?:
 
 function DropdownButton({ icon, label, small }: { icon?: React.ReactNode; label: string; small?: boolean }) {
   return (
-    <button className={cn(
-      "flex items-center gap-1.5 rounded-[6px] hover:bg-mainbg transition-colors text-primary/70 hover:text-primary",
-      small ? "px-2 py-1 text-[13px]" : "px-3 py-1.5 text-[13px]"
-    )}>
+    <button
+      disabled
+      title="В разработке"
+      className={cn(
+        "flex items-center gap-1.5 rounded-[6px] text-primary/40 cursor-not-allowed",
+        small ? "px-2 py-1 text-[13px]" : "px-3 py-1.5 text-[13px]"
+      )}>
       {icon && <span className="w-4 h-4 shrink-0">{icon}</span>}
       {label}
       <svg viewBox="0 0 12 12" className="w-3 h-3 text-primary/40" fill="currentColor">

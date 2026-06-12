@@ -5,6 +5,7 @@ import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel"
 import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, useUpdatePage, useCreatePage, useDeletePage } from "@/shared/hooks/useViews";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { useRecords } from "@/shared/hooks/useRecords";
@@ -118,7 +119,7 @@ export function ViewEditorPage() {
 
   const appsQuery = useApps();
   const apps = appsQuery.data?.items ?? [];
-  const app = apps.find((a) => a.name === "Чат-бот помощник") ?? apps[0];
+  const app = useActiveApp(apps);
   const appId = app?.id;
 
   const pagesQuery = usePages(appId);
@@ -244,7 +245,12 @@ export function ViewEditorPage() {
       className="relative w-[1920px] h-[1080px] bg-white overflow-hidden"
       onClick={() => setEntityDdOpen(false)}
     >
-      <Navbar />
+      <Navbar
+        onSave={activeView && appId ? () => updatePageMutation.mutate({
+          pageId: activeView,
+          body: { title: name, layout, blocks: blocks as unknown as Record<string, unknown>[] },
+        }) : undefined}
+      />
       <IconRail active={railModule} onChange={setRailModule} />
       <ViewNavPanel
         sections={navSections}
@@ -274,7 +280,7 @@ export function ViewEditorPage() {
           ))}
         </div>
         <a
-          href={`/app/`}
+          href={appId ? `/app/?app=${appId}` : `/app/`}
           target="_blank"
           rel="noopener noreferrer"
           className="absolute flex items-center justify-center gap-[10px] px-5 py-[5px]
@@ -1329,7 +1335,7 @@ function LivePreview({
       </div>
 
       <a
-        href="/app/"
+        href={appId ? `/app/?app=${appId}` : "/app/"}
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center justify-center gap-3 text-white text-[17px] font-medium rounded-btn px-10 py-[10px] hover:opacity-90 transition-opacity"

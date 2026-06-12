@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/shared/auth/store";
 
@@ -27,6 +28,7 @@ export function ProfilePage() {
   const [active, setActive] = useState<ProfileTab>("settings");
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const navigate = useNavigate();
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden flex flex-col">
@@ -38,17 +40,17 @@ export function ProfilePage() {
         </div>
         <div className="ml-auto flex items-center gap-6 text-[14px] text-primary">
           <span className="text-primary/60">{user?.email ?? "exampleemail@gmail.com"}</span>
-          <button className="hover:underline">Мои приложения</button>
-          <button className="flex items-center gap-1 hover:underline">
+          <button onClick={() => navigate("/")} className="hover:underline">Мои приложения</button>
+          <button onClick={() => navigate("/")} className="flex items-center gap-1 hover:underline">
             Аккаунт
             <Chevron />
           </button>
-          <button className="hover:underline">Шаблоны</button>
-          <button className="flex items-center gap-1 hover:underline">
+          <button onClick={() => navigate("/templates")} className="hover:underline">Шаблоны</button>
+          <button onClick={() => navigate("/learning")} className="flex items-center gap-1 hover:underline">
             Помощь
             <Chevron />
           </button>
-          <button className="flex items-center gap-1 hover:underline">
+          <button disabled title="В разработке" className="flex items-center gap-1 text-primary/40 cursor-not-allowed">
             Больше
             <Chevron />
           </button>
@@ -76,7 +78,7 @@ export function ProfilePage() {
               </button>
             </div>
           </div>
-          <button className="flex items-center gap-2 border border-cta text-cta rounded-[20px] px-4 py-2 text-[14px] font-medium hover:bg-[#EBF4FF] transition-colors">
+          <button disabled title="В разработке" className="flex items-center gap-2 border border-cta/40 text-cta/40 rounded-[20px] px-4 py-2 text-[14px] font-medium cursor-not-allowed">
             <svg viewBox="0 0 20 20" className="w-4 h-4" fill="currentColor">
               <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
             </svg>
@@ -125,7 +127,7 @@ function SourcesTab() {
     <div>
       <h2 className="text-[20px] font-semibold text-primary mb-2">Источники учётной записи</h2>
       <p className="text-[14px] text-primary/60 mb-5">Доступ к этим источникам могут получить все приложения в этой учётной записи.</p>
-      <button className="flex items-center gap-2 border border-cta text-cta rounded-[20px] px-4 py-2 text-[14px] font-medium hover:bg-[#EBF4FF] transition-colors">
+      <button disabled title="В разработке" className="flex items-center gap-2 border border-cta/40 text-cta/40 rounded-[20px] px-4 py-2 text-[14px] font-medium cursor-not-allowed">
         <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M8 3v10M3 8h10" strokeLinecap="round" />
         </svg>
@@ -135,10 +137,23 @@ function SourcesTab() {
   );
 }
 
+const CREATOR_PREFS_KEY = "oi-creator-prefs";
+
 function SettingsTab() {
-  const [weeklyReport,  setWeeklyReport]  = useState(true);
-  const [allowStaff,    setAllowStaff]    = useState(true);
-  const [defaultPath] = useState("/appsheet/data");
+  const stored = (() => {
+    try { return JSON.parse(localStorage.getItem(CREATOR_PREFS_KEY) ?? "{}"); }
+    catch { return {}; }
+  })();
+  const [weeklyReport,  setWeeklyReport]  = useState<boolean>(stored.weeklyReport ?? true);
+  const [allowStaff,    setAllowStaff]    = useState<boolean>(stored.allowStaff ?? true);
+  const [defaultPath] = useState("/oi/data");
+  const [saved, setSaved] = useState(false);
+
+  function save() {
+    localStorage.setItem(CREATOR_PREFS_KEY, JSON.stringify({ weeklyReport, allowStaff }));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
 
   return (
     <div>
@@ -162,16 +177,19 @@ function SettingsTab() {
           <div>
             <p className="text-[15px] text-primary">Разрешить доступ сотрудникам</p>
             <p className="text-[13px] text-primary/60 mt-0.5 leading-snug">
-              Разрешить сотрудникам AppSheet доступ ко всем моим приложениям и связанным с ними данным
+              Разрешить сотрудникам поддержки OI доступ ко всем моим приложениям и связанным с ними данным
               в любое время для оказания поддержки и технического обслуживания?
             </p>
           </div>
           <Checkmark checked={allowStaff} onChange={setAllowStaff} />
         </div>
 
-        <button className="w-fit bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors">
-          Сохранить
-        </button>
+        <div className="flex items-center gap-4">
+          <button onClick={save} className="w-fit bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors">
+            Сохранить
+          </button>
+          {saved && <span className="text-[14px] text-[#20BE4F]">Сохранено</span>}
+        </div>
       </div>
 
       {/* Corporate settings */}
@@ -179,7 +197,7 @@ function SettingsTab() {
       <p className="text-[13px] text-primary/60 mb-4">
         Используйте этот раздел для настройки корпоративной учётной записи. Эти параметры доступны только корпоративным клиентам.
       </p>
-      <button className="flex items-center gap-1.5 border border-cta text-cta rounded-[20px] px-4 py-1.5 text-[14px] hover:bg-[#EBF4FF] transition-colors">
+      <button disabled title="В разработке" className="flex items-center gap-1.5 border border-cta/40 text-cta/40 rounded-[20px] px-4 py-1.5 text-[14px] cursor-not-allowed">
         Узнать больше о планах OI
       </button>
     </div>

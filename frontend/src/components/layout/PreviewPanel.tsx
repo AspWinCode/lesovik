@@ -70,11 +70,13 @@ export function PreviewPanel({ projectName = "Fitness App", previewImageUrl, onO
         )}
       </div>
 
-      {/* Open app button */}
+      {/* Open app button — disabled when the host screen provides no target. */}
       <button
         onClick={onOpen}
+        disabled={!onOpen}
+        title={onOpen ? undefined : "Откройте предпросмотр из конструктора"}
         className="flex items-center justify-center gap-5 bg-cta text-white text-cta-lg
-                   rounded-btn px-10 py-[10px] hover:bg-active transition-colors"
+                   rounded-btn px-10 py-[10px] hover:bg-active transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ width: 331 }}
       >
         Открыть {projectName}

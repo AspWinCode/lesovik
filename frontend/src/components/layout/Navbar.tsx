@@ -1,11 +1,17 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/shared/auth/store";
+import { useThemeStore } from "@/shared/theme/store";
 
 interface NavbarProps {
   brandName?: string;
   className?: string;
   onGroupAddClick?: () => void;
+  /** Wire the Save / Undo / Redo controls; omitted handlers render disabled. */
+  onSave?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 function initials(name: string): string {
@@ -15,10 +21,11 @@ function initials(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-export function Navbar({ brandName = "Дикая Сибирь", className, onGroupAddClick }: NavbarProps) {
+export function Navbar({ brandName = "Дикая Сибирь", className, onGroupAddClick, onSave, onUndo, onRedo }: NavbarProps) {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const toggleTheme = useThemeStore((s) => s.toggle);
 
   async function handleLogout() {
     await logout();
@@ -43,26 +50,77 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
 
       {/* Right: action icons */}
       <div className="flex items-center gap-[30px]">
-        <NavIconButton label="Сохранить" icon={<SaveIcon />} />
+        <NavIconButton label="Сохранить" icon={<SaveIcon />} onClick={onSave} disabled={!onSave} />
         <div className="flex items-center gap-3">
-          <NavIconButton label="Отменить" icon={<UndoIcon />} />
-          <NavIconButton label="Повторить" icon={<RedoIcon />} />
+          <NavIconButton label="Отменить" icon={<UndoIcon />} onClick={onUndo} disabled={!onUndo} />
+          <NavIconButton label="Повторить" icon={<RedoIcon />} onClick={onRedo} disabled={!onRedo} />
         </div>
-        <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" />
+        <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" onClick={() => navigate("/")} />
         <NavIconButton label="Добавить пользователя" icon={<GroupAddIcon />} onClick={onGroupAddClick} />
-        <NavIconButton label="Помощь" icon={<QuestionIcon />} />
-        <NavIconButton label="Тема" icon={<MoonIcon />} />
-        {/* User avatar — click to log out */}
-        <button
-          onClick={handleLogout}
-          title={user ? `${user.display_name} — выйти` : "Выйти"}
-          className="w-10 h-10 rounded-full bg-cardbg flex items-center justify-center
-                     text-primary text-sm font-semibold cursor-pointer hover:bg-mainbg transition-colors"
-        >
-          {user ? initials(user.display_name) : "Я"}
-        </button>
+        <NavIconButton label="Помощь" icon={<QuestionIcon />} onClick={() => navigate("/learning")} />
+        <NavIconButton label="Сменить тему" icon={<MoonIcon />} onClick={toggleTheme} />
+        {/* User avatar — opens a menu (profile / logout) */}
+        <AvatarMenu
+          label={user ? user.display_name : "Я"}
+          initials={user ? initials(user.display_name) : "Я"}
+          onProfile={() => navigate("/profile")}
+          onLogout={handleLogout}
+        />
       </div>
     </header>
+  );
+}
+
+function AvatarMenu({
+  label,
+  initials,
+  onProfile,
+  onLogout,
+}: {
+  label: string;
+  initials: string;
+  onProfile: () => void;
+  onLogout: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={label}
+        className="w-10 h-10 rounded-full bg-cardbg flex items-center justify-center
+                   text-primary text-sm font-semibold cursor-pointer hover:bg-mainbg transition-colors"
+      >
+        {initials}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-12 z-50 min-w-[180px] bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] overflow-hidden">
+          <div className="px-4 py-2 text-[13px] text-primary/50 border-b border-mainbg truncate">{label}</div>
+          <button
+            onClick={() => { setOpen(false); onProfile(); }}
+            className="w-full text-left px-4 py-2.5 text-[15px] text-primary hover:bg-mainbg transition-colors"
+          >
+            Профиль
+          </button>
+          <button
+            onClick={() => { setOpen(false); onLogout(); }}
+            className="w-full text-left px-4 py-2.5 text-[15px] text-mistake hover:bg-mainbg transition-colors"
+          >
+            Выйти
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -71,20 +129,24 @@ function NavIconButton({
   icon,
   highlight,
   onClick,
+  disabled,
 }: {
   label: string;
   icon: React.ReactNode;
   highlight?: "mistake";
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       aria-label={label}
-      title={label}
+      title={disabled ? `${label} (в разработке)` : label}
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "w-7 h-7 flex items-center justify-center rounded hover:bg-mainbg transition-colors",
-        highlight === "mistake" && "text-mistake"
+        "w-7 h-7 flex items-center justify-center rounded transition-colors",
+        disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-mainbg",
+        highlight === "mistake" && !disabled && "text-mistake"
       )}
     >
       {icon}

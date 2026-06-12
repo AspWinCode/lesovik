@@ -1,5 +1,6 @@
 /* Public marketing landing page (scrollable). */
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const STEPS = [
   { heading: "Выберете любой шаблон или создайте пустое приложение", shot: "Галерея шаблонов" },
@@ -37,6 +38,8 @@ const PLANS = [
 ];
 
 export function LandingPage() {
+  const navigate = useNavigate();
+  const goSignIn = () => navigate("/signin");
   return (
     <div className="w-full min-h-screen bg-white text-primary overflow-x-hidden">
       {/* ── Header ── */}
@@ -47,7 +50,7 @@ export function LandingPage() {
             <a href="#how" className="text-[24px] font-medium text-primary hover:text-cta transition-colors">Как создать приложение</a>
             <a href="#pricing" className="text-[24px] font-medium text-primary hover:text-cta transition-colors">Тарифные планы</a>
           </nav>
-          <button className="px-5 h-[50px] bg-cta text-white text-[24px] font-medium rounded-btn shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-active transition-colors">
+          <button onClick={goSignIn} className="px-5 h-[50px] bg-cta text-white text-[24px] font-medium rounded-btn shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-active transition-colors">
             Авторизоваться
           </button>
         </div>
@@ -75,7 +78,7 @@ export function LandingPage() {
             </div>
             <div className="absolute right-0 top-10 w-[620px] h-[400px] bg-white/90 rounded-[5px] shadow-2xl" />
           </div>
-          <button className="flex items-center px-5 h-[50px] bg-cta text-white text-[24px] font-medium rounded-btn shadow hover:bg-active transition-colors">
+          <button onClick={goSignIn} className="flex items-center px-5 h-[50px] bg-cta text-white text-[24px] font-medium rounded-btn shadow hover:bg-active transition-colors">
             Начать пользоваться
           </button>
         </div>
@@ -162,7 +165,7 @@ export function LandingPage() {
                     ))}
                   </ul>
                 </div>
-                <button className="self-center px-5 h-[50px] border-2 border-cta text-cta text-[24px] font-medium rounded-btn hover:bg-cta hover:text-white transition-colors">
+                <button onClick={goSignIn} className="self-center px-5 h-[50px] border-2 border-cta text-cta text-[24px] font-medium rounded-btn hover:bg-cta hover:text-white transition-colors">
                   Начать работу
                 </button>
               </article>
@@ -176,7 +179,7 @@ export function LandingPage() {
         <div className="max-w-[1760px] mx-auto px-6 py-[30px] flex flex-wrap justify-between items-end gap-10">
           <div className="flex flex-col">
             <span className="text-[80px] font-medium text-primary leading-[120%]">OI</span>
-            <span className="text-[16px] text-primary">© 2023 Российская No-Code платформа</span>
+            <span className="text-[16px] text-primary">© 2026 Российская No-Code платформа</span>
           </div>
           <div className="flex flex-col gap-[5px] text-[16px] text-primary">
             <span className="font-medium">КОНТАКТ</span>
@@ -197,6 +200,7 @@ export function LandingPage() {
 
 /* ── Bits ── */
 function HowToCreate() {
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const active = STEPS[step];
   return (
@@ -221,7 +225,7 @@ function HowToCreate() {
           ))}
         </div>
       </div>
-      <button className="flex items-center px-5 h-[50px] bg-cta text-white text-[24px] font-medium rounded-btn shadow hover:bg-active transition-colors">
+      <button onClick={() => navigate("/signin")} className="flex items-center px-5 h-[50px] bg-cta text-white text-[24px] font-medium rounded-btn shadow hover:bg-active transition-colors">
         Создать свое первое приложение
       </button>
     </section>

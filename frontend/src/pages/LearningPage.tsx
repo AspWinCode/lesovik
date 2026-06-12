@@ -89,7 +89,7 @@ export function LearningPage() {
 
           {/* How AppSheet works */}
           <section className="mb-10">
-            <h2 className="text-[18px] font-semibold text-primary mb-5">Как работает AppSheet</h2>
+            <h2 className="text-[18px] font-semibold text-primary mb-5">Как работает OI</h2>
             <div className="flex items-center gap-0">
               {[
                 { num: 1, label: "Данные",       icon: "🗄️" },

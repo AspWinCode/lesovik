@@ -1,14 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
+import { useApps, useUpdateApp } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
 
 type SecuritySection =
   | "login"
   | "filters"
   | "auth"
   | "options";
+
+interface SecurityConfig {
+  require_login?: boolean;
+  allow_all_users?: boolean;
+  auth_provider?: string;
+  domain_restrict?: boolean;
+  audit_log?: boolean;
+}
 
 interface NavItem {
   id: SecuritySection;
@@ -26,6 +37,25 @@ const NAV_ITEMS: NavItem[] = [
 export function SecurityPage() {
   const [railModule, setRailModule] = useState<RailModule>("security");
   const [active, setActive]         = useState<SecuritySection>("login");
+  const navigate = useNavigate();
+
+  const appsQuery = useApps();
+  const app = useActiveApp(appsQuery.data?.items ?? []);
+  const updateApp = useUpdateApp();
+
+  const [sec, setSec] = useState<SecurityConfig>({});
+  useEffect(() => {
+    if (!app) return;
+    setSec((app.settings?.security as SecurityConfig | undefined) ?? {});
+  }, [app?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update local state immediately and persist the merged security block.
+  function patch(partial: Partial<SecurityConfig>) {
+    const next = { ...sec, ...partial };
+    setSec(next);
+    if (!app) return;
+    updateApp.mutate({ appId: app.id, body: { settings: { ...app.settings, security: next } } });
+  }
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -77,10 +107,10 @@ export function SecurityPage() {
         className="absolute bg-mainbg overflow-y-auto"
         style={{ left: 380, top: 70, width: 945, height: 1010 }}
       >
-        {active === "login"   && <LoginSection />}
+        {active === "login"   && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
         {active === "filters" && <FiltersSection />}
         {active === "auth"    && <AuthSection />}
-        {active === "options" && <OptionsSection />}
+        {active === "options" && <OptionsSection sec={sec} patch={patch} />}
       </main>
 
       <PreviewPanel projectName="Дикая Сибирь" />
@@ -89,10 +119,14 @@ export function SecurityPage() {
 }
 
 /* ── Login section ── */
-function LoginSection() {
-  const [requireLogin,    setRequireLogin]    = useState(false);
-  const [allowAllUsers,   setAllowAllUsers]   = useState(false);
-  const [authProvider,    setAuthProvider]    = useState("Google");
+function LoginSection({ sec, patch, onManageUsers }: {
+  sec: SecurityConfig;
+  patch: (p: Partial<SecurityConfig>) => void;
+  onManageUsers: () => void;
+}) {
+  const requireLogin = sec.require_login ?? false;
+  const allowAllUsers = sec.allow_all_users ?? false;
+  const authProvider = sec.auth_provider ?? "Google";
 
   return (
     <div className="px-[40px] py-[25px]">
@@ -109,7 +143,7 @@ function LoginSection() {
               Этот параметр следует выбирать для всех приложений, используемых в компании или организации.
             </p>
           </div>
-          <Toggle value={requireLogin} onChange={setRequireLogin} />
+          <Toggle value={requireLogin} onChange={(v) => patch({ require_login: v })} />
         </div>
 
         {/* Auth provider */}
@@ -121,7 +155,7 @@ function LoginSection() {
           <div className="relative w-[200px] shrink-0">
             <select
               value={authProvider}
-              onChange={(e) => setAuthProvider(e.target.value)}
+              onChange={(e) => patch({ auth_provider: e.target.value })}
               className="w-full bg-white border border-cardbg rounded-[8px] px-3 py-2 text-[15px] text-primary appearance-none focus:outline-none focus:border-cta pr-8"
             >
               <option>Google</option>
@@ -145,12 +179,12 @@ function LoginSection() {
               или закрытые таблицы
             </p>
           </div>
-          <Toggle value={allowAllUsers} onChange={setAllowAllUsers} />
+          <Toggle value={allowAllUsers} onChange={(v) => patch({ allow_all_users: v })} />
         </div>
 
         {/* Manage users button */}
         <div>
-          <button className="flex items-center gap-2 border border-cta text-cta rounded-[20px] px-4 py-2 text-[14px] font-medium hover:bg-[#EBF4FF] transition-colors">
+          <button onClick={onManageUsers} className="flex items-center gap-2 border border-cta text-cta rounded-[20px] px-4 py-2 text-[14px] font-medium hover:bg-[#EBF4FF] transition-colors">
             <svg viewBox="0 0 20 20" className="w-4 h-4" fill="currentColor">
               <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
             </svg>
@@ -185,10 +219,10 @@ function AuthSection() {
 }
 
 /* ── Options section ── */
-function OptionsSection() {
-  const [domainRestrict, setDomainRestrict] = useState(false);
-  const [auditLog,       setAuditLog]       = useState(false);
-
+function OptionsSection({ sec, patch }: {
+  sec: SecurityConfig;
+  patch: (p: Partial<SecurityConfig>) => void;
+}) {
   return (
     <div className="px-[40px] py-[25px]">
       <h2 className="text-[22px] font-bold text-primary mb-2">Опции</h2>
@@ -196,14 +230,14 @@ function OptionsSection() {
         <OptionRow
           label="Ограничение по домену"
           hint="Разрешить доступ только пользователям с определённым доменом электронной почты"
-          value={domainRestrict}
-          onChange={setDomainRestrict}
+          value={sec.domain_restrict ?? false}
+          onChange={(v) => patch({ domain_restrict: v })}
         />
         <OptionRow
           label="Журнал аудита"
           hint="Включить запись действий пользователей для аудита безопасности"
-          value={auditLog}
-          onChange={setAuditLog}
+          value={sec.audit_log ?? false}
+          onChange={(v) => patch({ audit_log: v })}
         />
       </div>
     </div>

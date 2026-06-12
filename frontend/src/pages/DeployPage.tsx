@@ -1,8 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
+import { useApps, usePublishApp } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
 
 type DeploySection = "deploy" | "versions" | "monitoring" | "upload";
 
@@ -16,6 +19,16 @@ const NAV_ITEMS: { id: DeploySection; label: string; icon: React.ReactNode }[] =
 export function DeployPage() {
   const [railModule, setRailModule] = useState<RailModule>("documents");
   const [active, setActive]         = useState<DeploySection>("versions");
+  const navigate = useNavigate();
+
+  const appsQuery = useApps();
+  const app = useActiveApp(appsQuery.data?.items ?? []);
+  const publish = usePublishApp();
+
+  function handlePublish() {
+    if (app) publish.mutate(app.id);
+  }
+  const published = app?.is_published ?? false;
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -64,8 +77,8 @@ export function DeployPage() {
         className="absolute bg-mainbg overflow-y-auto"
         style={{ left: 380, top: 70, width: 945, height: 1010 }}
       >
-        {active === "deploy"     && <DeploySection />}
-        {active === "versions"   && <VersionsSection />}
+        {active === "deploy"     && <DeploySection onPublish={handlePublish} publishing={publish.isPending} published={published} onEdit={() => navigate("/views")} />}
+        {active === "versions"   && <VersionsSection onPublish={handlePublish} publishing={publish.isPending} published={published} />}
         {active === "monitoring" && <MonitoringSection />}
         {active === "upload"     && <UploadSection />}
       </main>
@@ -77,7 +90,7 @@ export function DeployPage() {
 
 /* ── Sections ── */
 
-function VersionsSection() {
+function VersionsSection({ onPublish, publishing, published }: { onPublish: () => void; publishing: boolean; published: boolean }) {
   return (
     <div className="px-[40px] py-[25px]">
       <h2 className="text-[22px] font-bold text-primary mb-6">Версии</h2>
@@ -85,27 +98,32 @@ function VersionsSection() {
         <InfoCard
           title="История версий"
           desc="Ознакомьтесь с предыдущими версиями приложения. При каждом изменении определения приложения создаётся новая версия"
+          action="Открыть историю"
+          wip
         />
         <InfoCard
-          title="Обновление приложения"
-          desc="Обновите приложение до новой версии"
-          action="Обновить"
-          onAction={() => {}}
+          title="Публикация приложения"
+          desc={published ? "Приложение опубликовано. Опубликуйте снова, чтобы зафиксировать последнюю версию." : "Опубликуйте текущую версию приложения для пользователей"}
+          action={publishing ? "Публикация…" : published ? "Опубликовано ✓ — обновить" : "Опубликовать"}
+          onAction={onPublish}
+          disabled={publishing}
         />
         <InfoCard
           title="Стабильная версия"
           desc="Установите для своих пользователей определённую стабильную версию приложения, пока вы разрабатываете новые версии"
+          action="Выбрать версию"
+          wip
         />
       </div>
     </div>
   );
 }
 
-function DeploySection() {
+function DeploySection({ onPublish, publishing, published, onEdit }: { onPublish: () => void; publishing: boolean; published: boolean; onEdit: () => void }) {
   const checks = [
     { label: "Предупреждения и ошибки при определении приложения", status: "error" as const },
     { label: "Предупреждения и ошибки при определении приложения", status: "error" as const },
-    { label: "Приложение надоступно для запуска", status: "info" as const },
+    { label: "Приложение недоступно для запуска", status: "info" as const },
     { label: "Ошибки в определении приложения", status: "warn" as const },
     { label: "Ошибки в определении приложения", status: "warn" as const },
     { label: "Пожалуйста, укажите сферу применения вашего приложения", status: "info" as const },
@@ -118,12 +136,18 @@ function DeploySection() {
       <h2 className="text-[22px] font-bold text-primary mb-2">Развёртывание</h2>
       <p className="text-[14px] text-primary/60 mb-5">Пройдите проверку, прежде чем использовать приложение в режиме, отличном от тестового.</p>
 
-      <button className="bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors mb-6">
+      <button
+        title="В разработке"
+        disabled
+        className="bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 transition-colors mb-6 opacity-50 cursor-not-allowed"
+      >
         Запустить проверку развёртывания
       </button>
 
       <p className="text-[15px] font-semibold text-primary mb-4">
-        Ваше приложение не готово к запуску. Пожалуйста, исправьте указанные ошибки.
+        {published
+          ? "Приложение опубликовано. Вы можете переопубликовать его после правок."
+          : "Перед публикацией рекомендуется исправить указанные предупреждения."}
       </p>
 
       <div className="flex flex-col gap-2">
@@ -136,11 +160,15 @@ function DeploySection() {
       </div>
 
       <div className="flex items-center gap-4 mt-6">
-        <button className="bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors">
+        <button onClick={onEdit} className="bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors">
           Продолжить редактирование
         </button>
-        <button className="border border-cta text-cta text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-[#EBF4FF] transition-colors">
-          Развернуть несмотря на ошибки
+        <button
+          onClick={onPublish}
+          disabled={publishing}
+          className="border border-cta text-cta text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-[#EBF4FF] transition-colors disabled:opacity-50"
+        >
+          {publishing ? "Публикация…" : "Развернуть несмотря на ошибки"}
         </button>
       </div>
     </div>
@@ -156,19 +184,19 @@ function MonitoringSection() {
           title="Монитор автоматизаций"
           desc="Следите за выполнением автоматизированных процессов и показателями."
           action="Монитор автоматизации запуска"
-          onAction={() => {}}
+          wip
         />
         <InfoCard
           title="Статистика использования"
           desc="Эти графики показывают фактическое использование приложения."
           action="Получить статистику использования"
-          onAction={() => {}}
+          wip
         />
         <InfoCard
           title="Профиль производительности"
           desc="Профиль производительности помогает понять и настроить производительность операций синхронизации"
           action="Анализатор производительности запуска"
-          onAction={() => {}}
+          wip
         />
       </div>
     </div>
@@ -181,23 +209,31 @@ function UploadSection() {
       <h2 className="text-[22px] font-bold text-primary mb-2">Выгрузка приложения на IOS и Android</h2>
       <p className="text-[14px] text-primary/60 mb-6">Опубликуйте приложение в Apple App Store или Google Play.</p>
       <div className="flex flex-col gap-4">
-        <InfoCard title="App Store (iOS)" desc="Подготовьте и загрузите приложение в Apple App Store" action="Начать" onAction={() => {}} />
-        <InfoCard title="Google Play (Android)" desc="Подготовьте и загрузите приложение в Google Play Store" action="Начать" onAction={() => {}} />
+        <InfoCard title="App Store (iOS)" desc="Подготовьте и загрузите приложение в Apple App Store" action="Начать" wip />
+        <InfoCard title="Google Play (Android)" desc="Подготовьте и загрузите приложение в Google Play Store" action="Начать" wip />
       </div>
     </div>
   );
 }
 
 /* ── Helpers ── */
-function InfoCard({ title, desc, action, onAction }: { title: string; desc: string; action?: string; onAction?: () => void }) {
+function InfoCard({ title, desc, action, onAction, disabled, wip }: {
+  title: string; desc: string; action?: string; onAction?: () => void; disabled?: boolean; wip?: boolean;
+}) {
+  const inactive = wip || disabled || !onAction;
   return (
     <div className="bg-white rounded-[8px] border border-cardbg px-5 py-4">
       <p className="text-[16px] font-semibold text-primary mb-1">{title}</p>
       <p className="text-[13px] text-primary/60 mb-3">{desc}</p>
-      {action && onAction && (
+      {action && (
         <button
-          onClick={onAction}
-          className="bg-cta text-white text-[14px] font-medium rounded-[20px] px-4 py-1.5 hover:bg-active transition-colors"
+          onClick={wip ? undefined : onAction}
+          disabled={inactive}
+          title={wip ? "В разработке" : undefined}
+          className={cn(
+            "bg-cta text-white text-[14px] font-medium rounded-[20px] px-4 py-1.5 transition-colors",
+            inactive ? "opacity-50 cursor-not-allowed" : "hover:bg-active",
+          )}
         >
           {action}
         </button>

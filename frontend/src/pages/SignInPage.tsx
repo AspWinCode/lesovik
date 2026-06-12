@@ -57,7 +57,7 @@ export function SignInPage() {
       <form
         onSubmit={handleSubmit}
         className="relative bg-mainbg rounded-card border-2 border-primary"
-        style={{ width: 500, height: 457 }}
+        style={{ width: 500, height: totpRequired ? 545 : 457 }}
       >
         {/* Title */}
         <h1
@@ -123,11 +123,12 @@ export function SignInPage() {
           </div>
         )}
 
-        {/* Error message */}
+        {/* Error message — sits below the TOTP field when 2FA is shown so they
+            never overlap. */}
         {error && (
           <p
             className="absolute text-[14px] text-mistake text-center w-[350px]"
-            style={{ left: "calc(50% - 175px)", top: 283 }}
+            style={{ left: "calc(50% - 175px)", top: totpRequired ? 360 : 283 }}
           >
             {error}
           </p>
@@ -137,7 +138,7 @@ export function SignInPage() {
         <Link
           to="/signup"
           className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
-          style={{ left: "calc(50% - 56px + 119px)", top: 313 }}
+          style={{ left: "calc(50% - 56px + 119px)", top: totpRequired ? 398 : 313 }}
         >
           Ещё нет аккаунта?
         </Link>

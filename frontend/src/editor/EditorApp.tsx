@@ -4,6 +4,7 @@ import { StatusBanner } from "../shared/components/StatusBanner";
 import { ScaleToFit } from "@/shared/components/ScaleToFit";
 import { RequireAuth } from "@/shared/auth/RequireAuth";
 import { useAuthStore } from "@/shared/auth/store";
+import { applyTheme, useThemeStore } from "@/shared/theme/store";
 import { MainPage } from "@/pages/MainPage";
 import { SignInPage } from "@/pages/SignInPage";
 import { SignUpPage } from "@/pages/SignUpPage";
@@ -25,11 +26,17 @@ import { LearningPage } from "@/pages/LearningPage";
 
 export function EditorApp() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
+  const theme = useThemeStore((s) => s.theme);
 
   // Resolve "am I already logged in?" once on app start.
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  // Reflect the persisted theme onto <html> on first paint.
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
   return (
     <BrowserRouter basename="/editor">

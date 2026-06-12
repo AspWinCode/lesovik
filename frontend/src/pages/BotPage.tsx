@@ -4,6 +4,7 @@ import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import {
   useRules,
   useActivateRule,
@@ -59,7 +60,7 @@ export function BotPage() {
 
   const { data: appsData } = useApps();
   const apps = appsData?.items ?? [];
-  const app = apps.find((a) => a.name === "Чат-бот помощник") ?? apps[0];
+  const app = useActiveApp(apps);
   const appId = app?.id;
 
   const { data: rules = [], isLoading } = useRules(appId);

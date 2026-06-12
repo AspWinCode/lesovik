@@ -349,6 +349,26 @@ function AdminLogs() {
   );
 }
 
+/** Download a single audit log entry as a JSON file. */
+function exportLog(log: LogEntry): void {
+  const payload = {
+    time: log.time, user: log.user, action: log.action,
+    level: log.level, ip: log.ip, device: log.device,
+    details: safeParse(log.json),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `audit-log-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeParse(s: string): unknown {
+  try { return JSON.parse(s); } catch { return s; }
+}
+
 function LogDetailPanel({ log, onClose }: { log: LogEntry; onClose: () => void }) {
   const criticalityLabel: Record<string, { label: string; color: string }> = {
     info:  { label: "Низкий",   color: "#20BE4F" },
@@ -395,10 +415,17 @@ function LogDetailPanel({ log, onClose }: { log: LogEntry; onClose: () => void }
 
       {/* Action buttons */}
       <div className="flex gap-[15px] px-6 pb-5">
-        <button className="flex-1 h-[38px] border-2 border-cta rounded-[20px] text-[14px] font-semibold text-cta hover:bg-selected transition-colors">
+        <button
+          disabled
+          title="В разработке"
+          className="flex-1 h-[38px] border-2 border-cta/40 rounded-[20px] text-[14px] font-semibold text-cta/40 cursor-not-allowed"
+        >
           Пометить как решённое
         </button>
-        <button className="flex-1 h-[38px] border-2 border-cta rounded-[20px] text-[14px] font-semibold text-cta hover:bg-selected transition-colors">
+        <button
+          onClick={() => exportLog(log)}
+          className="flex-1 h-[38px] border-2 border-cta rounded-[20px] text-[14px] font-semibold text-cta hover:bg-selected transition-colors"
+        >
           Экспорт данных
         </button>
       </div>

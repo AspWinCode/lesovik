@@ -150,7 +150,7 @@ function ForecastSection() {
         <p className="text-[14px] text-primary/60 mb-6">
           Создайте модель прогнозирования для предсказания значений на основе данных вашего приложения.
         </p>
-        <button className="flex items-center gap-2 bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors">
+        <button disabled title="В разработке" className="flex items-center gap-2 bg-cta/50 text-white text-[14px] font-medium rounded-[20px] px-5 py-2 cursor-not-allowed">
           <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M8 3v10M3 8h10" strokeLinecap="round" />
           </svg>
@@ -170,7 +170,7 @@ function TextSection() {
         <p className="text-[14px] text-primary/60 mb-6">
           Создайте модель для распознавания текста и извлечения данных из документов и изображений.
         </p>
-        <button className="flex items-center gap-2 bg-cta text-white text-[14px] font-medium rounded-[20px] px-5 py-2 hover:bg-active transition-colors">
+        <button disabled title="В разработке" className="flex items-center gap-2 bg-cta/50 text-white text-[14px] font-medium rounded-[20px] px-5 py-2 cursor-not-allowed">
           <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M8 3v10M3 8h10" strokeLinecap="round" />
           </svg>

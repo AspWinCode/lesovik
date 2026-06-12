@@ -1,8 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
+import { useApps, useUpdateApp } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
+
+const CATEGORY_OPTIONS = [
+  "Проверки и обследования", "Выездное обслуживание", "Управление недвижимостью",
+  "Продажи и CRM", "Управление запасами", "Управление персоналом",
+  "Планирование проектов", "Обучение и тренинги", "Другое",
+];
+const FUNCTION_OPTIONS = ["Отслеживание", "Управление", "Анализ", "Уведомления", "Автоматизация"];
+const INDUSTRY_OPTIONS = ["Розничная торговля", "Производство", "Услуги", "Образование", "Логистика", "Финансы", "Другое"];
+
+interface AppInfoSettings {
+  version?: string;
+  short_desc?: string;
+  category?: string;
+  func?: string;
+  industry?: string;
+}
 
 type SettingsSection =
   | "info"
@@ -42,12 +60,48 @@ export function SettingsPage() {
   const [railModule, setRailModule] = useState<RailModule>("constructor");
   const [active, setActive]         = useState<SettingsSection>("info");
 
-  const [appName,    setAppName]    = useState("Дикая Сибирь");
-  const [version,    setVersion]    = useState("1.000028");
-  const [shortDesc,  setShortDesc]  = useState("Track order delivery status and send customers upd...");
+  const appsQuery = useApps();
+  const app = useActiveApp(appsQuery.data?.items ?? []);
+  const updateApp = useUpdateApp();
+  const info = (app?.settings?.info as AppInfoSettings | undefined) ?? {};
+
+  const [appName,    setAppName]    = useState("");
+  const [version,    setVersion]    = useState("");
+  const [shortDesc,  setShortDesc]  = useState("");
   const [category,   setCategory]   = useState("");
   const [func,       setFunc]       = useState("");
   const [industry,   setIndustry]   = useState("");
+  const [saved,      setSaved]      = useState(false);
+
+  // Hydrate the form whenever the active app resolves / changes.
+  useEffect(() => {
+    if (!app) return;
+    setAppName(app.name);
+    setVersion(info.version ?? String(app.version));
+    setShortDesc(info.short_desc ?? app.description ?? "");
+    setCategory(info.category ?? "");
+    setFunc(info.func ?? "");
+    setIndustry(info.industry ?? "");
+  }, [app?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSave() {
+    if (!app) return;
+    setSaved(false);
+    updateApp.mutate(
+      {
+        appId: app.id,
+        body: {
+          name: appName.trim() || app.name,
+          description: shortDesc || null,
+          settings: {
+            ...app.settings,
+            info: { version, short_desc: shortDesc, category, func, industry },
+          },
+        },
+      },
+      { onSuccess: () => setSaved(true) },
+    );
+  }
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -120,6 +174,10 @@ export function SettingsPage() {
           category={category}     setCategory={setCategory}
           func={func}             setFunc={setFunc}
           industry={industry}     setIndustry={setIndustry}
+          onSave={handleSave}
+          saving={updateApp.isPending}
+          saved={saved}
+          disabled={!app}
         />}
 
         {(active === "data-relations" || active === "data-inheritance") && (
@@ -148,9 +206,13 @@ interface InfoProps {
   category: string;   setCategory: (v: string) => void;
   func: string;       setFunc: (v: string) => void;
   industry: string;   setIndustry: (v: string) => void;
+  onSave: () => void;
+  saving: boolean;
+  saved: boolean;
+  disabled: boolean;
 }
 
-function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setShortDesc, category, setCategory, func, setFunc, industry, setIndustry }: InfoProps) {
+function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setShortDesc, category, setCategory, func, setFunc, industry, setIndustry, onSave, saving, saved, disabled }: InfoProps) {
   return (
     <div className="px-[40px] py-[25px]">
       <h2 className="text-[22px] font-bold text-primary mb-4">Информация</h2>
@@ -193,15 +255,15 @@ function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setS
         </FieldRow>
 
         <FieldRow label="Категория" hint="Категория приложения">
-          <SelectField value={category} onChange={setCategory} placeholder="Выберите категорию" />
+          <SelectField value={category} onChange={setCategory} placeholder="Выберите категорию" options={CATEGORY_OPTIONS} />
         </FieldRow>
 
         <FieldRow label="Функция" hint="Целевая функция приложения">
-          <SelectField value={func} onChange={setFunc} placeholder="Выберите функцию" />
+          <SelectField value={func} onChange={setFunc} placeholder="Выберите функцию" options={FUNCTION_OPTIONS} />
         </FieldRow>
 
         <FieldRow label="Отрасль" hint="Целевая отрасль приложения">
-          <SelectField value={industry} onChange={setIndustry} placeholder="Выберите отрасль" />
+          <SelectField value={industry} onChange={setIndustry} placeholder="Выберите отрасль" options={INDUSTRY_OPTIONS} />
         </FieldRow>
 
         <FieldRow label="Теги" hint="Теги функций, используемые в этом приложении">
@@ -220,6 +282,18 @@ function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setS
           </div>
         </FieldRow>
       </div>
+
+      {/* Save */}
+      <div className="flex items-center gap-4 mt-8">
+        <button
+          onClick={onSave}
+          disabled={disabled || saving}
+          className="bg-cta text-white text-[15px] font-medium rounded-[20px] px-6 py-2 hover:bg-active transition-colors disabled:opacity-50"
+        >
+          {saving ? "Сохранение…" : "Сохранить"}
+        </button>
+        {saved && !saving && <span className="text-[14px] text-[#20BE4F]">Сохранено</span>}
+      </div>
     </div>
   );
 }
@@ -236,7 +310,7 @@ function FieldRow({ label, hint, children }: { label: string; hint: string; chil
   );
 }
 
-function SelectField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+function SelectField({ value, onChange, placeholder, options = [] }: { value: string; onChange: (v: string) => void; placeholder: string; options?: string[] }) {
   return (
     <div className="relative">
       <select
@@ -245,6 +319,7 @@ function SelectField({ value, onChange, placeholder }: { value: string; onChange
         className="w-full bg-white border border-cardbg rounded-[8px] px-3 py-2 text-[15px] text-primary appearance-none focus:outline-none focus:border-cta pr-8"
       >
         <option value="">{placeholder}</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
       <svg viewBox="0 0 20 20" className="w-4 h-4 text-primary/50 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="currentColor">
         <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />

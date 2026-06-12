@@ -45,6 +45,7 @@ export interface AppUpdate {
   description?: string | null;
   icon?: string | null;
   color?: string | null;
+  settings?: Record<string, unknown>;
 }
 
 export async function createApp(body: AppCreate): Promise<App> {
@@ -59,4 +60,9 @@ export async function updateApp(appId: string, body: AppUpdate): Promise<App> {
 
 export async function deleteApp(appId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}`);
+}
+
+export async function publishApp(appId: string): Promise<App> {
+  const { data } = await apiClient.post<App>(`/apps/${appId}/publish`);
+  return data;
 }

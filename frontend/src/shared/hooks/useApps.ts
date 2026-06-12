@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createApp, deleteApp, listApps, updateApp, type AppCreate, type AppUpdate } from "../api/apps";
+import { createApp, deleteApp, listApps, publishApp, updateApp, type AppCreate, type AppUpdate } from "../api/apps";
 
 const APPS_KEY = ["apps"] as const;
 
@@ -30,6 +30,14 @@ export function useDeleteApp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (appId: string) => deleteApp(appId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: APPS_KEY }); },
+  });
+}
+
+export function usePublishApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (appId: string) => publishApp(appId),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: APPS_KEY }); },
   });
 }

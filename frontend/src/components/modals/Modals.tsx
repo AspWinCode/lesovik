@@ -128,17 +128,17 @@ export function CreateProjectModal({
         <div className="flex flex-col gap-5">
           <span className="text-[18px] font-bold text-primary">База данных</span>
 
-          <button className="flex items-center gap-[18px] text-meta text-primary hover:text-cta transition-colors text-left">
+          <button onClick={onAppOption} className="flex items-center gap-[18px] text-meta text-primary hover:text-cta transition-colors text-left">
             <span className="w-[24px] h-[24px] shrink-0"><DbOutlineIcon /></span>
             <span>Новая база данных</span>
           </button>
-          <button className="flex items-center gap-[18px] text-meta text-primary hover:text-cta transition-colors text-left">
+          <button disabled title="В разработке" className="flex items-center gap-[18px] text-meta text-primary/40 cursor-not-allowed text-left">
             <span className="w-[18px] h-[23px] shrink-0 flex items-center justify-center">
               <SheetsIcon />
             </span>
             <span>Импортировать из Sheets</span>
           </button>
-          <button className="flex items-center gap-[18px] text-meta text-primary hover:text-cta transition-colors text-left">
+          <button disabled title="В разработке" className="flex items-center gap-[18px] text-meta text-primary/40 cursor-not-allowed text-left">
             <span className="w-[23px] h-[25px] shrink-0 flex items-center justify-center">
               <ExcelIcon />
             </span>
@@ -365,6 +365,13 @@ export function NewAppModal({
 ───────────────────────────────────────────────── */
 
 function UrlRow({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    void navigator.clipboard?.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
   return (
     <div className="flex flex-col gap-[5px]">
       <span className="text-meta text-primary font-medium">{label}</span>
@@ -372,10 +379,11 @@ function UrlRow({ label, url }: { label: string; url: string }) {
         <BlueField className="flex-1">
           <span className="text-[18px] text-primary truncate">{url}</span>
         </BlueField>
-        <button className="shrink-0 w-[34px] h-[40px] flex items-center justify-center hover:opacity-70">
+        <button onClick={copy} title={copied ? "Скопировано" : "Копировать"} className="shrink-0 w-[34px] h-[40px] flex items-center justify-center hover:opacity-70">
           <CopyIcon />
         </button>
       </div>
+      {copied && <span className="text-[12px] text-[#20BE4F]">Скопировано</span>}
     </div>
   );
 }
@@ -492,13 +500,13 @@ export function RolesModal({
         {/* Bottom buttons */}
         <div className="flex justify-between items-center py-[30px]">
           <div className="flex gap-5">
-            <button className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
-                               border-2 border-cta rounded-btn text-cta text-meta hover:bg-cta/10 transition-colors">
+            <button disabled title="В разработке" className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
+                               border-2 border-cta/40 rounded-btn text-cta/40 text-meta cursor-not-allowed">
               <span className="w-[25px] h-[25px]"><LinkIcon /></span>
               <span>Ссылка</span>
             </button>
-            <button className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
-                               border-2 border-cta rounded-btn text-cta text-meta hover:bg-cta/10 transition-colors">
+            <button disabled title="В разработке" className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
+                               border-2 border-cta/40 rounded-btn text-cta/40 text-meta cursor-not-allowed">
               <span className="w-[21px] h-[25px]"><CopyIcon /></span>
               <span>Копировать пользователя</span>
             </button>
@@ -549,7 +557,7 @@ export function DeleteDbModal({
             При удалении базы данных будут удалены и ее таблицы
           </p>
         </div>
-        <ModalButtons onCancel={onClose} onConfirm={onConfirm} confirmLabel="Изменить" />
+        <ModalButtons onCancel={onClose} onConfirm={onConfirm} confirmLabel="Удалить" />
       </div>
     </Overlay>
   );
