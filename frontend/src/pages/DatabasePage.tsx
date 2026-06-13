@@ -2,11 +2,16 @@ import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
-import { useEntities } from "@/shared/hooks/useEntities";
+import { useEntities, useCreateEntity, useCreateField } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import type { FieldRead } from "@/shared/api/entities";
 
 type ViewMode = "grid" | "table";
+
+function slugify(s: string): string {
+  const base = s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "table";
+  return `${base}_${Date.now().toString(36)}`;
+}
 
 /* ── Field-type column width ── */
 function colWidth(ft: string): number {
@@ -41,8 +46,28 @@ export function DatabasePage() {
 
   const createRecord = useCreateRecord(appId ?? "", entity?.id ?? "");
   const updateRecord = useUpdateRecord(appId ?? "", entity?.id ?? "");
+  const createEntityMutation = useCreateEntity(appId ?? "");
+  const createFieldMutation  = useCreateField(appId ?? "");
 
   /* ── Handlers ── */
+  function handleNewTable() {
+    const name = window.prompt("Название таблицы:");
+    if (!name?.trim()) return;
+    const displayName = name.trim();
+    createEntityMutation.mutate({ slug: slugify(displayName), display_name: displayName });
+  }
+
+  function handleAddField() {
+    if (!entity) return;
+    const name = window.prompt("Название поля:");
+    if (!name?.trim()) return;
+    const displayName = name.trim();
+    createFieldMutation.mutate({
+      entityId: entity.id,
+      body: { name: slugify(displayName), display_name: displayName, field_type: "text" },
+    });
+  }
+
   function handleAddRow() {
     createRecord.mutate({ payload: {} }, {
       onSuccess: (rec) => {
@@ -124,9 +149,8 @@ export function DatabasePage() {
           ))
         )}
         <button
-          disabled
-          className="h-full px-5 text-[14px] text-cta/40 flex items-center gap-1 cursor-not-allowed whitespace-nowrap"
-          title="В разработке"
+          onClick={handleNewTable}
+          className="h-full px-5 text-[14px] text-cta flex items-center gap-1 whitespace-nowrap hover:bg-mainbg transition-colors"
         >
           <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M8 3v10M3 8h10" strokeLinecap="round" />
@@ -204,7 +228,7 @@ export function DatabasePage() {
                   </th>
                 ))}
                 <th className="px-4 py-2 text-left">
-                  <button disabled title="В разработке" className="flex items-center gap-1 text-cta/40 text-[13px] font-medium cursor-not-allowed whitespace-nowrap">
+                  <button onClick={handleAddField} className="flex items-center gap-1 text-cta text-[13px] font-medium whitespace-nowrap hover:opacity-70 transition-opacity">
                     <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M8 3v10M3 8h10" strokeLinecap="round" />
                     </svg>
