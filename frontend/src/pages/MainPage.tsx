@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -95,6 +95,24 @@ export function MainPage() {
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
 
+  const projectScrollRef = useRef<HTMLDivElement>(null);
+  const infoScrollRef    = useRef<HTMLDivElement>(null);
+  const [projectAtStart, setProjectAtStart] = useState(true);
+  const [infoAtStart,    setInfoAtStart]    = useState(true);
+
+  function scrollProjects(dir: 1 | -1) {
+    projectScrollRef.current?.scrollBy({ left: dir * 380, behavior: "smooth" });
+  }
+  function scrollInfo(dir: 1 | -1) {
+    infoScrollRef.current?.scrollBy({ left: dir * 280, behavior: "smooth" });
+  }
+  function onProjectScroll() {
+    setProjectAtStart((projectScrollRef.current?.scrollLeft ?? 0) < 10);
+  }
+  function onInfoScroll() {
+    setInfoAtStart((infoScrollRef.current?.scrollLeft ?? 0) < 10);
+  }
+
   function handleSidebarChange(tab: SidebarTab) {
     if (tab === "templates") { navigate("/templates"); return; }
     setSidebarTab(tab);
@@ -167,78 +185,143 @@ export function MainPage() {
           />
         </div>
 
-        {/* Project cards row */}
-        <div className="absolute left-[40px] top-[86px] flex items-center gap-[30px]">
-          <CreateProjectCard onClick={() => setModal("create")} />
+        {/* Project cards row — scrollable */}
+        {/* outer wrapper clips the native scrollbar below the card area */}
+        <div
+          className="absolute overflow-hidden"
+          style={{ left: 40, top: 86, width: 950, height: 292 }}
+        >
+          <div
+            ref={projectScrollRef}
+            onScroll={onProjectScroll}
+            className="flex items-start gap-[30px]"
+            style={{ overflowX: "scroll", overflowY: "hidden", height: 312 }}
+          >
+            <CreateProjectCard onClick={() => setModal("create")} />
 
-          {isApps && isLoading && (
-            <div className="flex items-center text-primary/60 text-lg h-[284px] px-6">
-              Загрузка приложений…
-            </div>
-          )}
+            {isApps && isLoading && (
+              <div className="flex items-center text-primary/60 text-lg h-[284px] px-6">
+                Загрузка приложений…
+              </div>
+            )}
 
-          {isApps && isError && (
-            <div className="flex flex-col items-start justify-center gap-2 h-[284px] px-6">
-              <span className="text-mistake text-lg">Не удалось загрузить приложения</span>
-              <button
-                onClick={() => refetch()}
-                className="text-cta hover:text-active underline text-base"
-              >
-                Повторить
-              </button>
-            </div>
-          )}
+            {isApps && isError && (
+              <div className="flex flex-col items-start justify-center gap-2 h-[284px] px-6">
+                <span className="text-mistake text-lg">Не удалось загрузить приложения</span>
+                <button
+                  onClick={() => refetch()}
+                  className="text-cta hover:text-active underline text-base"
+                >
+                  Повторить
+                </button>
+              </div>
+            )}
 
-          {isApps && !isLoading && !isError && projects.length === 0 && (
-            <div className="flex items-center text-primary/60 text-lg h-[284px] px-6">
-              Пока нет приложений — создайте первое.
-            </div>
-          )}
+            {isApps && !isLoading && !isError && projects.length === 0 && (
+              <div className="flex items-center text-primary/60 text-lg h-[284px] px-6">
+                Пока нет приложений — создайте первое.
+              </div>
+            )}
 
-          {isApps &&
-            projects.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                variant="apps"
-                isSelected={p.id === effectiveSelected}
-                onClick={() => setSelected(p.id)}
-                onShareClick={() => { setSelected(p.id); setModal("share"); }}
-                onRename={() => handleRenameApp(p.id, p.name)}
-                onDelete={() => handleDeleteApp(p.id)}
-              />
-            ))}
+            {isApps &&
+              projects.map((p) => (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  variant="apps"
+                  isSelected={p.id === effectiveSelected}
+                  onClick={() => setSelected(p.id)}
+                  onShareClick={() => { setSelected(p.id); setModal("share"); }}
+                  onRename={() => handleRenameApp(p.id, p.name)}
+                  onDelete={() => handleDeleteApp(p.id)}
+                />
+              ))}
 
-          {!isApps && (
-            <div className="flex items-center text-primary/60 text-lg h-[284px] px-6">
-              Базы данных появятся здесь.
-            </div>
-          )}
+            {!isApps && (
+              <div className="flex items-center text-primary/60 text-lg h-[284px] px-6">
+                Базы данных появятся здесь.
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Project row — left arrow (shown after scrolling) */}
+        {!projectAtStart && (
+          <button
+            onClick={() => scrollProjects(-1)}
+            className="absolute flex items-center justify-center
+                       bg-[rgba(152,155,159,0.4)] rounded-full cursor-pointer
+                       hover:bg-[rgba(152,155,159,0.6)] transition-colors"
+            style={{ left: 5, top: 210, width: 45, height: 45 }}
+          >
+            <svg viewBox="0 0 22 31" fill="none" className="w-[14px] h-[20px]">
+              <path d="M18 2 L4 15.5 L18 29" stroke="rgba(64,64,64,0.6)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
+
+        {/* Project row — right arrow */}
+        <button
+          onClick={() => scrollProjects(1)}
+          className="absolute flex items-center justify-center
+                     bg-[rgba(152,155,159,0.4)] rounded-full cursor-pointer
+                     hover:bg-[rgba(152,155,159,0.6)] transition-colors"
+          style={{ left: 995, top: 210, width: 45, height: 45 }}
+        >
+          <svg viewBox="0 0 22 31" fill="none" className="w-[14px] h-[20px]">
+            <path d="M4 2 L18 15.5 L4 29" stroke="rgba(64,64,64,0.6)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
 
         {/* Section title */}
         <h2 className="absolute left-[40px] top-[396px] text-title font-semibold text-primary">
           {infoTitle}
         </h2>
 
-        {/* Info cards row */}
-        <div className="absolute left-[40px] top-[452px] flex gap-[65px]">
-          {infoCards.map((card) => (
-            <InfoCard key={card.id} card={card} />
-          ))}
+        {/* Info cards row — scrollable */}
+        <div
+          className="absolute overflow-hidden"
+          style={{ left: 40, top: 452, width: 940, height: 420 }}
+        >
+          <div
+            ref={infoScrollRef}
+            onScroll={onInfoScroll}
+            className="flex gap-[65px]"
+            style={{ overflowX: "scroll", overflowY: "hidden", height: 440 }}
+          >
+            {infoCards.map((card) => (
+              <InfoCard key={card.id} card={card} />
+            ))}
+          </div>
         </div>
 
-        {/* Scroll-arrow — right edge of info cards row */}
-        <div
+        {/* Info row — left arrow (shown after scrolling) */}
+        {!infoAtStart && (
+          <button
+            onClick={() => scrollInfo(-1)}
+            className="absolute flex items-center justify-center
+                       bg-[rgba(152,155,159,0.4)] rounded-full cursor-pointer
+                       hover:bg-[rgba(152,155,159,0.6)] transition-colors"
+            style={{ left: 5, top: 640, width: 45, height: 45 }}
+          >
+            <svg viewBox="0 0 22 31" fill="none" className="w-[14px] h-[20px]">
+              <path d="M18 2 L4 15.5 L18 29" stroke="rgba(64,64,64,0.6)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
+
+        {/* Info row — right arrow */}
+        <button
+          onClick={() => scrollInfo(1)}
           className="absolute flex items-center justify-center
                      bg-[rgba(152,155,159,0.4)] rounded-full cursor-pointer
                      hover:bg-[rgba(152,155,159,0.6)] transition-colors"
-          style={{ left: 985, top: 629, width: 45, height: 45 }}
+          style={{ left: 985, top: 640, width: 45, height: 45 }}
         >
           <svg viewBox="0 0 22 31" fill="none" className="w-[14px] h-[20px]">
             <path d="M4 2 L18 15.5 L4 29" stroke="rgba(64,64,64,0.6)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-        </div>
+        </button>
 
         {/* Bottom CTA */}
         <button

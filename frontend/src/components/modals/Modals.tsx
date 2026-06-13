@@ -255,19 +255,38 @@ const TABLE_TEMPLATES = [
   { label: "Аудит" },
 ];
 
-function TemplateItem({ label, icon }: { label: string; icon?: ReactNode }) {
+function TemplateItem({
+  label,
+  icon,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  icon?: ReactNode;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   return (
     <button
-      className="flex flex-col items-center justify-center gap-[5px] rounded-[5px] bg-cardbg
-                 hover:opacity-100 transition-opacity cursor-pointer"
-      style={{ width: 81, height: 75, opacity: 0.85 }}
+      onClick={onSelect}
+      className={cn(
+        "flex flex-col items-center justify-center gap-[5px] rounded-[5px] transition-all cursor-pointer",
+        selected
+          ? "bg-cta/20 ring-2 ring-cta opacity-100"
+          : "bg-cardbg hover:opacity-100 opacity-85",
+      )}
+      style={{ width: 81, height: 75 }}
     >
       {icon ? (
-        <span className="w-[35px] h-[35px] flex items-center justify-center">{icon}</span>
+        <span className={cn("w-[35px] h-[35px] flex items-center justify-center", selected && "[&_path]:stroke-cta [&_rect]:stroke-cta [&_line]:stroke-cta [&_circle]:stroke-cta")}>
+          {icon}
+        </span>
       ) : (
         <span className="w-[24px] h-[24px] flex items-center justify-center"><DbOutlineIcon /></span>
       )}
-      <span className="text-[12px] text-primary font-medium leading-tight">{label}</span>
+      <span className={cn("text-[12px] font-medium leading-tight", selected ? "text-cta" : "text-primary")}>
+        {label}
+      </span>
     </button>
   );
 }
@@ -283,6 +302,8 @@ export function NewAppModal({
 }) {
   const [appName, setAppName] = useState("New App");
   const [category, setCategory] = useState("");
+  const [selectedView, setSelectedView]   = useState<string | null>(null);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const hasCategory = category !== "";
 
   return (
@@ -317,7 +338,13 @@ export function NewAppModal({
             </label>
             <div className="flex gap-[13px] flex-wrap">
               {VIEW_TEMPLATES.map((t) => (
-                <TemplateItem key={t.label} label={t.label} icon={t.icon} />
+                <TemplateItem
+                  key={t.label}
+                  label={t.label}
+                  icon={t.icon}
+                  selected={selectedView === t.label}
+                  onSelect={() => setSelectedView(selectedView === t.label ? null : t.label)}
+                />
               ))}
             </div>
           </div>
@@ -331,7 +358,12 @@ export function NewAppModal({
             </label>
             <div className="flex gap-[13px] flex-wrap">
               {TABLE_TEMPLATES.map((t) => (
-                <TemplateItem key={t.label} label={t.label} />
+                <TemplateItem
+                  key={t.label}
+                  label={t.label}
+                  selected={selectedTable === t.label}
+                  onSelect={() => setSelectedTable(selectedTable === t.label ? null : t.label)}
+                />
               ))}
               {/* + button */}
               <button

@@ -36,7 +36,7 @@ export function PreviewPanel({ projectName = "Fitness App", previewImageUrl, onO
 
   return (
     <div
-      className="absolute top-[70px] right-0 bg-mainbg flex flex-col items-center gap-[70px]"
+      className="absolute top-[70px] right-0 bg-mainbg flex flex-col items-center gap-[40px]"
       style={{
         width: 580,
         height: 1000,
