@@ -225,6 +225,7 @@ class EntityService:
             field.field_options = data.field_options
 
         await self._db.flush()
+        await self._db.refresh(field, attribute_names=["updated_at"])
         return FieldRead.model_validate(field)
 
     async def delete_field(

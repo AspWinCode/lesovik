@@ -1,3 +1,4 @@
+import uuid as _uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -40,7 +41,7 @@ def create_access_token(user_id: UUID, roles: list[str]) -> str:
 def create_refresh_token(user_id: UUID) -> str:
     return _build_token(
         subject=str(user_id),
-        extra={"type": "refresh"},
+        extra={"type": "refresh", "jti": str(_uuid.uuid4())},
         expire_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
 

@@ -144,6 +144,7 @@ class AppService:
             app.settings = data.settings
 
         await self._db.flush()
+        await self._db.refresh(app, attribute_names=["updated_at"])
         logger.info("app_updated", app_id=str(app_id))
         return AppRead.model_validate(app)
 
@@ -163,6 +164,7 @@ class AppService:
             await self._require_role(app_id, actor_id, {"owner", "admin"})
         app.is_published = True
         await self._db.flush()
+        await self._db.refresh(app, attribute_names=["updated_at"])
         logger.info("app_published", app_id=str(app_id))
         return AppRead.model_validate(app)
 

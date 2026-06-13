@@ -126,6 +126,7 @@ class RuleService:
 
         rule.version += 1
         await self._db.flush()
+        await self._db.refresh(rule, attribute_names=["updated_at"])
         return RuleRead.model_validate(rule)
 
     async def delete_rule(self, app_id: uuid.UUID, rule_id: uuid.UUID) -> None:
@@ -139,6 +140,7 @@ class RuleService:
         rule = await self._fetch(app_id, rule_id)
         rule.is_active = True
         await self._db.flush()
+        await self._db.refresh(rule, attribute_names=["updated_at"])
         logger.info("rule_activated", rule_id=str(rule_id))
         return RuleRead.model_validate(rule)
 
@@ -146,6 +148,7 @@ class RuleService:
         rule = await self._fetch(app_id, rule_id)
         rule.is_active = False
         await self._db.flush()
+        await self._db.refresh(rule, attribute_names=["updated_at"])
         return RuleRead.model_validate(rule)
 
     # ------------------------------------------------------------------

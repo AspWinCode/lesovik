@@ -9,8 +9,11 @@ from app.models.identity import Role, User, UserRole
 
 @pytest.fixture()
 async def admin_user(db_session: AsyncSession) -> User:
-    role = Role(id="platform_admin", display_name="Platform Admin", is_system=True)
-    db_session.add(role)
+    # platform_admin role is seeded by the init migration; only add if missing
+    existing_role = await db_session.get(Role, "platform_admin")
+    if not existing_role:
+        db_session.add(Role(id="platform_admin", display_name="Platform Admin", is_system=True))
+        await db_session.flush()
     user = User(
         email="admin@example.com",
         display_name="Admin",
