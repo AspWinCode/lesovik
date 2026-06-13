@@ -5,6 +5,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import AuthDep, DbDep
@@ -163,19 +164,20 @@ async def update_sequence(
     return SequenceRead.model_validate(seq)
 
 
-@router.delete("/{sequence_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{sequence_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_sequence(
     app_id: uuid.UUID,
     entity_id: uuid.UUID,
     sequence_id: uuid.UUID,
     current_user: AuthDep,
     db: DbDep,
-) -> None:
+) -> Response:
     await _check_app(app_id, current_user, db)
     try:
         await SequenceService(db).delete_sequence(app_id, entity_id, sequence_id)
     except SequenceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found") from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{sequence_id}/next", response_model=NextValueResponse)
