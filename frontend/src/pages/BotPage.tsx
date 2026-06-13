@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
@@ -21,7 +22,7 @@ import {
 import type { Rule, ProcessStep } from "@/shared/api/rules";
 import { useEntities } from "@/shared/hooks/useEntities";
 
-const BOT_TABS = ["Бот", "События", "Процесс"];
+const BOT_TABS = ["Бот", "События", "Процесс", "Правила"];
 const POSITIONS_DC = ["Добавить", "Удалить", "Обновить"];
 
 const ACTION_TYPES = [
@@ -55,6 +56,8 @@ function dcToEvent(dc: string): string {
 }
 
 export function BotPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
   const [botTab, setBotTab] = useState("Бот");
@@ -208,10 +211,17 @@ export function BotPage() {
           {BOT_TABS.map((t) => (
             <button
               key={t}
-              onClick={() => setBotTab(t)}
+              onClick={() => {
+                if (t === "Правила") {
+                  const appId = searchParams.get("app");
+                  navigate(appId ? `/rules?app=${appId}` : "/rules");
+                } else {
+                  setBotTab(t);
+                }
+              }}
               className={cn("text-[18px] font-semibold transition-colors", botTab === t ? "text-cta" : "text-primary")}
             >
-              {t}
+              {t === "Правила" ? "Правила →" : t}
             </button>
           ))}
         </div>

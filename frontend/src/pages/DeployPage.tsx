@@ -63,11 +63,17 @@ export function DeployPage() {
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 border-t border-cardbg">
-          <button className="w-full flex items-center gap-2 px-5 py-3 text-[13px] text-primary/60 hover:bg-mainbg transition-colors">
-            <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
-              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L8 9.586l1.293-1.293a1 1 0 111.414 1.414l-2 2a1 1 0 01-1.414 0l-2-2a1 1 0 010-1.414z" clipRule="evenodd" />
+          <button
+            onClick={() => navigate("/modules")}
+            className="w-full flex items-center gap-2 px-5 py-3 text-[13px] text-cta hover:bg-mainbg transition-colors font-medium"
+          >
+            <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="1" y="1" width="6" height="6" rx="1" />
+              <rect x="9" y="1" width="6" height="6" rx="1" />
+              <rect x="1" y="9" width="6" height="6" rx="1" />
+              <rect x="9" y="9" width="6" height="6" rx="1" />
             </svg>
-            Системные представления
+            Каталог модулей →
           </button>
         </div>
       </aside>

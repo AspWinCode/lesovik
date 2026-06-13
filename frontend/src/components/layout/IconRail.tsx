@@ -39,10 +39,10 @@ const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   home: "/",
   constructor: "/views",
   data: "/database",      // реальные данные (записи)
-  automation: "/rules",
+  automation: "/bot",
   analytics: "/intel",    // AI / Intelligence
   notifications: "/admin",// административная панель
-  documents: "/modules",
+  documents: "/deploy",
   security: "/security",
   docs: "/learning",      // обучение / документация
 };
