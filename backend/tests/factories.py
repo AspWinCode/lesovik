@@ -24,7 +24,7 @@ class UserFactory(SQLAlchemyModelFactory):
         sqlalchemy_session_persistence = "flush"
 
     id = factory.LazyFunction(uuid.uuid4)
-    email = factory.Sequence(lambda n: f"user{n}@test.local")
+    email = factory.Sequence(lambda n: f"user{n}@example.com")
     display_name = factory.Sequence(lambda n: f"Test User {n}")
     password_hash = factory.LazyFunction(lambda: hash_password("Test1234!"))
     is_active = True

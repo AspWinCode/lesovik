@@ -14,7 +14,7 @@ from app.models.identity import User
 @pytest.fixture()
 async def active_user(db_session: AsyncSession) -> User:
     user = User(
-        email="auth_test@test.local",
+        email="auth_test@example.com",
         display_name="Auth Tester",
         password_hash=hash_password("StrongPass1!"),
     )
@@ -52,7 +52,7 @@ async def test_login_wrong_password(client: AsyncClient, active_user: User) -> N
 async def test_login_unknown_email(client: AsyncClient) -> None:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "nobody@test.local", "password": "Whatever1!"},
+        json={"email": "nobody@example.com", "password": "Whatever1!"},
     )
     assert resp.status_code == 401
 

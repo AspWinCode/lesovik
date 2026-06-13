@@ -120,7 +120,7 @@ async def builder(db_session: AsyncSession) -> User:
         if not await db_session.get(Role, role_id):
             db_session.add(Role(id=role_id, display_name="App Builder", is_system=True))
     user = User(
-        email=f"int_builder_{uuid.uuid4().hex[:6]}@test.local",
+        email=f"int_builder_{uuid.uuid4().hex[:6]}@example.com",
         display_name="Int Builder",
         password_hash=hash_password("Build1234!"),
     )

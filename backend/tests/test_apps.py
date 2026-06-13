@@ -19,7 +19,7 @@ async def builder_user(db_session: AsyncSession) -> User:
             db_session.add(Role(id=role_id, display_name=role_id.replace("_", " ").title(), is_system=True))
 
     user = User(
-        email="builder@test.local",
+        email="builder@example.com",
         display_name="Builder",
         password_hash=hash_password("Builder1234!"),
     )

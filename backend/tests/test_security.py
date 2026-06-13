@@ -157,7 +157,7 @@ async def admin_user(db_session: AsyncSession) -> User:
             db_session.add(Role(id=role_id, display_name=role_id.replace("_", " ").title(),
                                 is_system=True))
     user = User(
-        email=f"sec_admin_{uuid.uuid4().hex[:6]}@test.local",
+        email=f"sec_admin_{uuid.uuid4().hex[:6]}@example.com",
         display_name="Sec Admin",
         password_hash=hash_password("Admin1234!"),
     )
