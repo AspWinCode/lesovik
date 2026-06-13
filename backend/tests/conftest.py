@@ -3,7 +3,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.main import app
+
+# Disable rate limiting for the whole test session — the suite issues many
+# logins/requests in quick succession that would otherwise trip the 20/min auth
+# limit and fail with 429. Production behaviour is unaffected (conftest is
+# pytest-only).
+limiter.enabled = False
 
 # Use a separate test DB URL (set TEST_DATABASE_URL in env)
 import os
