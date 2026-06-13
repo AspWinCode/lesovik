@@ -476,6 +476,51 @@ class WorkflowService:
         result = await self._db.execute(stmt)
         return [WorkflowInstanceRead.model_validate(i) for i in result.scalars()]
 
+    async def cancel_instance(
+        self,
+        app_id: uuid.UUID,
+        workflow_id: uuid.UUID,
+        instance_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        reason: str | None = None,
+    ) -> WorkflowInstanceRead:
+        """
+        Hard-cancel a running instance by setting current_state to __cancelled__.
+
+        Writes a TransitionLog entry so the cancellation is auditable.
+        Raises WorkflowTransitionError if the instance is already terminal/cancelled.
+        """
+        instance = await self._fetch_instance(workflow_id, instance_id)
+
+        if instance.current_state == "__cancelled__" or instance.completed_at is not None:
+            raise WorkflowTransitionError(
+                f"Cannot cancel instance {instance_id}: already completed or cancelled"
+            )
+
+        from_state = instance.current_state
+        now = datetime.now(UTC)
+        instance.current_state = "__cancelled__"
+        instance.completed_at = now
+        instance.version += 1
+
+        log_entry = TransitionLog(
+            instance_id=instance_id,
+            workflow_id=workflow_id,
+            from_state=from_state,
+            to_state="__cancelled__",
+            actor_id=actor_id,
+            error=reason,
+        )
+        self._db.add(log_entry)
+        await self._db.flush()
+
+        workflow_instances_active.dec()
+        logger.info("workflow_instance_cancelled", instance_id=str(instance_id),
+                    actor_id=str(actor_id), reason=reason)
+
+        refreshed = await self._db.get(WorkflowInstance, instance_id)
+        return WorkflowInstanceRead.model_validate(refreshed)
+
     async def get_available_transitions(
         self,
         app_id: uuid.UUID,

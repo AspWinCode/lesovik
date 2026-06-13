@@ -33,6 +33,12 @@ from app.services.workflow import (
     WorkflowTransitionNotFoundError,
 )
 
+from pydantic import BaseModel
+
+
+class CancelInstanceRequest(BaseModel):
+    reason: str | None = None
+
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/apps/{app_id}/workflows", tags=["workflows"])
 
@@ -349,6 +355,35 @@ async def execute_transition(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+@router.post("/{workflow_id}/instances/{instance_id}/cancel",
+             response_model=WorkflowInstanceRead)
+async def cancel_instance(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, instance_id: uuid.UUID,
+    body: CancelInstanceRequest, current_user: AuthDep, db: DbDep,
+) -> WorkflowInstanceRead:
+    """
+    Hard-cancel a running workflow instance.
+
+    Sets state to __cancelled__ and closes the instance immediately.
+    Only platform_admin or app_admin may cancel instances.
+    """
+    await _check_app(app_id, current_user, db)
+    if not current_user.has_role("platform_admin", "app_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Cancellation requires platform_admin or app_admin role")
+    try:
+        return await WorkflowService(db).cancel_instance(
+            app_id, workflow_id, instance_id,
+            actor_id=current_user.user_id,
+            reason=body.reason,
+        )
+    except WorkflowInstanceNotFoundError as exc:
+        raise _instance_not_found(exc) from exc
+    except WorkflowTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=str(exc)) from exc
 
 
 # ==================================================================

@@ -4,6 +4,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import Response
 
 from app.api.deps import AuthDep, DbDep
 from app.core.antivirus import get_antivirus
@@ -19,7 +20,9 @@ from app.schemas.records import (
     parse_filters,
 )
 from app.services.apps import AppNotFoundError, AppService
+from app.services.audit import AuditService
 from app.services.entities import EntityNotFoundError, EntityService
+from app.services.exports import ExportError, ExportService
 from app.services.files import FileError, FileNotFoundError, FileService
 from app.services.imports import ImportError as ImportFileError
 from app.services.imports import ImportService
@@ -134,6 +137,13 @@ async def create_record(
     except Exception:  # noqa: BLE001
         logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
 
+    await AuditService(db).log(
+        "record.created",
+        user_id=current_user.user_id,
+        resource_type="record",
+        resource_id=str(record.id),
+        details={"app_id": str(app_id), "entity_id": str(entity_id)},
+    )
     return record
 
 
@@ -193,6 +203,13 @@ async def update_record(
     except Exception:  # noqa: BLE001
         logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
 
+    await AuditService(db).log(
+        "record.updated",
+        user_id=current_user.user_id,
+        resource_type="record",
+        resource_id=str(record_id),
+        details={"app_id": str(app_id), "entity_id": str(entity_id), "changed_fields": changed_fields},
+    )
     return _apply_abac(record, restrictions.denied_read)
 
 
@@ -212,6 +229,14 @@ async def delete_record(
         await RecordService(db).delete_record(entity_id, record_id, hard=hard)
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
+
+    await AuditService(db).log(
+        "record.deleted",
+        user_id=current_user.user_id,
+        resource_type="record",
+        resource_id=str(record_id),
+        details={"app_id": str(app_id), "entity_id": str(entity_id), "hard": hard},
+    )
 
 
 @router.post("/{record_id}/restore", response_model=RecordRead)
@@ -285,6 +310,54 @@ async def get_download_url(
         return await svc.get_download_url(file_id, expires=expires)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found") from exc
+
+
+_EXPORT_CONTENT_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv; charset=utf-8",
+    "pdf": "application/pdf",
+}
+
+
+@router.get("/export", tags=["records"])
+async def export_records(
+    app_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    current_user: AuthDep,
+    db: DbDep,
+    format: str = Query(default="xlsx", pattern=r"^(xlsx|csv|pdf)$"),
+    filter: list[str] = Query(default=[]),
+    sort: str | None = Query(default=None),
+    sort_dir: str = Query(default="asc", pattern=r"^(asc|desc)$"),
+    limit: int = Query(default=5000, ge=1, le=10000, description="Max rows to export"),
+) -> Response:
+    """Export entity records as XLSX, CSV, or PDF. Returns the file directly."""
+    await _resolve_entity(app_id, entity_id, current_user, db)
+
+    try:
+        parsed_filters = parse_filters(filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    params = RecordListParams(
+        limit=limit,
+        filters=parsed_filters,
+        sort_field=sort,
+        sort_dir=sort_dir,
+    )
+
+    try:
+        file_bytes = await ExportService(db).export(entity_id, params, format=format)
+    except ExportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    content_type = _EXPORT_CONTENT_TYPES[format]
+    filename = f"export_{entity_id}.{format}"
+    return Response(
+        content=file_bytes,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/import", tags=["records"])
