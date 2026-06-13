@@ -67,6 +67,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Minimal set to RUN the test suite. Excludes semgrep/ruff/mypy/bandit on
+# purpose: semgrep pins opentelemetry-api~=1.25 which conflicts with the app's
+# pinned 1.29, making `.[dev]` unresolvable. Used by the dockerized test stack.
+test = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
+    "pytest-cov==6.0.0",
+    "pytest-mock==3.14.0",
+    "factory-boy==3.3.1",
+    "faker==33.1.0",
+    "httpx==0.27.2",
+    "anyio==4.7.0",
+    "pytest-postgresql==6.1.1",
+]
 dev = [
     # Testing
     "pytest==8.3.4",

@@ -22,11 +22,15 @@ RUN mkdir -p app && touch app/__init__.py && pip install .
 FROM deps AS dev-deps
 RUN pip install -e ".[dev]"
 
-# ---- test (dev deps + source; runs the suite) ----
+# ---- test (test deps + source; runs the suite) ----
 # Kept BEFORE `runtime` so the default/last stage stays the production image
 # (CI build + deploy build with no explicit target must produce `runtime`).
-FROM dev-deps AS test
+# Installs the minimal `.[test]` extra (NOT `.[dev]`, which is unresolvable due
+# to semgrep's opentelemetry pin). Source is copied first so the editable
+# install resolves the real package.
+FROM deps AS test
 COPY . .
+RUN pip install -e ".[test]"
 CMD ["sh", "scripts/run_tests.sh"]
 
 # ---- runtime ----
