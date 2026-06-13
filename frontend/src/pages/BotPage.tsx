@@ -12,8 +12,13 @@ import {
   useDeleteRule,
   useUpdateRule,
   useCreateRule,
+  useSteps,
+  useAddStep,
+  useUpdateStep,
+  useDeleteStep,
+  useReorderSteps,
 } from "@/shared/hooks/useRules";
-import type { Rule } from "@/shared/api/rules";
+import type { Rule, ProcessStep } from "@/shared/api/rules";
 import { useEntities } from "@/shared/hooks/useEntities";
 
 const BOT_TABS = ["Бот", "События", "Процесс"];
@@ -228,12 +233,18 @@ export function BotPage() {
             />
           )}
           {botTab === "Процесс" && (
-            <ProcessGraph
-              rule={activeRule}
-              appId={appId}
-              selectedNode={selectedProcessNode}
-              onSelectNode={setSelectedProcessNode}
-            />
+            <>
+              <ProcessStepsEditor rule={activeRule} appId={appId} />
+              <div className="px-[40px] pt-[10px] pb-[4px]">
+                <span className="text-[13px] text-primary/40">Визуальная схема (демонстрация)</span>
+              </div>
+              <ProcessGraph
+                rule={activeRule}
+                appId={appId}
+                selectedNode={selectedProcessNode}
+                onSelectNode={setSelectedProcessNode}
+              />
+            </>
           )}
         </div>
       </div>
@@ -1048,6 +1059,169 @@ function EventEditor({
 }
 
 /* ── Процесс tab (center) ── */
+/* ── Real, persisted process-steps editor (Процесс tab) ── */
+interface StepFieldSpec { k: string; label: string; def?: string; textarea?: boolean }
+const STEP_TYPES: { type: string; label: string; fields: StepFieldSpec[] }[] = [
+  { type: "set_field",         label: "Задать поле",            fields: [{ k: "field", label: "Поле" }, { k: "value", label: "Значение" }] },
+  { type: "create_record",     label: "Создать запись",         fields: [{ k: "entity_id", label: "ID таблицы" }] },
+  { type: "update_record",     label: "Обновить запись",        fields: [{ k: "record_id_field", label: "Поле-идентификатор", def: "id" }] },
+  { type: "delete_record",     label: "Удалить запись",         fields: [{ k: "record_id_field", label: "Поле-идентификатор", def: "id" }] },
+  { type: "send_notification", label: "Отправить уведомление",  fields: [{ k: "to", label: "Кому" }, { k: "subject", label: "Тема" }, { k: "template", label: "Текст", textarea: true }] },
+  { type: "call_webhook",      label: "Вызвать webhook",        fields: [{ k: "url", label: "URL" }, { k: "method", label: "Метод (GET/POST)", def: "POST" }] },
+  { type: "stop",              label: "Остановить процесс",     fields: [] },
+];
+const STEP_LABEL: Record<string, string> = Object.fromEntries(STEP_TYPES.map((t) => [t.type, t.label]));
+
+function defaultsFor(type: string): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {};
+  STEP_TYPES.find((t) => t.type === type)?.fields.forEach((f) => {
+    if (f.def !== undefined) cfg[f.k] = f.def;
+  });
+  return cfg;
+}
+
+function ProcessStepsEditor({ rule, appId }: { rule: Rule | null; appId: string | undefined }) {
+  if (!rule || !appId) {
+    return (
+      <div className="px-[40px] py-[30px] text-primary/60 text-[16px]">
+        Выберите событие из списка, чтобы настроить шаги процесса.
+      </div>
+    );
+  }
+  return <StepsEditorInner appId={appId} ruleId={rule.id} />;
+}
+
+function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) {
+  const { data: steps = [], isLoading } = useSteps(appId, ruleId);
+  const addStep = useAddStep(appId, ruleId);
+  const delStep = useDeleteStep(appId, ruleId);
+  const reorder = useReorderSteps(appId, ruleId);
+  const [addOpen, setAddOpen] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  function move(idx: number, dir: -1 | 1) {
+    const next = [...steps];
+    const j = idx + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    reorder.mutate(next.map((s) => s.id));
+  }
+
+  return (
+    <div className="px-[40px] pt-[20px] pb-[10px] flex flex-col gap-[12px]">
+      <div className="flex flex-col gap-[2px]">
+        <h2 className="text-[20px] font-bold text-primary">Шаги процесса</h2>
+        <p className="text-[13px] text-primary/60">
+          Действия выполняются по порядку при срабатывании события. Изменения сохраняются на сервере.
+        </p>
+      </div>
+
+      {isLoading && <span className="text-[14px] text-primary/50">Загрузка…</span>}
+      {!isLoading && steps.length === 0 && (
+        <span className="text-[14px] text-primary/40">Шагов пока нет — добавьте первый.</span>
+      )}
+
+      <div className="flex flex-col gap-[8px]">
+        {steps.map((s, i) => (
+          <StepRow
+            key={s.id}
+            appId={appId}
+            ruleId={ruleId}
+            step={s}
+            index={i}
+            total={steps.length}
+            expanded={expanded === s.id}
+            onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
+            onMove={(dir) => move(i, dir)}
+            onDelete={() => delStep.mutate(s.id)}
+          />
+        ))}
+      </div>
+
+      <div className="relative w-fit">
+        <button
+          onClick={() => setAddOpen((v) => !v)}
+          className="flex items-center gap-2 h-[38px] px-5 bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active transition-colors"
+        >
+          + Добавить шаг
+        </button>
+        {addOpen && (
+          <div className="absolute left-0 top-[42px] z-30 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] p-[5px] flex flex-col min-w-[230px]">
+            {STEP_TYPES.map((t) => (
+              <button
+                key={t.type}
+                onClick={() => { addStep.mutate({ type: t.type, config: defaultsFor(t.type) }); setAddOpen(false); }}
+                className="text-left px-4 py-2 rounded-[8px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepRow({ appId, ruleId, step, index, total, expanded, onToggle, onMove, onDelete }: {
+  appId: string; ruleId: string; step: ProcessStep; index: number; total: number;
+  expanded: boolean; onToggle: () => void; onMove: (dir: -1 | 1) => void; onDelete: () => void;
+}) {
+  const spec = STEP_TYPES.find((t) => t.type === step.type);
+  const updateStep = useUpdateStep(appId, ruleId);
+  const seed = () => {
+    const f: Record<string, string> = {};
+    spec?.fields.forEach((fl) => { f[fl.k] = String(step.config[fl.k] ?? fl.def ?? ""); });
+    return f;
+  };
+  const [form, setForm] = useState<Record<string, string>>(seed);
+  useEffect(() => { setForm(seed()); }, [step.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function save() {
+    updateStep.mutate({ stepId: step.id, body: { config: { ...form } } });
+  }
+
+  return (
+    <div className="bg-white rounded-[10px] border border-cardbg">
+      <div className="flex items-center gap-[12px] h-[48px] px-4">
+        <span className="w-6 text-[13px] text-primary/40 font-medium">{index + 1}</span>
+        <span className="flex-1 text-[15px] font-medium text-primary">{STEP_LABEL[step.type] ?? step.type}</span>
+        <button onClick={() => onMove(-1)} disabled={index === 0} title="Вверх" className="w-7 h-7 rounded hover:bg-mainbg disabled:opacity-30 text-primary">↑</button>
+        <button onClick={() => onMove(1)} disabled={index === total - 1} title="Вниз" className="w-7 h-7 rounded hover:bg-mainbg disabled:opacity-30 text-primary">↓</button>
+        {spec && spec.fields.length > 0 && (
+          <button onClick={onToggle} className="text-[13px] text-cta hover:underline">{expanded ? "Свернуть" : "Настроить"}</button>
+        )}
+        <button onClick={onDelete} title="Удалить шаг" className="w-7 h-7 rounded hover:bg-red-50 text-mistake">✕</button>
+      </div>
+      {expanded && spec && spec.fields.length > 0 && (
+        <div className="px-4 pb-4 flex flex-col gap-[10px]">
+          {spec.fields.map((fl) => (
+            <label key={fl.k} className="flex flex-col gap-[4px] text-[13px] text-primary/70">
+              {fl.label}
+              {fl.textarea ? (
+                <textarea
+                  value={form[fl.k] ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, [fl.k]: e.target.value }))}
+                  onBlur={save}
+                  rows={2}
+                  className="bg-mainbg rounded-btn px-3 py-2 text-[14px] text-primary outline-none resize-none"
+                />
+              ) : (
+                <input
+                  value={form[fl.k] ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, [fl.k]: e.target.value }))}
+                  onBlur={save}
+                  className="bg-mainbg rounded-btn h-[38px] px-3 text-[14px] text-primary outline-none"
+                />
+              )}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProcessGraph({
   rule,
   appId,

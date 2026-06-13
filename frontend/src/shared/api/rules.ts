@@ -63,3 +63,57 @@ export async function createRule(appId: string, body: RuleCreate): Promise<Rule>
   const { data } = await apiClient.post<Rule>(`/apps/${appId}/rules`, body);
   return data;
 }
+
+/* ── Process steps (ordered actions bound to a rule) ── */
+
+export interface ProcessStep {
+  id: string;
+  order: number;
+  type: string;
+  config: Record<string, unknown>;
+}
+
+export interface ProcessStepCreate {
+  type: string;
+  config?: Record<string, unknown>;
+}
+
+export interface ProcessStepUpdate {
+  type?: string;
+  config?: Record<string, unknown>;
+}
+
+export async function listSteps(appId: string, ruleId: string): Promise<ProcessStep[]> {
+  const { data } = await apiClient.get<ProcessStep[]>(`/apps/${appId}/rules/${ruleId}/steps`);
+  return data;
+}
+
+export async function addStep(appId: string, ruleId: string, body: ProcessStepCreate): Promise<ProcessStep> {
+  const { data } = await apiClient.post<ProcessStep>(`/apps/${appId}/rules/${ruleId}/steps`, body);
+  return data;
+}
+
+export async function updateStep(
+  appId: string,
+  ruleId: string,
+  stepId: string,
+  body: ProcessStepUpdate,
+): Promise<ProcessStep> {
+  const { data } = await apiClient.patch<ProcessStep>(
+    `/apps/${appId}/rules/${ruleId}/steps/${stepId}`,
+    body,
+  );
+  return data;
+}
+
+export async function deleteStep(appId: string, ruleId: string, stepId: string): Promise<void> {
+  await apiClient.delete(`/apps/${appId}/rules/${ruleId}/steps/${stepId}`);
+}
+
+export async function reorderSteps(appId: string, ruleId: string, stepIds: string[]): Promise<ProcessStep[]> {
+  const { data } = await apiClient.put<ProcessStep[]>(
+    `/apps/${appId}/rules/${ruleId}/steps/reorder`,
+    { step_ids: stepIds },
+  );
+  return data;
+}

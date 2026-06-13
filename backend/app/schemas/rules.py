@@ -276,3 +276,77 @@ def _validate_action_node(node: Any) -> None:
     t = node.get("type")
     if t not in _VALID_ACTION_TYPES:
         raise ValueError(f"Invalid action type: {t!r}")
+
+
+# ------------------------------------------------------------------
+# Process steps — an ordered, editable view over rule.actions
+# ------------------------------------------------------------------
+#
+# A "step" is a friendlier projection of an action node for the UI:
+#   node  = {"id": "...", "type": "set_field", "field": "x", "value": 1}
+#   step  = {"id": "...", "type": "set_field", "config": {"field": "x", "value": 1}, "order": 0}
+# `order` is the position in the actions array. The extra `id` key is ignored
+# by the interpreter (it dispatches on `type` only), so storing it is safe.
+
+MAX_STEPS = 20
+_STEP_RESERVED_KEYS = {"id", "type"}
+
+
+class ProcessStepRead(BaseModel):
+    id: str
+    order: int
+    type: str
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProcessStepCreate(BaseModel):
+    type: str
+    config: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_step(self) -> "ProcessStepCreate":
+        _validate_action_node(step_to_node(self.type, self.config))
+        return self
+
+
+class ProcessStepUpdate(BaseModel):
+    type: str | None = None
+    config: dict[str, Any] | None = None
+
+
+class ProcessStepsReorder(BaseModel):
+    step_ids: list[str] = Field(min_length=0)
+
+
+def step_to_node(type_: str, config: dict[str, Any] | None, step_id: str | None = None) -> dict[str, Any]:
+    """Flatten a (type, config) step into a stored action node with a stable id."""
+    node = {k: v for k, v in (config or {}).items() if k not in _STEP_RESERVED_KEYS}
+    node["type"] = type_
+    node["id"] = step_id or str(uuid.uuid4())
+    return node
+
+
+def node_to_step(node: dict[str, Any], order: int) -> ProcessStepRead:
+    """Project a stored action node into a ProcessStepRead."""
+    config = {k: v for k, v in node.items() if k not in _STEP_RESERVED_KEYS}
+    return ProcessStepRead(
+        id=str(node.get("id", "")),
+        order=order,
+        type=str(node.get("type", "")),
+        config=config,
+    )
+
+
+def ensure_step_ids(actions: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """Backfill a stable id for any legacy action node missing one.
+
+    Returns (normalised_actions, changed)."""
+    out: list[dict[str, Any]] = []
+    changed = False
+    for node in actions or []:
+        node = dict(node)
+        if not node.get("id"):
+            node["id"] = str(uuid.uuid4())
+            changed = True
+        out.append(node)
+    return out, changed

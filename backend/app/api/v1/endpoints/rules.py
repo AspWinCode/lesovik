@@ -7,6 +7,10 @@ from app.api.deps import AuthDep, DbDep
 from app.schemas.common import CursorPage
 from app.schemas.rules import (
     CycleCheckResponse,
+    ProcessStepCreate,
+    ProcessStepRead,
+    ProcessStepsReorder,
+    ProcessStepUpdate,
     RuleCreate,
     RuleExecutionLogRead,
     RuleRead,
@@ -15,7 +19,13 @@ from app.schemas.rules import (
     RuleUpdate,
 )
 from app.services.apps import AppNotFoundError, AppService
-from app.services.rules import RuleCycleError, RuleNotFoundError, RuleService
+from app.services.rules import (
+    RuleCycleError,
+    RuleNotFoundError,
+    RuleService,
+    StepNotFoundError,
+    StepValidationError,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/apps/{app_id}/rules", tags=["rules"])
@@ -144,3 +154,85 @@ async def get_rule_logs(
 ) -> list[RuleExecutionLogRead]:
     await _check_app(app_id, current_user, db)
     return await RuleService(db).list_logs(app_id, rule_id=rule_id, limit=limit)
+
+
+# ------------------------------------------------------------------
+# Process steps — ordered CRUD bound to a rule (stored in rule.actions)
+# ------------------------------------------------------------------
+
+def _bad_step(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+def _step_not_found() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Step not found")
+
+
+@router.get("/{rule_id}/steps", response_model=list[ProcessStepRead])
+async def list_steps(
+    app_id: uuid.UUID, rule_id: uuid.UUID, current_user: AuthDep, db: DbDep
+) -> list[ProcessStepRead]:
+    await _check_app(app_id, current_user, db)
+    try:
+        return await RuleService(db).list_steps(app_id, rule_id)
+    except RuleNotFoundError as exc:
+        raise _rule_not_found(exc) from exc
+
+
+@router.post("/{rule_id}/steps", response_model=ProcessStepRead, status_code=status.HTTP_201_CREATED)
+async def add_step(
+    app_id: uuid.UUID, rule_id: uuid.UUID, body: ProcessStepCreate, current_user: AuthDep, db: DbDep
+) -> ProcessStepRead:
+    await _check_app(app_id, current_user, db)
+    try:
+        return await RuleService(db).add_step(app_id, rule_id, body)
+    except RuleNotFoundError as exc:
+        raise _rule_not_found(exc) from exc
+    except StepValidationError as exc:
+        raise _bad_step(exc) from exc
+
+
+@router.put("/{rule_id}/steps/reorder", response_model=list[ProcessStepRead])
+async def reorder_steps(
+    app_id: uuid.UUID, rule_id: uuid.UUID, body: ProcessStepsReorder, current_user: AuthDep, db: DbDep
+) -> list[ProcessStepRead]:
+    await _check_app(app_id, current_user, db)
+    try:
+        return await RuleService(db).reorder_steps(app_id, rule_id, body.step_ids)
+    except RuleNotFoundError as exc:
+        raise _rule_not_found(exc) from exc
+    except StepValidationError as exc:
+        raise _bad_step(exc) from exc
+
+
+@router.patch("/{rule_id}/steps/{step_id}", response_model=ProcessStepRead)
+async def update_step(
+    app_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    step_id: str,
+    body: ProcessStepUpdate,
+    current_user: AuthDep,
+    db: DbDep,
+) -> ProcessStepRead:
+    await _check_app(app_id, current_user, db)
+    try:
+        return await RuleService(db).update_step(app_id, rule_id, step_id, body)
+    except RuleNotFoundError as exc:
+        raise _rule_not_found(exc) from exc
+    except StepNotFoundError as exc:
+        raise _step_not_found() from exc
+    except StepValidationError as exc:
+        raise _bad_step(exc) from exc
+
+
+@router.delete("/{rule_id}/steps/{step_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_step(
+    app_id: uuid.UUID, rule_id: uuid.UUID, step_id: str, current_user: AuthDep, db: DbDep
+) -> None:
+    await _check_app(app_id, current_user, db)
+    try:
+        await RuleService(db).delete_step(app_id, rule_id, step_id)
+    except RuleNotFoundError as exc:
+        raise _rule_not_found(exc) from exc
+    except StepNotFoundError as exc:
+        raise _step_not_found() from exc

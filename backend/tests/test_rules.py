@@ -979,3 +979,161 @@ async def test_rule_create_validates_condition_depth(client: AsyncClient, builde
 
     resp = await client.post(f"/api/v1/apps/{app_id}/rules", json=body, headers=headers)
     assert resp.status_code == 422
+
+
+# ==================================================================
+# Process steps — unit (pure conversion) + integration (CRUD/reorder)
+# ==================================================================
+
+from app.schemas.rules import (  # noqa: E402
+    ProcessStepCreate,
+    ensure_step_ids,
+    node_to_step,
+    step_to_node,
+)
+
+
+class TestStepConversion:
+    def test_step_to_node_flattens_config_and_adds_id(self) -> None:
+        node = step_to_node("set_field", {"field": "x", "value": 1})
+        assert node["type"] == "set_field"
+        assert node["field"] == "x" and node["value"] == 1
+        assert node["id"]  # generated
+
+    def test_step_to_node_keeps_explicit_id_and_strips_reserved(self) -> None:
+        node = step_to_node("stop", {"id": "ignored", "type": "ignored"}, step_id="s1")
+        assert node["id"] == "s1" and node["type"] == "stop"
+
+    def test_node_to_step_projects_config_and_order(self) -> None:
+        step = node_to_step({"id": "s1", "type": "set_field", "field": "x", "value": 1}, 3)
+        assert step.id == "s1" and step.order == 3 and step.type == "set_field"
+        assert step.config == {"field": "x", "value": 1}
+
+    def test_ensure_step_ids_backfills_missing(self) -> None:
+        actions = [{"type": "stop"}, {"id": "keep", "type": "set_field", "field": "a", "value": 1}]
+        out, changed = ensure_step_ids(actions)
+        assert changed is True
+        assert out[0]["id"] and out[1]["id"] == "keep"
+
+    def test_step_create_rejects_invalid_type(self) -> None:
+        with pytest.raises(ValueError):
+            ProcessStepCreate(type="not_a_real_action", config={})
+
+
+async def _create_rule(client: AsyncClient, app_id: str, entity_id: str, headers: dict) -> str:
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/rules", json=_rule_body(entity_id), headers=headers
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_list_steps_returns_existing_actions(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_app(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+    rule_id = await _create_rule(client, app_id, entity_id, headers)
+
+    resp = await client.get(f"/api/v1/apps/{app_id}/rules/{rule_id}/steps", headers=headers)
+    assert resp.status_code == 200, resp.text
+    steps = resp.json()
+    assert len(steps) == 1
+    assert steps[0]["type"] == "set_field"
+    assert steps[0]["order"] == 0
+    assert steps[0]["id"]  # backfilled
+    assert steps[0]["config"]["field"] == "flagged"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_add_update_delete_step(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_app(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+    rule_id = await _create_rule(client, app_id, entity_id, headers)
+
+    # add
+    add = await client.post(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps",
+        json={"type": "send_notification", "config": {"to": "a@b.c", "subject": "Hi"}},
+        headers=headers,
+    )
+    assert add.status_code == 201, add.text
+    step = add.json()
+    assert step["type"] == "send_notification" and step["order"] == 1
+    step_id = step["id"]
+
+    # update
+    upd = await client.patch(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps/{step_id}",
+        json={"config": {"to": "x@y.z", "subject": "Bye"}},
+        headers=headers,
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["config"]["subject"] == "Bye"
+
+    # delete
+    dele = await client.delete(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps/{step_id}", headers=headers
+    )
+    assert dele.status_code == 204
+    after = await client.get(f"/api/v1/apps/{app_id}/rules/{rule_id}/steps", headers=headers)
+    assert len(after.json()) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_add_step_invalid_type_rejected(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_app(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+    rule_id = await _create_rule(client, app_id, entity_id, headers)
+
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps",
+        json={"type": "definitely_invalid", "config": {}},
+        headers=headers,
+    )
+    assert resp.status_code == 422  # schema validator rejects before service
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_reorder_steps(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_app(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+    rule_id = await _create_rule(client, app_id, entity_id, headers)
+
+    await client.post(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps",
+        json={"type": "stop", "config": {}}, headers=headers,
+    )
+    steps = (await client.get(f"/api/v1/apps/{app_id}/rules/{rule_id}/steps", headers=headers)).json()
+    ids = [s["id"] for s in steps]
+    reversed_ids = list(reversed(ids))
+
+    resp = await client.put(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps/reorder",
+        json={"step_ids": reversed_ids}, headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert [s["id"] for s in resp.json()] == reversed_ids
+    assert [s["order"] for s in resp.json()] == [0, 1]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_update_missing_step_404(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_app(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+    rule_id = await _create_rule(client, app_id, entity_id, headers)
+
+    resp = await client.patch(
+        f"/api/v1/apps/{app_id}/rules/{rule_id}/steps/nonexistent",
+        json={"config": {}}, headers=headers,
+    )
+    assert resp.status_code == 404

@@ -17,13 +17,21 @@ from app.models.data import Record
 from app.models.logic import Rule, RuleExecutionLog
 from app.schemas.common import CursorPage
 from app.schemas.rules import (
+    MAX_STEPS,
     CycleCheckResponse,
+    ProcessStepCreate,
+    ProcessStepRead,
+    ProcessStepUpdate,
     RuleCreate,
     RuleExecutionLogRead,
     RuleRead,
     RuleTestRequest,
     RuleTestResponse,
     RuleUpdate,
+    _validate_action_node,
+    ensure_step_ids,
+    node_to_step,
+    step_to_node,
 )
 
 logger = structlog.get_logger(__name__)
@@ -37,6 +45,14 @@ class RuleCycleError(Exception):
     def __init__(self, cycles: list[list[str]]) -> None:
         self.cycles = cycles
         super().__init__(f"Rule creates a dependency cycle: {cycles}")
+
+
+class StepNotFoundError(Exception):
+    pass
+
+
+class StepValidationError(Exception):
+    pass
 
 
 class RuleService:
@@ -131,6 +147,87 @@ class RuleService:
         rule.is_active = False
         await self._db.flush()
         return RuleRead.model_validate(rule)
+
+    # ------------------------------------------------------------------
+    # Process steps (ordered view over rule.actions)
+    # ------------------------------------------------------------------
+
+    async def list_steps(self, app_id: uuid.UUID, rule_id: uuid.UUID) -> list[ProcessStepRead]:
+        rule = await self._fetch(app_id, rule_id)
+        actions, changed = ensure_step_ids(rule.actions or [])
+        if changed:
+            rule.actions = actions  # persist backfilled ids
+            await self._db.flush()
+        return [node_to_step(n, i) for i, n in enumerate(actions)]
+
+    async def add_step(
+        self, app_id: uuid.UUID, rule_id: uuid.UUID, data: ProcessStepCreate
+    ) -> ProcessStepRead:
+        rule = await self._fetch(app_id, rule_id)
+        actions, _ = ensure_step_ids(rule.actions or [])
+        if len(actions) >= MAX_STEPS:
+            raise StepValidationError(f"Rule exceeds the maximum of {MAX_STEPS} steps")
+        node = step_to_node(data.type, data.config)
+        try:
+            _validate_action_node(node)
+        except ValueError as exc:
+            raise StepValidationError(str(exc)) from exc
+        actions.append(node)
+        rule.actions = actions
+        rule.version += 1
+        await self._db.flush()
+        logger.info("rule_step_added", rule_id=str(rule_id), step_type=data.type)
+        return node_to_step(node, len(actions) - 1)
+
+    async def update_step(
+        self, app_id: uuid.UUID, rule_id: uuid.UUID, step_id: str, data: ProcessStepUpdate
+    ) -> ProcessStepRead:
+        rule = await self._fetch(app_id, rule_id)
+        actions, _ = ensure_step_ids(rule.actions or [])
+        idx = next((i for i, n in enumerate(actions) if str(n.get("id")) == step_id), None)
+        if idx is None:
+            raise StepNotFoundError(step_id)
+        current = actions[idx]
+        new_type = data.type if data.type is not None else str(current.get("type"))
+        new_config = (
+            data.config
+            if data.config is not None
+            else {k: v for k, v in current.items() if k not in ("id", "type")}
+        )
+        node = step_to_node(new_type, new_config, step_id=step_id)
+        try:
+            _validate_action_node(node)
+        except ValueError as exc:
+            raise StepValidationError(str(exc)) from exc
+        actions[idx] = node
+        rule.actions = actions
+        rule.version += 1
+        await self._db.flush()
+        return node_to_step(node, idx)
+
+    async def delete_step(self, app_id: uuid.UUID, rule_id: uuid.UUID, step_id: str) -> None:
+        rule = await self._fetch(app_id, rule_id)
+        actions, _ = ensure_step_ids(rule.actions or [])
+        remaining = [n for n in actions if str(n.get("id")) != step_id]
+        if len(remaining) == len(actions):
+            raise StepNotFoundError(step_id)
+        rule.actions = remaining
+        rule.version += 1
+        await self._db.flush()
+
+    async def reorder_steps(
+        self, app_id: uuid.UUID, rule_id: uuid.UUID, step_ids: list[str]
+    ) -> list[ProcessStepRead]:
+        rule = await self._fetch(app_id, rule_id)
+        actions, _ = ensure_step_ids(rule.actions or [])
+        by_id = {str(n.get("id")): n for n in actions}
+        if set(step_ids) != set(by_id.keys()):
+            raise StepValidationError("step_ids must be a permutation of the current step ids")
+        reordered = [by_id[sid] for sid in step_ids]
+        rule.actions = reordered
+        rule.version += 1
+        await self._db.flush()
+        return [node_to_step(n, i) for i, n in enumerate(reordered)]
 
     # ------------------------------------------------------------------
     # Cycle detection
