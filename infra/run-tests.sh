@@ -11,6 +11,9 @@ cd "$(dirname "$0")"
 
 COMPOSE="docker compose -f docker-compose.test.yml"
 
+# Forward any args to pytest inside the container (e.g. ./run-tests.sh tests/test_rules.py).
+export PYTEST_ARGS="$*"
+
 code=0
 $COMPOSE up --build --abort-on-container-exit --exit-code-from backend-test || code=$?
 

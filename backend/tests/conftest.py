@@ -19,8 +19,12 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 async def test_engine():
+    # Function-scoped on purpose: pytest-asyncio runs each test in its own event
+    # loop, and an asyncpg engine/pool is bound to the loop it was created on. A
+    # session-scoped engine would be created on the first test's loop and then
+    # raise InterfaceError ("attached to a different loop") on every later test.
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     yield engine
     await engine.dispose()

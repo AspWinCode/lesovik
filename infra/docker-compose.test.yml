@@ -51,4 +51,6 @@ services:
       REDIS_URL: redis://redis-test:6379/0
       SECRET_KEY: test-secret-not-for-production
       APP_ENV: testing
+      # Optional pytest selector forwarded by run-tests.sh (e.g. "tests/test_rules.py").
+      PYTEST_ARGS: ${PYTEST_ARGS:-}
     command: ["sh", "scripts/run_tests.sh"]

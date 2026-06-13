@@ -30,5 +30,7 @@ export JWT_PRIVATE_KEY JWT_PUBLIC_KEY
 echo "→ alembic upgrade head"
 alembic upgrade head
 
-echo "→ pytest $*"
-exec pytest "$@"
+# PYTEST_ARGS lets the compose wrapper forward a test selector; positional args
+# (from `docker compose run … sh scripts/run_tests.sh <args>`) also work.
+echo "→ pytest ${PYTEST_ARGS} $*"
+exec pytest ${PYTEST_ARGS} "$@"
