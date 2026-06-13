@@ -22,6 +22,13 @@ RUN mkdir -p app && touch app/__init__.py && pip install .
 FROM deps AS dev-deps
 RUN pip install -e ".[dev]"
 
+# ---- test (dev deps + source; runs the suite) ----
+# Kept BEFORE `runtime` so the default/last stage stays the production image
+# (CI build + deploy build with no explicit target must produce `runtime`).
+FROM dev-deps AS test
+COPY . .
+CMD ["sh", "scripts/run_tests.sh"]
+
 # ---- runtime ----
 FROM deps AS runtime
 COPY . .

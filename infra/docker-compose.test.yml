@@ -1,0 +1,54 @@
+# Disposable backend test stack — isolated Postgres + Redis + a one-shot test
+# runner. Nothing here touches production volumes (separate compose project,
+# tmpfs data). Run from infra/:
+#
+#   docker compose -f docker-compose.test.yml up --build \
+#     --abort-on-container-exit --exit-code-from backend-test
+#   docker compose -f docker-compose.test.yml down -v
+#
+# or simply: ./run-tests.sh
+name: lesovik-test
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nocode_test
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_pass
+    # Ephemeral storage — the test DB is thrown away with the container.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d nocode_test"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  redis-test:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  backend-test:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      target: test
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    environment:
+      # Both URLs point at the disposable test DB. alembic uses DATABASE_URL;
+      # the async test fixtures use TEST_DATABASE_URL.
+      DATABASE_URL: postgresql://app_user:app_pass@postgres-test:5432/nocode_test
+      TEST_DATABASE_URL: postgresql+asyncpg://app_user:app_pass@postgres-test:5432/nocode_test
+      REDIS_URL: redis://redis-test:6379/0
+      SECRET_KEY: test-secret-not-for-production
+      APP_ENV: test
+    command: ["sh", "scripts/run_tests.sh"]
