@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { buildRuntimeUrl, buildEditorUrl } from "@/shared/lib/appLinks";
 
 /* ─────────────────────────────────────────────────
    PRIMITIVES
@@ -388,7 +389,10 @@ function UrlRow({ label, url }: { label: string; url: string }) {
   );
 }
 
-export function ShareModal({ onClose }: { onClose: () => void }) {
+export function ShareModal({ onClose, appId }: { onClose: () => void; appId?: string | null }) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const runtimeUrl = buildRuntimeUrl(appId, origin);
+  const editorUrl = buildEditorUrl(appId, origin);
   return (
     <Overlay onClose={onClose}>
       <div style={{ width: 505 }} className="px-10 pb-8">
@@ -400,13 +404,13 @@ export function ShareModal({ onClose }: { onClose: () => void }) {
         <div className="flex flex-col gap-5">
           {/* Использовать приложение */}
           <span className="text-[18px] font-bold text-primary">Использовать приложение</span>
-          <UrlRow label="Установить на мобильное устройство" url="https://www.appsheet.com/newsho" />
-          <UrlRow label="Открыть в браузере" url="https://www.appsheet.com/newsho" />
+          <UrlRow label="Установить на мобильное устройство" url={runtimeUrl} />
+          <UrlRow label="Открыть в браузере" url={runtimeUrl} />
 
           {/* Редактировать */}
           <div className="pt-[10px] flex flex-col gap-5">
             <span className="text-[18px] font-medium text-primary">Редактировать приложение</span>
-            <UrlRow label="Просмотр / копирование или редактирование" url="https://www.appsheet.com/newsho" />
+            <UrlRow label="Просмотр / копирование или редактирование" url={editorUrl} />
           </div>
         </div>
       </div>
@@ -427,10 +431,20 @@ const MOCK_USERS = [
 export function RolesModal({
   onClose,
   projectName = "Дикая Сибирь",
+  appId,
 }: {
   onClose: () => void;
   projectName?: string;
+  appId?: string | null;
 }) {
+  const [linkCopied, setLinkCopied] = useState(false);
+  function copyLink() {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    void navigator.clipboard?.writeText(buildRuntimeUrl(appId, origin)).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1500);
+    });
+  }
   return (
     <Overlay onClose={onClose} alignTop topOffset={85}>
       <div style={{ width: 703 }} className="px-10 flex flex-col gap-5">
@@ -500,10 +514,10 @@ export function RolesModal({
         {/* Bottom buttons */}
         <div className="flex justify-between items-center py-[30px]">
           <div className="flex gap-5">
-            <button disabled title="В разработке" className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
-                               border-2 border-cta/40 rounded-btn text-cta/40 text-meta cursor-not-allowed">
+            <button onClick={copyLink} title={linkCopied ? "Скопировано" : "Скопировать ссылку"} className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
+                               border-2 border-cta rounded-btn text-cta text-meta hover:bg-cta/10 transition-colors">
               <span className="w-[25px] h-[25px]"><LinkIcon /></span>
-              <span>Ссылка</span>
+              <span>{linkCopied ? "Скопировано" : "Ссылка"}</span>
             </button>
             <button disabled title="В разработке" className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
                                border-2 border-cta/40 rounded-btn text-cta/40 text-meta cursor-not-allowed">

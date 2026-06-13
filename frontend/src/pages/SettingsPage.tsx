@@ -72,12 +72,13 @@ export function SettingsPage() {
   const [func,       setFunc]       = useState("");
   const [industry,   setIndustry]   = useState("");
   const [saved,      setSaved]      = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
 
   // Hydrate the form whenever the active app resolves / changes.
   useEffect(() => {
     if (!app) return;
     setAppName(app.name);
-    setVersion(info.version ?? String(app.version));
+    setVersion(String(app.version)); // read-only display of the system version
     setShortDesc(info.short_desc ?? app.description ?? "");
     setCategory(info.category ?? "");
     setFunc(info.func ?? "");
@@ -87,19 +88,24 @@ export function SettingsPage() {
   function handleSave() {
     if (!app) return;
     setSaved(false);
+    setError(null);
     updateApp.mutate(
       {
         appId: app.id,
         body: {
           name: appName.trim() || app.name,
           description: shortDesc || null,
+          // Version is system-managed; keep the previously saved value as-is.
           settings: {
             ...app.settings,
-            info: { version, short_desc: shortDesc, category, func, industry },
+            info: { ...info, short_desc: shortDesc, category, func, industry },
           },
         },
       },
-      { onSuccess: () => setSaved(true) },
+      {
+        onSuccess: () => setSaved(true),
+        onError: () => setError("Не удалось сохранить. Проверьте доступ или повторите позже."),
+      },
     );
   }
 
@@ -117,12 +123,12 @@ export function SettingsPage() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-cardbg">
           <span className="text-[18px] font-semibold text-primary">Настройки</span>
           <div className="flex items-center gap-3">
-            <button className="text-yellow-500 hover:opacity-70">
+            <span className="text-yellow-500" title="Есть предупреждения">
               <svg viewBox="0 0 20 20" className="w-5 h-5" fill="currentColor">
                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
-            </button>
-            <button className="text-primary/50 hover:text-primary">
+            </span>
+            <button disabled title="В разработке" className="text-primary/30 cursor-not-allowed">
               <svg viewBox="0 0 20 20" className="w-5 h-5" fill="currentColor">
                 <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
               </svg>
@@ -177,6 +183,7 @@ export function SettingsPage() {
           onSave={handleSave}
           saving={updateApp.isPending}
           saved={saved}
+          error={error}
           disabled={!app}
         />}
 
@@ -209,10 +216,11 @@ interface InfoProps {
   onSave: () => void;
   saving: boolean;
   saved: boolean;
+  error: string | null;
   disabled: boolean;
 }
 
-function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setShortDesc, category, setCategory, func, setFunc, industry, setIndustry, onSave, saving, saved, disabled }: InfoProps) {
+function InfoSection({ appName, setAppName, version, shortDesc, setShortDesc, category, setCategory, func, setFunc, industry, setIndustry, onSave, saving, saved, error, disabled }: InfoProps) {
   return (
     <div className="px-[40px] py-[25px]">
       <h2 className="text-[22px] font-bold text-primary mb-4">Информация</h2>
@@ -238,11 +246,12 @@ function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setS
           />
         </FieldRow>
 
-        <FieldRow label="Версия" hint="Основной и дополнительный номер версии. Увеличивайте основной номер версии при внесении существенных изменений в структуру столбцов приложения">
+        <FieldRow label="Версия" hint="Номер версии управляется системой и увеличивается автоматически при изменениях приложения.">
           <input
             value={version}
-            onChange={(e) => setVersion(e.target.value)}
-            className="w-full bg-white border border-cardbg rounded-[8px] px-3 py-2 text-[15px] text-primary focus:outline-none focus:border-cta"
+            readOnly
+            title="Управляется системой"
+            className="w-full bg-mainbg border border-cardbg rounded-[8px] px-3 py-2 text-[15px] text-primary/60 cursor-not-allowed focus:outline-none"
           />
         </FieldRow>
 
@@ -269,12 +278,12 @@ function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setS
         <FieldRow label="Теги" hint="Теги функций, используемые в этом приложении">
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-white border border-cardbg rounded-[8px] px-3 py-2 min-h-[38px] flex items-center gap-2 flex-wrap" />
-            <button className="w-8 h-8 flex items-center justify-center border border-cardbg rounded-[6px] hover:bg-white">
+            <button disabled title="В разработке" className="w-8 h-8 flex items-center justify-center border border-cardbg rounded-[6px] opacity-40 cursor-not-allowed">
               <svg viewBox="0 0 16 16" className="w-4 h-4 text-primary" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M8 3v10M3 8h10" strokeLinecap="round" />
               </svg>
             </button>
-            <button className="w-8 h-8 flex items-center justify-center border border-cardbg rounded-[6px] hover:bg-white text-mistake">
+            <button disabled title="В разработке" className="w-8 h-8 flex items-center justify-center border border-cardbg rounded-[6px] text-mistake opacity-40 cursor-not-allowed">
               <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 4L4 12M4 4l8 8" strokeLinecap="round" />
               </svg>
@@ -292,7 +301,8 @@ function InfoSection({ appName, setAppName, version, setVersion, shortDesc, setS
         >
           {saving ? "Сохранение…" : "Сохранить"}
         </button>
-        {saved && !saving && <span className="text-[14px] text-[#20BE4F]">Сохранено</span>}
+        {saved && !saving && !error && <span className="text-[14px] text-[#20BE4F]">Сохранено</span>}
+        {error && !saving && <span className="text-[14px] text-mistake">{error}</span>}
       </div>
     </div>
   );

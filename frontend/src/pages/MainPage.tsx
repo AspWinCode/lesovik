@@ -272,12 +272,13 @@ export function MainPage() {
         />
       )}
       {modal === "share"   && (
-        <ShareModal onClose={() => setModal(null)} />
+        <ShareModal onClose={() => setModal(null)} appId={effectiveSelected} />
       )}
       {modal === "roles"   && (
         <RolesModal
           onClose={() => setModal(null)}
           projectName={selected?.name ?? "Дикая Сибирь"}
+          appId={effectiveSelected}
         />
       )}
     </div>

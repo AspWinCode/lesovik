@@ -43,10 +43,10 @@ export function ViewNavPanel({
           <span aria-label="Есть предупреждения" title="Есть предупреждения" className="w-[22px] h-5">
             <WarningIcon />
           </span>
-          <button aria-label="Поиск" className="w-5 h-5 hover:opacity-70 transition-opacity">
+          <button aria-label="Поиск" disabled title="В разработке" className="w-5 h-5 opacity-40 cursor-not-allowed">
             <SearchIcon />
           </button>
-          <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center">
+          <button aria-label="Меню" disabled title="В разработке" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center opacity-40 cursor-not-allowed">
             {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
           </button>
         </div>

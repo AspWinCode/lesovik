@@ -44,6 +44,7 @@ export function SecurityPage() {
   const updateApp = useUpdateApp();
 
   const [sec, setSec] = useState<SecurityConfig>({});
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!app) return;
     setSec((app.settings?.security as SecurityConfig | undefined) ?? {});
@@ -53,8 +54,12 @@ export function SecurityPage() {
   function patch(partial: Partial<SecurityConfig>) {
     const next = { ...sec, ...partial };
     setSec(next);
+    setError(null);
     if (!app) return;
-    updateApp.mutate({ appId: app.id, body: { settings: { ...app.settings, security: next } } });
+    updateApp.mutate(
+      { appId: app.id, body: { settings: { ...app.settings, security: next } } },
+      { onError: () => setError("Не удалось сохранить изменения безопасности. Повторите позже.") },
+    );
   }
 
   return (
@@ -93,7 +98,7 @@ export function SecurityPage() {
 
         {/* System views section at bottom */}
         <div className="absolute bottom-0 left-0 right-0 border-t border-cardbg">
-          <button className="w-full flex items-center gap-2 px-5 py-3 text-[13px] text-primary/60 hover:bg-mainbg transition-colors">
+          <button disabled title="В разработке" className="w-full flex items-center gap-2 px-5 py-3 text-[13px] text-primary/40 cursor-not-allowed">
             <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
               <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L8 9.586l1.293-1.293a1 1 0 111.414 1.414l-2 2a1 1 0 01-1.414 0l-2-2a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
@@ -107,6 +112,11 @@ export function SecurityPage() {
         className="absolute bg-mainbg overflow-y-auto"
         style={{ left: 380, top: 70, width: 945, height: 1010 }}
       >
+        {error && (
+          <div className="mx-[40px] mt-[20px] px-4 py-2 rounded-[8px] bg-[#FDECEC] text-mistake text-[14px]">
+            {error}
+          </div>
+        )}
         {active === "login"   && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
         {active === "filters" && <FiltersSection />}
         {active === "auth"    && <AuthSection />}

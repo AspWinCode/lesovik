@@ -699,14 +699,29 @@ function AdminApps() {
 }
 
 /* ── Databases ── */
-const MOCK_DBS = [
-  { name: "fitness_db",  app: "Fitness App",  tables: 3,  rows: 1240,  size: "12 МБ",  status: "Активна" },
-  { name: "delivery_db", app: "Delivery App", tables: 5,  rows: 8300,  size: "45 МБ",  status: "Активна" },
-  { name: "hr_db",       app: "HR Portal",    tables: 8,  rows: 2100,  size: "28 МБ",  status: "Активна" },
-  { name: "crm_db",      app: "CRM System",   tables: 12, rows: 54200, size: "320 МБ", status: "Активна" },
-];
+export interface DbRow {
+  name: string;
+  app: string;
+  status: string;
+  statusCls: string;
+  version: string;
+}
+
+/** Map backend apps into the per-app database rows shown in the admin table. */
+export function appsToDbRows(
+  apps: { slug: string; name: string; is_published: boolean; is_archived: boolean; version: number }[],
+): DbRow[] {
+  return apps.map((a) => {
+    const status = a.is_archived ? "В архиве" : a.is_published ? "Активна" : "В разработке";
+    const statusCls = a.is_archived ? "text-[#8898AA]" : a.is_published ? "text-[#20BE4F]" : "text-[#FFA600]";
+    return { name: `${a.slug}_db`, app: a.name, status, statusCls, version: `v${a.version}` };
+  });
+}
 
 function AdminDatabases() {
+  const { data, isLoading } = useApps();
+  const rows = appsToDbRows(data?.items ?? []);
+
   return (
     <div className="flex flex-col gap-[70px]">
       <h1 className="text-[40px] font-bold text-primary leading-[150%]">Базы данных</h1>
@@ -714,20 +729,24 @@ function AdminDatabases() {
         <table className="w-full">
           <thead className="bg-mainbg">
             <tr>
-              {["Имя базы", "Приложение", "Таблиц", "Строк", "Размер", "Статус"].map((h) => (
+              {["Имя базы", "Приложение", "Версия", "Статус"].map((h) => (
                 <th key={h} className="text-left px-6 py-3 text-info font-semibold text-primary">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {MOCK_DBS.map((db, i) => (
+            {isLoading && (
+              <tr><td colSpan={4} className="px-6 py-4 text-center text-primary/50 text-[16px]">Загрузка…</td></tr>
+            )}
+            {!isLoading && rows.length === 0 && (
+              <tr><td colSpan={4} className="px-6 py-4 text-center text-primary/50 text-[16px]">Баз данных нет</td></tr>
+            )}
+            {rows.map((db, i) => (
               <tr key={i} className="border-t border-mainbg hover:bg-mainbg/40">
                 <td className="px-6 py-3 text-meta font-semibold text-primary font-mono">{db.name}</td>
                 <td className="px-6 py-3 text-meta text-primary">{db.app}</td>
-                <td className="px-6 py-3 text-meta text-primary">{db.tables}</td>
-                <td className="px-6 py-3 text-meta text-primary">{db.rows.toLocaleString("ru")}</td>
-                <td className="px-6 py-3 text-meta text-primary">{db.size}</td>
-                <td className="px-6 py-3 text-meta font-semibold text-[#20BE4F]">{db.status}</td>
+                <td className="px-6 py-3 text-meta text-primary">{db.version}</td>
+                <td className={cn("px-6 py-3 text-meta font-semibold", db.statusCls)}>{db.status}</td>
               </tr>
             ))}
           </tbody>

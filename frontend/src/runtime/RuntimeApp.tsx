@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BrowserRouter, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, type PageRead } from "@/shared/api/views";
 import { listEntities, type EntityRead, type FieldRead } from "@/shared/api/entities";
@@ -23,7 +24,16 @@ function RuntimeShell() {
   const [params] = useSearchParams();
   const appId = params.get("app");
 
-  const appsQuery = useQuery({ queryKey: ["rt-apps"], queryFn: () => listApps() });
+  // Runtime data needs auth (same origin shares the editor session). Without a
+  // token, show a friendly gate instead of letting the API client bounce us.
+  const authed = isAuthenticated();
+
+  const appsQuery = useQuery({
+    queryKey: ["rt-apps"],
+    queryFn: () => listApps(),
+    enabled: authed,
+  });
+
   const app: App | undefined = appId
     ? appsQuery.data?.items.find((a) => a.id === appId)
     : appsQuery.data?.items[0];
@@ -32,16 +42,32 @@ function RuntimeShell() {
   const pagesQuery = useQuery({
     queryKey: ["rt-pages", resolvedAppId],
     queryFn: () => listPages(resolvedAppId!),
-    enabled: !!resolvedAppId,
+    enabled: authed && !!resolvedAppId,
   });
   const entitiesQuery = useQuery({
     queryKey: ["rt-entities", resolvedAppId],
     queryFn: () => listEntities(resolvedAppId!),
-    enabled: !!resolvedAppId,
+    enabled: authed && !!resolvedAppId,
   });
 
   const [activePageId, setActivePageId] = useState<string | null>(null);
 
+  // All hooks above run unconditionally; gates below are render-only.
+  if (!authed) {
+    return (
+      <Centered>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          <span>Чтобы открыть приложение, войдите в систему.</span>
+          <a
+            href="/editor/signin"
+            style={{ background: "#35A7FF", color: "#fff", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 500 }}
+          >
+            Войти
+          </a>
+        </div>
+      </Centered>
+    );
+  }
   if (appsQuery.isLoading || (resolvedAppId && (pagesQuery.isLoading || entitiesQuery.isLoading))) {
     return <Centered>Загрузка приложения…</Centered>;
   }

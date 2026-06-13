@@ -794,7 +794,7 @@ function BotFlow({
             )}>
             {rule.is_active ? "Отключить" : "Включить"}
           </button>
-          <button className="px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta text-cta">Монитор</button>
+          <button disabled title="В разработке" className="px-5 h-[34px] rounded-[20px] text-[14px] font-semibold border-2 border-cta/40 text-cta/40 cursor-not-allowed">Монитор</button>
           <button aria-label="Меню" className="flex flex-col items-center gap-[3px] w-[5px] h-5 justify-center">
             {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
           </button>

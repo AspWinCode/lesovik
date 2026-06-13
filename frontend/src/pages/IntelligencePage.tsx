@@ -200,7 +200,15 @@ function AssistantSection() {
 
   return (
     <div className="w-full h-full flex flex-col px-10 py-8">
-      <h2 className="text-[20px] font-bold text-primary mb-4">Умный помощник</h2>
+      <div className="flex items-center gap-3 mb-4">
+        <h2 className="text-[20px] font-bold text-primary">Умный помощник</h2>
+        <span className="text-[12px] font-semibold text-[#E65100] bg-[#FFF8E1] rounded-full px-3 py-1">
+          Демо-режим
+        </span>
+      </div>
+      <p className="text-[13px] text-primary/60 mb-4">
+        Ответы пока имитируются. Подключение к языковой модели в разработке.
+      </p>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 mb-4">
         {messages.map((m, i) => (

@@ -694,8 +694,10 @@ function DocumentationSection({
 function DropdownPill({ value, className }: { value: string; className?: string }) {
   return (
     <button
+      disabled
+      title="В разработке"
       className={cn(
-        "flex items-center justify-between gap-5 h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary",
+        "flex items-center justify-between gap-5 h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary/50 cursor-not-allowed",
         className
       )}
     >
@@ -705,12 +707,18 @@ function DropdownPill({ value, className }: { value: string; className?: string 
   );
 }
 
-function IconButton({ label, children }: { label: string; children: React.ReactNode }) {
+function IconButton({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
+  const inert = !onClick;
   return (
     <button
       aria-label={label}
-      title={label}
-      className="w-10 h-10 flex items-center justify-center hover:bg-cardbg/40 rounded-full transition-colors shrink-0"
+      title={inert ? `${label} (в разработке)` : label}
+      onClick={onClick}
+      disabled={inert}
+      className={cn(
+        "w-10 h-10 flex items-center justify-center rounded-full transition-colors shrink-0",
+        inert ? "opacity-40 cursor-not-allowed" : "hover:bg-cardbg/40",
+      )}
     >
       {children}
     </button>
