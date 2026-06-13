@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel";
@@ -1522,6 +1529,55 @@ function formatPreviewCell(value: unknown, field: FieldRead): string {
   return String(value);
 }
 
+/* ── Sortable block row ── */
+const BLOCK_ICONS: Record<string, React.ReactNode> = {
+  form:      <FormIcon />,
+  table:     <TableIcon />,
+  button:    <ButtonBlockIcon />,
+  view:      <TableIcon />,
+  rich_text: <DetailsIcon />,
+  metric:    <ChartIcon />,
+  divider:   <DashboardIcon />,
+  iframe:    <MapIcon />,
+};
+
+function SortableBlockRow({ block, onDelete }: { block: PageBlock; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: block.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      className="flex items-center gap-[12px] h-[50px] px-5 rounded-btn bg-white"
+    >
+      <button
+        {...attributes} {...listeners}
+        className="w-5 h-5 shrink-0 cursor-grab active:cursor-grabbing text-primary/30 hover:text-primary/60 touch-none"
+        title="Перетащить"
+      >
+        <DragVert />
+      </button>
+      <span className="w-[22px] h-[22px] shrink-0 text-primary/60">
+        {BLOCK_ICONS[block.type] ?? <TableIcon />}
+      </span>
+      <span className="flex-1 text-[16px] text-primary font-medium truncate">
+        {block.title ?? BLOCK_TYPE_META[block.type]?.label ?? block.type}
+      </span>
+      <span className="text-[12px] text-primary/40 shrink-0 font-mono">
+        {BLOCK_TYPE_META[block.type]?.label}
+      </span>
+      <button
+        onClick={onDelete}
+        className="shrink-0 hover:bg-red-50 rounded-full p-1 transition-colors"
+        title="Удалить блок"
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+}
+
 /* ── Block canvas ── */
 function BlockCanvas({
   blocks,
@@ -1532,91 +1588,32 @@ function BlockCanvas({
   onBlocksChange: (b: PageBlock[]) => void;
   onAddClick: () => void;
 }) {
-  const dragIndexRef = useRef<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  function handleDragStart(index: number) {
-    dragIndexRef.current = index;
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = blocks.findIndex((b) => b.id === active.id);
+    const newIdx = blocks.findIndex((b) => b.id === over.id);
+    onBlocksChange(arrayMove(blocks, oldIdx, newIdx));
   }
-
-  function handleDragOver(e: React.DragEvent, index: number) {
-    e.preventDefault();
-    setDragOverIndex(index);
-  }
-
-  function handleDrop(e: React.DragEvent, dropIndex: number) {
-    e.preventDefault();
-    setDragOverIndex(null);
-    const from = dragIndexRef.current;
-    if (from === null || from === dropIndex) return;
-    const next = [...blocks];
-    const [item] = next.splice(from, 1);
-    next.splice(dropIndex, 0, item);
-    dragIndexRef.current = null;
-    onBlocksChange(next);
-  }
-
-  function handleDragEnd() {
-    setDragOverIndex(null);
-    dragIndexRef.current = null;
-  }
-
-  function handleDelete(id: string) {
-    onBlocksChange(blocks.filter((b) => b.id !== id));
-  }
-
-  const BLOCK_ICONS: Record<string, React.ReactNode> = {
-    form: <FormIcon />,
-    table: <TableIcon />,
-    button: <ButtonBlockIcon />,
-    view: <TableIcon />,
-    rich_text: <DetailsIcon />,
-    metric: <ChartIcon />,
-    divider: <DashboardIcon />,
-    iframe: <MapIcon />,
-  };
 
   return (
     <div className="flex flex-col gap-[10px] px-[40px]">
       {blocks.length === 0 && (
-        <p className="text-[14px] text-primary/40 py-[5px]">
-          Добавьте блоки на страницу
-        </p>
+        <p className="text-[14px] text-primary/40 py-[5px]">Добавьте блоки на страницу</p>
       )}
-      {blocks.map((block, index) => (
-        <div
-          key={block.id}
-          draggable
-          onDragStart={() => handleDragStart(index)}
-          onDragOver={(e) => handleDragOver(e, index)}
-          onDrop={(e) => handleDrop(e, index)}
-          onDragEnd={handleDragEnd}
-          className={cn(
-            "flex items-center gap-[12px] h-[50px] px-5 rounded-btn cursor-grab active:cursor-grabbing transition-all",
-            dragOverIndex === index && dragIndexRef.current !== index
-              ? "border-2 border-cta bg-cardbg"
-              : "bg-white"
-          )}
-        >
-          <span className="w-5 h-5 shrink-0 opacity-50"><DragVert /></span>
-          <span className="w-[22px] h-[22px] shrink-0 text-primary/60">
-            {BLOCK_ICONS[block.type] ?? <TableIcon />}
-          </span>
-          <span className="flex-1 text-[16px] text-primary font-medium truncate">
-            {block.title ?? BLOCK_TYPE_META[block.type]?.label ?? block.type}
-          </span>
-          <span className="text-[12px] text-primary/40 shrink-0 font-mono">
-            {BLOCK_TYPE_META[block.type]?.label}
-          </span>
-          <button
-            onClick={() => handleDelete(block.id)}
-            className="shrink-0 hover:bg-red-50 rounded-full p-1 transition-colors"
-            title="Удалить блок"
-          >
-            <TrashIcon />
-          </button>
-        </div>
-      ))}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+          {blocks.map((block) => (
+            <SortableBlockRow
+              key={block.id}
+              block={block}
+              onDelete={() => onBlocksChange(blocks.filter((b) => b.id !== block.id))}
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
       <button
         onClick={onAddClick}
         className="flex items-center gap-[8px] w-fit h-[38px] px-5 bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active transition-colors mt-[5px]"

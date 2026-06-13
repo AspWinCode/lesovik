@@ -5,6 +5,7 @@ import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities, useCreateEntity, useCreateField } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import type { FieldRead } from "@/shared/api/entities";
+import { ImportModal } from "@/components/ImportModal";
 
 type ViewMode = "grid" | "table";
 
@@ -28,6 +29,7 @@ export function DatabasePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [activeRow, setActiveRow] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [showImport, setShowImport] = useState(false);
 
   /* ── Data ── */
   const appsQuery = useApps();
@@ -193,6 +195,18 @@ export function DatabasePage() {
         <DropdownButton icon={<FilterIcon />} label="Фильтр" />
         <DropdownButton icon={<SortIcon />}   label="Сортировка" />
         <div className="ml-auto flex items-center gap-2">
+          {entity && (
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-1.5 h-[30px] px-3 rounded-[6px] border border-cardbg text-[13px] text-primary/70 hover:bg-mainbg hover:text-primary transition-colors"
+            >
+              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M8 2v9M4 7l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M2 13h12" strokeLinecap="round" />
+              </svg>
+              Импорт
+            </button>
+          )}
           <span className="text-[13px] text-primary/50">
             {recordsQuery.isLoading ? "загрузка..." : `${records.length} записей`}
           </span>
@@ -316,6 +330,19 @@ export function DatabasePage() {
           {entity ? `• ${entity.display_name}` : ""}
         </span>
       </footer>
+
+      {showImport && appId && entity && (
+        <ImportModal
+          appId={appId}
+          entityId={entity.id}
+          fields={entity.fields}
+          onClose={() => setShowImport(false)}
+          onSuccess={() => {
+            void recordsQuery.refetch();
+            setShowImport(false);
+          }}
+        />
+      )}
     </div>
   );
 }

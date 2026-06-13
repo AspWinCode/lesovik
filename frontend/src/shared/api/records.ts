@@ -70,3 +70,48 @@ export async function updateRecord(
 export async function deleteRecord(appId: string, entityId: string, recordId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}/entities/${entityId}/records/${recordId}`);
 }
+
+/* ── Import ── */
+
+export interface ImportPreview {
+  headers: string[];
+  sample: Record<string, string>[];
+  total_rows: number;
+}
+
+export interface ImportResult {
+  total: number;
+  created: number;
+  skipped: number;
+  errors: { row: number; error: string; data: Record<string, unknown> }[];
+}
+
+export async function previewImport(appId: string, entityId: string, file: File): Promise<ImportPreview> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<ImportPreview>(
+    `/apps/${appId}/entities/${entityId}/records/import/preview`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
+export async function importRecords(
+  appId: string,
+  entityId: string,
+  file: File,
+  columnMap: Record<string, string>,
+): Promise<ImportResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<ImportResult>(
+    `/apps/${appId}/entities/${entityId}/records/import`,
+    form,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      params: { column_map: JSON.stringify(columnMap) },
+    },
+  );
+  return data;
+}

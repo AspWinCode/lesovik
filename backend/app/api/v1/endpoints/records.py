@@ -360,6 +360,27 @@ async def export_records(
     )
 
 
+@router.post("/import/preview", tags=["records"])
+@limiter.limit("20/minute")
+async def preview_import(
+    app_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    file: UploadFile,
+    request: Request,
+    current_user: AuthDep,
+    db: DbDep,
+) -> dict:
+    """Return CSV/XLSX headers and first 5 rows without creating records."""
+    await _resolve_entity(app_id, entity_id, current_user, db)
+    data = await file.read()
+    filename = file.filename or "import.csv"
+    try:
+        result = ImportService(db).preview_file(data, filename)
+    except ImportFileError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return result
+
+
 @router.post("/import", tags=["records"])
 @limiter.limit("10/minute")
 async def import_records(

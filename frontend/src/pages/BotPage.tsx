@@ -1,5 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
@@ -1109,12 +1116,14 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
   const [addOpen, setAddOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  function move(idx: number, dir: -1 | 1) {
-    const next = [...steps];
-    const j = idx + dir;
-    if (j < 0 || j >= next.length) return;
-    [next[idx], next[j]] = [next[j], next[idx]];
-    reorder.mutate(next.map((s) => s.id));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = steps.findIndex((s) => s.id === active.id);
+    const newIdx = steps.findIndex((s) => s.id === over.id);
+    reorder.mutate(arrayMove(steps, oldIdx, newIdx).map((s) => s.id));
   }
 
   return (
@@ -1122,7 +1131,7 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
       <div className="flex flex-col gap-[2px]">
         <h2 className="text-[20px] font-bold text-primary">Шаги процесса</h2>
         <p className="text-[13px] text-primary/60">
-          Действия выполняются по порядку при срабатывании события. Изменения сохраняются на сервере.
+          Действия выполняются по порядку при срабатывании события. Перетащите шаг за ручку ⠿ для изменения порядка.
         </p>
       </div>
 
@@ -1131,22 +1140,24 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
         <span className="text-[14px] text-primary/40">Шагов пока нет — добавьте первый.</span>
       )}
 
-      <div className="flex flex-col gap-[8px]">
-        {steps.map((s, i) => (
-          <StepRow
-            key={s.id}
-            appId={appId}
-            ruleId={ruleId}
-            step={s}
-            index={i}
-            total={steps.length}
-            expanded={expanded === s.id}
-            onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
-            onMove={(dir) => move(i, dir)}
-            onDelete={() => delStep.mutate(s.id)}
-          />
-        ))}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col gap-[8px]">
+            {steps.map((s, i) => (
+              <StepRow
+                key={s.id}
+                appId={appId}
+                ruleId={ruleId}
+                step={s}
+                index={i}
+                expanded={expanded === s.id}
+                onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
+                onDelete={() => delStep.mutate(s.id)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       <div className="relative w-fit">
         <button
@@ -1173,10 +1184,13 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
   );
 }
 
-function StepRow({ appId, ruleId, step, index, total, expanded, onToggle, onMove, onDelete }: {
-  appId: string; ruleId: string; step: ProcessStep; index: number; total: number;
-  expanded: boolean; onToggle: () => void; onMove: (dir: -1 | 1) => void; onDelete: () => void;
+function StepRow({ appId, ruleId, step, index, expanded, onToggle, onDelete }: {
+  appId: string; ruleId: string; step: ProcessStep; index: number;
+  expanded: boolean; onToggle: () => void; onDelete: () => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: step.id });
+
   const spec = STEP_TYPES.find((t) => t.type === step.type);
   const updateStep = useUpdateStep(appId, ruleId);
   const seed = () => {
@@ -1192,12 +1206,25 @@ function StepRow({ appId, ruleId, step, index, total, expanded, onToggle, onMove
   }
 
   return (
-    <div className="bg-white rounded-[10px] border border-cardbg">
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.45 : 1 }}
+      className="bg-white rounded-[10px] border border-cardbg"
+    >
       <div className="flex items-center gap-[12px] h-[48px] px-4">
-        <span className="w-6 text-[13px] text-primary/40 font-medium">{index + 1}</span>
+        <button
+          {...attributes} {...listeners}
+          className="w-5 h-5 shrink-0 cursor-grab active:cursor-grabbing text-primary/30 hover:text-primary/60 touch-none"
+          title="Перетащить"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-full h-full">
+            <circle cx="5" cy="4" r="1.2"/><circle cx="11" cy="4" r="1.2"/>
+            <circle cx="5" cy="8" r="1.2"/><circle cx="11" cy="8" r="1.2"/>
+            <circle cx="5" cy="12" r="1.2"/><circle cx="11" cy="12" r="1.2"/>
+          </svg>
+        </button>
+        <span className="w-5 text-[13px] text-primary/40 font-medium shrink-0">{index + 1}</span>
         <span className="flex-1 text-[15px] font-medium text-primary">{STEP_LABEL[step.type] ?? step.type}</span>
-        <button onClick={() => onMove(-1)} disabled={index === 0} title="Вверх" className="w-7 h-7 rounded hover:bg-mainbg disabled:opacity-30 text-primary">↑</button>
-        <button onClick={() => onMove(1)} disabled={index === total - 1} title="Вниз" className="w-7 h-7 rounded hover:bg-mainbg disabled:opacity-30 text-primary">↓</button>
         {spec && spec.fields.length > 0 && (
           <button onClick={onToggle} className="text-[13px] text-cta hover:underline">{expanded ? "Свернуть" : "Настроить"}</button>
         )}

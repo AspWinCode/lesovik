@@ -104,6 +104,34 @@ class ImportService:
         )
         return result
 
+    def preview_file(
+        self,
+        file_data: bytes,
+        filename: str,
+        sample_size: int = 5,
+    ) -> dict[str, Any]:
+        """
+        Parse the file and return headers + first N rows without creating records.
+        Returns: {headers, sample, total_rows}
+        """
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext in _CSV_EXTS:
+            rows = self._parse_csv(file_data)
+        elif ext in _EXCEL_EXTS:
+            rows = self._parse_xlsx(file_data)
+        else:
+            raise ImportError(f"Unsupported file type: {ext!r}. Upload a CSV or XLSX file.")
+
+        if not rows:
+            return {"headers": [], "sample": [], "total_rows": 0}
+
+        headers = list(rows[0].keys())
+        sample = [
+            {k: (str(v) if v is not None else "") for k, v in row.items()}
+            for row in rows[:sample_size]
+        ]
+        return {"headers": headers, "sample": sample, "total_rows": len(rows)}
+
     # ------------------------------------------------------------------
     # Parsers
     # ------------------------------------------------------------------
