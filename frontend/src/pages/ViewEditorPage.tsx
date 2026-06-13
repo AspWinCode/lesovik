@@ -6,7 +6,7 @@ import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
-import { usePages, useUpdatePage, useCreatePage, useDeletePage } from "@/shared/hooks/useViews";
+import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage } from "@/shared/hooks/useViews";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { useRecords } from "@/shared/hooks/useRecords";
 import type { FieldRead, EntityRead } from "@/shared/api/entities";
@@ -79,9 +79,13 @@ const BLOCK_TYPE_META: Record<string, { label: string }> = {
 };
 
 const ADDABLE_BLOCKS: { type: PageBlock["type"]; label: string }[] = [
-  { type: "form",   label: "Форма" },
-  { type: "table",  label: "Таблица" },
-  { type: "button", label: "Кнопка" },
+  { type: "form",      label: "Форма" },
+  { type: "table",     label: "Таблица" },
+  { type: "button",    label: "Кнопка" },
+  { type: "rich_text", label: "Текст" },
+  { type: "metric",    label: "Метрика" },
+  { type: "divider",   label: "Разделитель" },
+  { type: "iframe",    label: "Фрейм" },
 ];
 
 /**
@@ -127,6 +131,8 @@ export function ViewEditorPage() {
   const updatePageMutation = useUpdatePage(appId ?? "");
   const createPageMutation = useCreatePage(appId ?? "");
   const deletePageMutation = useDeletePage(appId ?? "");
+  const publishPageMutation = usePublishPage(appId ?? "");
+  const unpublishPageMutation = useUnpublishPage(appId ?? "");
 
   const { data: entities = [] } = useEntities(appId);
 
@@ -279,17 +285,40 @@ export function ViewEditorPage() {
             </button>
           ))}
         </div>
-        <a
-          href={appId ? `/app/?app=${appId}` : `/app/`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="absolute flex items-center justify-center gap-[10px] px-5 py-[5px]
-                     border-2 border-primary rounded-[20px] text-meta font-semibold text-primary
-                     hover:bg-cardbg/40 transition-colors"
-          style={{ left: 744, top: 10.5, height: 34 }}
-        >
-          Предпросмотр
-        </a>
+        <div className="absolute flex items-center gap-[10px]" style={{ left: 620, top: 10.5, height: 34 }}>
+          <a
+            href={appId ? `/app/?app=${appId}` : `/app/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-[10px] px-5 py-[5px]
+                       border-2 border-primary rounded-[20px] text-meta font-semibold text-primary
+                       hover:bg-cardbg/40 transition-colors h-full"
+          >
+            Предпросмотр
+          </a>
+          {activePage && (
+            <button
+              onClick={() => {
+                if (!activeView) return;
+                const isPublished = (activePage as { is_published?: boolean }).is_published;
+                if (isPublished) {
+                  unpublishPageMutation.mutate(activeView);
+                } else {
+                  publishPageMutation.mutate(activeView);
+                }
+              }}
+              disabled={publishPageMutation.isPending || unpublishPageMutation.isPending}
+              className={cn(
+                "flex items-center justify-center gap-[8px] px-4 py-[5px] rounded-[20px] text-meta font-semibold transition-colors h-full border-2 disabled:opacity-60",
+                (activePage as { is_published?: boolean }).is_published
+                  ? "border-green-500 text-green-600 hover:bg-green-50"
+                  : "border-cta text-cta hover:bg-[#EBF4FF]",
+              )}
+            >
+              {(activePage as { is_published?: boolean }).is_published ? "Опубликовано" : "Опубликовать"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Editor scroll panel ── */}
@@ -1368,6 +1397,48 @@ function PreviewBlock({
   records: { id: string; payload: Record<string, unknown> }[];
   accent: string;
 }) {
+  if (block.type === "divider") {
+    return <hr className="border-t border-cardbg my-1" />;
+  }
+
+  if (block.type === "rich_text") {
+    const text = (block.config?.text as string) ?? block.title ?? "Текстовый блок";
+    return (
+      <div className="rounded-[10px] p-4 bg-mainbg text-[14px] text-primary leading-relaxed whitespace-pre-wrap">
+        {text}
+      </div>
+    );
+  }
+
+  if (block.type === "metric") {
+    const label = block.title ?? "Метрика";
+    const value = (block.config?.value as string) ?? "—";
+    return (
+      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col items-center gap-1">
+        <span className="text-[13px] text-primary/50">{label}</span>
+        <span className="text-[32px] font-bold" style={{ color: accent }}>{value}</span>
+      </div>
+    );
+  }
+
+  if (block.type === "iframe") {
+    const src = (block.config?.src as string) ?? "";
+    return (
+      <div className="border border-cardbg rounded-[10px] overflow-hidden">
+        <div className="px-3 py-2 bg-mainbg text-[13px] font-semibold text-primary/60">
+          {block.title ?? "Встроенный фрейм"}
+        </div>
+        {src ? (
+          <iframe src={src} className="w-full h-[180px] border-0" title={block.title ?? "iframe"} />
+        ) : (
+          <div className="h-[80px] flex items-center justify-center text-[13px] text-primary/30">
+            URL не задан
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (block.type === "button") {
     return (
       <button
@@ -1568,9 +1639,13 @@ function BlockPickerModal({
   onClose: () => void;
 }) {
   const ICONS: Record<string, React.ReactNode> = {
-    form:   <FormIcon />,
-    table:  <TableIcon />,
-    button: <ButtonBlockIcon />,
+    form:      <FormIcon />,
+    table:     <TableIcon />,
+    button:    <ButtonBlockIcon />,
+    rich_text: <DetailsIcon />,
+    metric:    <ChartIcon />,
+    divider:   <DashboardIcon />,
+    iframe:    <MapIcon />,
   };
 
   return (
@@ -1583,7 +1658,7 @@ function BlockPickerModal({
         onClick={(e) => e.stopPropagation()}
       >
         <span className="text-[20px] font-bold text-primary">Добавить блок</span>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-3 max-w-[480px]">
           {ADDABLE_BLOCKS.map((b) => (
             <button
               key={b.type}

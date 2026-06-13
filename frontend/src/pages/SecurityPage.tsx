@@ -6,12 +6,16 @@ import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
 import { useApps, useUpdateApp } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
+import { useEntities } from "@/shared/hooks/useEntities";
+import { usePermissions, useReplacePermissions } from "@/shared/hooks/usePermissions";
+import type { FieldPermissionUpsert } from "@/shared/api/permissions";
 
 type SecuritySection =
   | "login"
   | "filters"
   | "auth"
-  | "options";
+  | "options"
+  | "abac";
 
 interface SecurityConfig {
   require_login?: boolean;
@@ -29,6 +33,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "login",   label: "Вход в систему",    icon: <LoginIcon /> },
+  { id: "abac",    label: "Права полей",        icon: <ShieldIcon /> },
   { id: "filters", label: "Защитные фильтры",  icon: <FilterIcon /> },
   { id: "auth",    label: "Аутентификация",     icon: <ClockIcon /> },
   { id: "options", label: "Опции",              icon: <OptionsIcon /> },
@@ -118,6 +123,7 @@ export function SecurityPage() {
           </div>
         )}
         {active === "login"   && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
+        {active === "abac"    && <AbacSection appId={app?.id} />}
         {active === "filters" && <FiltersSection />}
         {active === "auth"    && <AuthSection />}
         {active === "options" && <OptionsSection sec={sec} patch={patch} />}
@@ -284,8 +290,201 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   );
 }
 
+/* ── ABAC: field-level permissions ── */
+
+const ROLES = [
+  { id: "platform_admin", label: "Платформ-Адм." },
+  { id: "app_admin",      label: "Адм. приложения" },
+  { id: "app_editor",     label: "Редактор" },
+  { id: "app_viewer",     label: "Просмотр" },
+];
+
+function AbacSection({ appId }: { appId: string | undefined }) {
+  const { data: entities = [] } = useEntities(appId);
+  const [entityId, setEntityId] = useState<string>("");
+
+  // Sync default entity selection
+  useEffect(() => {
+    if (entities.length > 0 && !entityId) setEntityId(entities[0].id);
+  }, [entities, entityId]);
+
+  const selectedEntity = entities.find((e) => e.id === entityId);
+  const userFields = (selectedEntity?.fields ?? []).filter((f) => !f.is_system);
+
+  const { data: perms = [], isLoading } = usePermissions(appId, entityId || undefined);
+  const replace = useReplacePermissions(appId ?? "", entityId);
+
+  // Build working matrix: { "fieldName:roleId" → { can_read, can_write } }
+  const [matrix, setMatrix] = useState<Record<string, { can_read: boolean; can_write: boolean }>>({});
+
+  // Sync matrix from fetched perms
+  useEffect(() => {
+    const m: Record<string, { can_read: boolean; can_write: boolean }> = {};
+    for (const p of perms) {
+      m[`${p.field_name}:${p.role_id}`] = { can_read: p.can_read, can_write: p.can_write };
+    }
+    setMatrix(m);
+  }, [perms]);
+
+  function getCell(fieldName: string, roleId: string) {
+    return matrix[`${fieldName}:${roleId}`] ?? { can_read: true, can_write: true };
+  }
+
+  function toggleCell(fieldName: string, roleId: string, prop: "can_read" | "can_write") {
+    const key = `${fieldName}:${roleId}`;
+    const cur = matrix[key] ?? { can_read: true, can_write: true };
+    setMatrix((m) => ({ ...m, [key]: { ...cur, [prop]: !cur[prop] } }));
+  }
+
+  async function savePermissions() {
+    // Only persist non-default (i.e. deny) rows
+    const body: FieldPermissionUpsert[] = [];
+    for (const [key, val] of Object.entries(matrix)) {
+      if (!val.can_read || !val.can_write) {
+        const [fieldName, roleId] = key.split(":");
+        body.push({ field_name: fieldName, role_id: roleId, ...val });
+      }
+    }
+    replace.mutate(body);
+  }
+
+  if (!appId) return <div className="px-[40px] py-[25px] text-primary/40">Нет активного приложения.</div>;
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <h2 className="text-[22px] font-bold text-primary mb-1">Права доступа к полям</h2>
+      <p className="text-[14px] text-primary/60 mb-5">
+        Управляйте чтением и записью отдельных полей по ролям.
+        Галочка — доступ разрешён; снять — запрещён. Сохраните изменения кнопкой ниже.
+      </p>
+
+      {/* Entity selector */}
+      <div className="flex items-center gap-3 mb-5">
+        <span className="text-[15px] font-medium text-primary">Таблица:</span>
+        <select
+          value={entityId}
+          onChange={(e) => setEntityId(e.target.value)}
+          className="h-[36px] px-3 bg-white border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta"
+        >
+          {entities.map((e) => (
+            <option key={e.id} value={e.id}>{e.display_name}</option>
+          ))}
+        </select>
+      </div>
+
+      {isLoading ? (
+        <div className="text-primary/40 text-[14px]">Загрузка прав…</div>
+      ) : userFields.length === 0 ? (
+        <div className="text-primary/40 text-[14px]">В таблице нет пользовательских полей.</div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-[10px] border border-cardbg bg-white">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="bg-mainbg border-b border-cardbg">
+                  <th className="text-left px-4 py-3 text-[14px] font-semibold text-primary w-[200px]">Поле</th>
+                  {ROLES.map((r) => (
+                    <th key={r.id} colSpan={2} className="text-center px-3 py-3 font-semibold text-primary border-l border-cardbg">
+                      {r.label}
+                    </th>
+                  ))}
+                </tr>
+                <tr className="border-b border-cardbg bg-white">
+                  <th className="px-4 py-2 text-left text-[12px] text-primary/50">Тип</th>
+                  {ROLES.map((r) => (
+                    <>
+                      <th key={`${r.id}-r`} className="text-center px-2 py-2 text-[11px] text-primary/50 border-l border-cardbg">Чтение</th>
+                      <th key={`${r.id}-w`} className="text-center px-2 py-2 text-[11px] text-primary/50">Запись</th>
+                    </>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {userFields.map((f, fi) => (
+                  <tr key={f.id} className={cn("border-b border-cardbg last:border-0", fi % 2 === 0 ? "bg-white" : "bg-mainbg/40")}>
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium text-primary">{f.display_name}</div>
+                      <div className="text-[11px] text-primary/40 font-mono">{f.field_type}</div>
+                    </td>
+                    {ROLES.map((r) => {
+                      const cell = getCell(f.name, r.id);
+                      return (
+                        <>
+                          <td key={`${r.id}-r`} className="text-center px-2 py-2 border-l border-cardbg">
+                            <Checkbox
+                              checked={cell.can_read}
+                              onChange={() => toggleCell(f.name, r.id, "can_read")}
+                            />
+                          </td>
+                          <td key={`${r.id}-w`} className="text-center px-2 py-2">
+                            <Checkbox
+                              checked={cell.can_write}
+                              onChange={() => toggleCell(f.name, r.id, "can_write")}
+                            />
+                          </td>
+                        </>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={savePermissions}
+              disabled={replace.isPending}
+              className="px-5 h-[38px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active disabled:opacity-50 transition-colors"
+            >
+              {replace.isPending ? "Сохранение…" : "Сохранить права"}
+            </button>
+            {replace.isSuccess && (
+              <span className="text-[13px] text-green-600">Сохранено</span>
+            )}
+            {replace.isError && (
+              <span className="text-[13px] text-red-500">Ошибка сохранения</span>
+            )}
+          </div>
+          <p className="mt-3 text-[12px] text-primary/40">
+            Снятая галочка = явный запрет. Если роль не перечислена в правиле — доступ разрешён по умолчанию.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      onClick={onChange}
+      className={cn(
+        "w-[22px] h-[22px] rounded-[5px] border-2 mx-auto flex items-center justify-center transition-colors",
+        checked ? "bg-cta border-cta" : "bg-white border-primary/30"
+      )}
+    >
+      {checked && (
+        <svg viewBox="0 0 12 12" className="w-3 h-3">
+          <path d="M2 6 L5 9 L10 3" stroke="white" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 /* ── Icons ── */
 const stroke = "#00205F";
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <path d="M10 2 L17 5 L17 10 C17 14 13.5 17.5 10 18.5 C6.5 17.5 3 14 3 10 L3 5 Z"
+        stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M7 10 L9 12 L13 8" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function LoginIcon() {
   return (

@@ -35,6 +35,37 @@ class Record(Base):
     )
 
 
+class Sequence(Base):
+    """
+    Auto-number sequence for a specific field in an entity.
+
+    On record creation the field is filled with:
+        {prefix}{zero_padded_value}{suffix}
+    e.g. prefix="ORD-", padding=5, next_value=42 → "ORD-00042"
+    """
+    __tablename__ = "sequence"
+    __table_args__ = (
+        sa.UniqueConstraint("entity_id", "field_name", name="uq_sequence_entity_field"),
+        {"schema": "data"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    app_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    field_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(32), nullable=False, server_default="''")
+    suffix: Mapped[str] = mapped_column(String(32), nullable=False, server_default="''")
+    padding: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    step: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    next_value: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="1")
+    reset_on: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class RecordFile(Base):
     """File attachment linked to a record field."""
     __tablename__ = "record_file"

@@ -4,6 +4,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar, type SidebarTab } from "@/components/layout/Sidebar";
 import { cn } from "@/lib/cn";
 import { useCreateApp } from "@/shared/hooks/useApps";
+import { installTemplate } from "@/shared/api/templates";
 
 interface Template {
   id: string;
@@ -89,7 +90,15 @@ export function TemplatesPage() {
     createApp.mutate(
       { name: t.name, slug: slugify(t.name), description: t.desc, settings: { template: t.id } },
       {
-        onSuccess: (app) => navigate(`/views?app=${app.id}`),
+        onSuccess: async (app) => {
+          // If a built-in scaffold exists for this template, install it
+          try {
+            await installTemplate(app.id, t.id);
+          } catch {
+            // No scaffold for this template ID — ignore gracefully
+          }
+          navigate(`/views?app=${app.id}`);
+        },
         onError: () => setCopyingId(null),
       },
     );

@@ -171,6 +171,10 @@ def _validate_field_value(field: Field, name: str, value: Any) -> None:
         if choices and value not in choices:
             raise RecordValidationError(f"Field '{name}': {value!r} not in choices {choices}")
 
+    elif ft == "autonumber":
+        # Auto-filled by SequenceService — never sent by the user; skip validation
+        return
+
     elif ft == "multi_select":
         if not isinstance(value, list):
             raise RecordValidationError(f"Field '{name}' expects list for multi_select")
@@ -249,12 +253,18 @@ class RecordService:
         data: RecordCreate,
         actor_id: uuid.UUID | None = None,
     ) -> RecordRead:
+        from app.services.sequences import SequenceService  # local import avoids circular
+
         fields = await self._get_entity_fields(entity_id)
-        _validate_payload(data.payload, fields, partial=False)
+        # Fill autonumber fields before validation so they don't fail required-check
+        payload = await SequenceService(self._db).fill_autonumber_fields(
+            entity_id, data.payload, fields
+        )
+        _validate_payload(payload, fields, partial=False)
 
         record = Record(
             entity_id=entity_id,
-            payload=data.payload,
+            payload=payload,
             created_by=actor_id,
             updated_by=actor_id,
         )

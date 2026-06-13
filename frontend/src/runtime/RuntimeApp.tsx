@@ -159,6 +159,44 @@ function PageView({ page, appId, entities, accent }: {
 function Block({ block, entity, cols, records, accent }: {
   block: PageBlock; entity: EntityRead | null; cols: FieldRead[]; records: RecordRead[]; accent: string;
 }) {
+  if (block.type === "divider") {
+    return <hr style={{ border: "none", borderTop: "1px solid #CBE3FF", margin: "4px 0" }} />;
+  }
+
+  if (block.type === "rich_text") {
+    const text = (block.config?.text as string) ?? block.title ?? "";
+    return (
+      <div style={{ background: "#F1F6FF", borderRadius: 10, padding: 16, fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+        {text}
+      </div>
+    );
+  }
+
+  if (block.type === "metric") {
+    return (
+      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: 13, color: "#8898AA" }}>{block.title ?? "Метрика"}</span>
+        <span style={{ fontSize: 40, fontWeight: 700, color: accent }}>{(block.config?.value as string) ?? "—"}</span>
+      </section>
+    );
+  }
+
+  if (block.type === "iframe") {
+    const src = (block.config?.src as string) ?? "";
+    return (
+      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 14, color: "#5b6b86" }}>
+          {block.title ?? "Фрейм"}
+        </div>
+        {src ? (
+          <iframe src={src} style={{ width: "100%", height: 320, border: 0 }} title={block.title ?? "iframe"} />
+        ) : (
+          <div style={{ padding: 20, color: "#8898AA", fontSize: 13 }}>URL не задан</div>
+        )}
+      </section>
+    );
+  }
+
   if (block.type === "button") {
     return (
       <button style={{ alignSelf: "flex-start", background: accent, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 15, fontWeight: 500, cursor: "pointer" }}>
