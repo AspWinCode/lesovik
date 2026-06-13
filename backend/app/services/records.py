@@ -318,6 +318,7 @@ class RecordService:
             raise RecordNotFoundError(str(record_id))
         record.is_deleted = False
         await self._db.flush()
+        await self._db.refresh(record, attribute_names=["updated_at"])
         return RecordRead.model_validate(record)
 
     # ------------------------------------------------------------------

@@ -132,7 +132,7 @@ async def test_add_custom_field(client: AsyncClient, builder_user: User) -> None
     token = await _auth(client, builder_user.email, "Builder1234!")
     headers = {"Authorization": f"Bearer {token}"}
 
-    app = await client.post("/api/v1/apps", json={"slug": "field-app", "name": "F"}, headers=headers)
+    app = await client.post("/api/v1/apps", json={"slug": "field-app", "name": "Field App"}, headers=headers)
     app_id = app.json()["id"]
 
     entity = await client.post(
@@ -158,7 +158,7 @@ async def test_cannot_delete_system_field(client: AsyncClient, builder_user: Use
     token = await _auth(client, builder_user.email, "Builder1234!")
     headers = {"Authorization": f"Bearer {token}"}
 
-    app = await client.post("/api/v1/apps", json={"slug": "sys-app", "name": "S"}, headers=headers)
+    app = await client.post("/api/v1/apps", json={"slug": "sys-app", "name": "Sys App"}, headers=headers)
     app_id = app.json()["id"]
     entity = await client.post(
         f"/api/v1/apps/{app_id}/entities",
@@ -181,7 +181,7 @@ async def test_create_relation(client: AsyncClient, builder_user: User) -> None:
     token = await _auth(client, builder_user.email, "Builder1234!")
     headers = {"Authorization": f"Bearer {token}"}
 
-    app = await client.post("/api/v1/apps", json={"slug": "rel-app", "name": "R"}, headers=headers)
+    app = await client.post("/api/v1/apps", json={"slug": "rel-app", "name": "Rel App"}, headers=headers)
     app_id = app.json()["id"]
 
     customer = await client.post(

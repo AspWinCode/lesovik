@@ -33,7 +33,7 @@ def _build_token(subject: str, extra: dict[str, Any], expire_delta: timedelta) -
 def create_access_token(user_id: UUID, roles: list[str]) -> str:
     return _build_token(
         subject=str(user_id),
-        extra={"type": "access", "roles": roles},
+        extra={"type": "access", "roles": roles, "jti": str(_uuid.uuid4())},
         expire_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
 

@@ -73,7 +73,7 @@ async def test_create_user_forbidden_for_non_admin(client: AsyncClient, db_sessi
     token = await _login(client, "regular@example.com", "Regular12!")
     resp = await client.post(
         "/api/v1/users",
-        json={"email": "x@example.com", "display_name": "X", "password": "Xxxx12345!"},
+        json={"email": "x@example.com", "display_name": "Xx User", "password": "Xxxx12345!"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
