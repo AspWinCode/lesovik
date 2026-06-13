@@ -44,6 +44,7 @@ class ExecutionContext:
     app_id: uuid.UUID
     event: str                       # e.g. "record.updated"
     actor_id: uuid.UUID | None = None
+    record_id: uuid.UUID | None = None  # ID of the triggering record
     changed_fields: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)  # injected at runtime
 

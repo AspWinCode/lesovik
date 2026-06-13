@@ -60,6 +60,9 @@ dependencies = [
     # LDAP
     "ldap3==2.9.1",
 
+    # Import
+    "openpyxl==3.1.5",
+
     # Utilities
     "python-slugify==8.0.4",
     "orjson==3.10.12",

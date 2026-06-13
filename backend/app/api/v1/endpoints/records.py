@@ -1,8 +1,9 @@
+import json
 import uuid
-from typing import Annotated
+from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
 from app.api.deps import AuthDep, DbDep
 from app.core.antivirus import get_antivirus
@@ -20,7 +21,10 @@ from app.schemas.records import (
 from app.services.apps import AppNotFoundError, AppService
 from app.services.entities import EntityNotFoundError, EntityService
 from app.services.files import FileError, FileNotFoundError, FileService
+from app.services.imports import ImportError as ImportFileError
+from app.services.imports import ImportService
 from app.services.records import RecordNotFoundError, RecordService, RecordValidationError
+from app.services.rules import RuleService
 from app.services.security import ABACService
 
 logger = structlog.get_logger(__name__)
@@ -116,11 +120,21 @@ async def create_record(
         )
 
     try:
-        return await RecordService(db).create_record(
+        record = await RecordService(db).create_record(
             entity_id, body, actor_id=current_user.user_id
         )
     except RecordValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    try:
+        await RuleService(db).evaluate_rules_for_event(
+            app_id, entity_id, record.id, record.payload, "record.created",
+            actor_id=current_user.user_id,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
+
+    return record
 
 
 @router.get("/{record_id}", response_model=RecordRead)
@@ -160,6 +174,8 @@ async def update_record(
             detail=f"Write access denied for fields: {denied}",
         )
 
+    changed_fields = list(body.payload.keys())
+
     try:
         record = await RecordService(db).update_record(
             entity_id, record_id, body, actor_id=current_user.user_id
@@ -168,6 +184,14 @@ async def update_record(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
     except RecordValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    try:
+        await RuleService(db).evaluate_rules_for_event(
+            app_id, entity_id, record.id, record.payload, "record.updated",
+            changed_fields=changed_fields, actor_id=current_user.user_id,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
 
     return _apply_abac(record, restrictions.denied_read)
 
@@ -261,6 +285,52 @@ async def get_download_url(
         return await svc.get_download_url(file_id, expires=expires)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found") from exc
+
+
+@router.post("/import", tags=["records"])
+@limiter.limit("10/minute")
+async def import_records(
+    app_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    file: UploadFile,
+    request: Request,
+    current_user: AuthDep,
+    db: DbDep,
+    column_map: str | None = Query(default=None, description="JSON map of CSV header → field name"),
+) -> dict[str, Any]:
+    """
+    Bulk-import records from a CSV or XLSX file.
+    Returns a report: {total, created, skipped, errors:[{row, error, data}]}.
+    """
+    await _resolve_entity(app_id, entity_id, current_user, db)
+
+    parsed_map: dict[str, str] | None = None
+    if column_map:
+        try:
+            parsed_map = json.loads(column_map)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="column_map must be valid JSON",
+            ) from exc
+
+    data = await file.read()
+    filename = file.filename or "import.csv"
+
+    try:
+        result = await ImportService(db).import_records(
+            app_id, entity_id, data, filename,
+            column_map=parsed_map, actor_id=current_user.user_id,
+        )
+    except ImportFileError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return {
+        "total": result.total,
+        "created": result.created,
+        "skipped": result.skipped,
+        "errors": result.errors,
+    }
 
 
 @router.delete("/{record_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["files"])
