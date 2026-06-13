@@ -22,6 +22,9 @@ export interface RuleUpdate {
   description?: string | null;
   is_active?: boolean;
   priority?: number;
+  trigger?: { event: string; watch_fields?: string[] };
+  conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>[];
 }
 
 export interface RuleCreate {
@@ -30,6 +33,8 @@ export interface RuleCreate {
   trigger: { event: string; watch_fields?: string[] };
   description?: string | null;
   priority?: number;
+  conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>[];
 }
 
 export async function listRules(

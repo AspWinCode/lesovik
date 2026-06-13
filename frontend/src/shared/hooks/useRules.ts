@@ -33,6 +33,14 @@ export function useRules(appId: string | undefined) {
   });
 }
 
+export function useEntityRules(appId: string | undefined, entityId: string | undefined) {
+  return useQuery({
+    queryKey: ["rules", appId, entityId],
+    queryFn: () => listRules(appId!, { entity_id: entityId }),
+    enabled: !!appId && !!entityId,
+  });
+}
+
 export function useActivateRule(appId: string) {
   const qc = useQueryClient();
   return useMutation({
