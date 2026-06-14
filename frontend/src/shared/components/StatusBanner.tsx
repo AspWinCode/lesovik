@@ -3,7 +3,7 @@ import { useHealth } from "../hooks/useHealth";
 export function StatusBanner() {
   const { data, isError } = useHealth();
 
-  if (isError || data?.status === "degraded") {
+  if (isError || data?.ready === false) {
     return (
       <div
         style={{
@@ -14,7 +14,9 @@ export function StatusBanner() {
           textAlign: "center",
         }}
       >
-        {isError ? "Backend недоступен" : `API деградировал: ${JSON.stringify(data?.checks)}`}
+        {isError
+          ? "Backend недоступен"
+          : `API недоступен: ${JSON.stringify({ database: data?.database, redis: data?.redis })}`}
       </div>
     );
   }
