@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
@@ -25,11 +26,13 @@ function colWidth(ft: string): number {
 }
 
 export function DatabasePage() {
+  const navigate = useNavigate();
   const [activeEntityIdx, setActiveEntityIdx] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [activeRow, setActiveRow] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showImport, setShowImport] = useState(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
   const appsQuery = useApps();
@@ -108,6 +111,17 @@ export function DatabasePage() {
     setEditValues({});
   }
 
+  function scheduleCommit(recordId: string) {
+    blurTimer.current = setTimeout(() => commitEdit(recordId), 150);
+  }
+
+  function cancelCommit() {
+    if (blurTimer.current) {
+      clearTimeout(blurTimer.current);
+      blurTimer.current = null;
+    }
+  }
+
   /* ── Loading / empty ── */
   const isLoading = appsQuery.isLoading || entitiesQuery.isLoading;
   if (isLoading) {
@@ -121,7 +135,16 @@ export function DatabasePage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden flex flex-col">
       {/* ── Top mini navbar ── */}
-      <header className="h-[50px] shrink-0 flex items-center px-6 gap-4 bg-white border-b border-cardbg">
+      <header className="h-[50px] shrink-0 flex items-center px-4 gap-3 bg-white border-b border-cardbg">
+        <button
+          onClick={() => navigate(-1)}
+          title="Назад"
+          className="w-8 h-8 flex items-center justify-center rounded-[6px] text-primary/60 hover:bg-mainbg hover:text-primary transition-colors shrink-0"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth="2">
+            <path d="M13 4l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
         <span className="text-[18px] font-bold text-primary">
           {app?.name?.slice(0, 2).toUpperCase() ?? "–"}
         </span>
@@ -288,7 +311,8 @@ export function DatabasePage() {
                                 autoFocus={displayFields[0].id === f.id}
                                 value={editValues[f.name] ?? ""}
                                 onChange={(e) => setEditValues((p) => ({ ...p, [f.name]: e.target.value }))}
-                                onBlur={() => commitEdit(rec.id)}
+                                onBlur={() => scheduleCommit(rec.id)}
+                                onFocus={cancelCommit}
                                 onKeyDown={(e) => e.key === "Enter" && commitEdit(rec.id)}
                                 className="w-full bg-white border border-cta rounded-[3px] px-1 outline-none text-primary"
                               />
