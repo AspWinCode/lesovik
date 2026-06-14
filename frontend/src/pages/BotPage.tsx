@@ -1115,15 +1115,20 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
   const reorder = useReorderSteps(appId, ruleId);
   const [addOpen, setAddOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [localSteps, setLocalSteps] = useState(steps);
+
+  useEffect(() => { setLocalSteps(steps); }, [steps]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIdx = steps.findIndex((s) => s.id === active.id);
-    const newIdx = steps.findIndex((s) => s.id === over.id);
-    reorder.mutate(arrayMove(steps, oldIdx, newIdx).map((s) => s.id));
+    const oldIdx = localSteps.findIndex((s) => s.id === active.id);
+    const newIdx = localSteps.findIndex((s) => s.id === over.id);
+    const reordered = arrayMove(localSteps, oldIdx, newIdx);
+    setLocalSteps(reordered);
+    reorder.mutate(reordered.map((s) => s.id));
   }
 
   return (
@@ -1141,9 +1146,9 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={localSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-[8px]">
-            {steps.map((s, i) => (
+            {localSteps.map((s, i) => (
               <StepRow
                 key={s.id}
                 appId={appId}
