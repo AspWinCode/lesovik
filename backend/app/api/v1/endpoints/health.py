@@ -34,7 +34,7 @@ async def _check_redis() -> dict[str, Any]:
     t0 = time.monotonic()
     try:
         import redis.asyncio as aioredis
-        client = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+        client = aioredis.from_url(str(settings.REDIS_URL), socket_connect_timeout=2)
         await client.ping()
         await client.aclose()
         return {"status": "ok", "latency_ms": round((time.monotonic() - t0) * 1000, 1)}
@@ -57,7 +57,7 @@ async def _check_s3() -> dict[str, Any]:
                 aws_access_key_id=settings.S3_ACCESS_KEY,
                 aws_secret_access_key=settings.S3_SECRET_KEY,
             )
-            s3.head_bucket(Bucket=settings.S3_BUCKET)
+            s3.head_bucket(Bucket=settings.S3_BUCKET_FILES)
 
         await asyncio.to_thread(_head)
         return {"status": "ok", "latency_ms": round((time.monotonic() - t0) * 1000, 1)}
