@@ -41,9 +41,13 @@ const POSITIONS = ["первый", "следующий", "средний", "по
 
 const EDITOR_TABS = ["Представления", "Правила формирования", "Дизайн"];
 
+type PageBlockType =
+  | "form" | "table" | "button" | "view" | "rich_text" | "metric" | "kpi"
+  | "chart" | "calendar" | "kanban" | "divider" | "iframe";
+
 interface PageBlock {
   id: string;
-  type: "form" | "table" | "button" | "view" | "rich_text" | "metric" | "divider" | "iframe";
+  type: PageBlockType;
   title: string | null;
   config: Record<string, unknown>;
 }
@@ -74,26 +78,45 @@ const OP_LABELS: Record<RuleCond["op"], string> = {
 
 const ACCENT_COLORS = ["#35A7FF", "#00205F", "#22C55E", "#F59E0B", "#EF4444", "#8B5CF6"];
 
-const BLOCK_TYPE_META: Record<string, { label: string }> = {
+const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; group?: string }> = {
   form:      { label: "Форма" },
   table:     { label: "Таблица" },
   button:    { label: "Кнопка" },
   view:      { label: "Представление" },
   rich_text: { label: "Текст" },
-  metric:    { label: "Метрика" },
+  metric:    { label: "Метрика", desc: "Один числовой показатель", group: "Аналитика" },
+  kpi:       { label: "KPI", desc: "Показатель с динамикой", group: "Аналитика" },
+  chart:     { label: "График", desc: "Столбцы или линия по данным", group: "Аналитика" },
+  calendar:  { label: "Календарь", desc: "План и события по датам", group: "Данные" },
+  kanban:    { label: "Kanban", desc: "Доска по статусам", group: "Данные" },
   divider:   { label: "Разделитель" },
   iframe:    { label: "Фрейм" },
 };
 
-const ADDABLE_BLOCKS: { type: PageBlock["type"]; label: string }[] = [
+const ADDABLE_BLOCKS: { type: PageBlockType; label: string; desc?: string }[] = [
   { type: "form",      label: "Форма" },
   { type: "table",     label: "Таблица" },
+  { type: "kanban",    label: "Kanban" },
+  { type: "calendar",  label: "Календарь" },
+  { type: "chart",     label: "График" },
+  { type: "kpi",       label: "KPI" },
   { type: "button",    label: "Кнопка" },
   { type: "rich_text", label: "Текст" },
   { type: "metric",    label: "Метрика" },
   { type: "divider",   label: "Разделитель" },
   { type: "iframe",    label: "Фрейм" },
 ];
+
+function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
+  if (type === "rich_text") return { text: "Текстовый блок" };
+  if (type === "metric") return { value: "0" };
+  if (type === "kpi") return { value: "0", trend: "+0%", tone: "positive" };
+  if (type === "chart") return { chart_type: "bar", source: "records" };
+  if (type === "calendar") return { date_field: "", title_field: "" };
+  if (type === "kanban") return { group_by: "", card_title: "" };
+  if (type === "iframe") return { src: "" };
+  return {};
+}
 
 /**
  * Generate a unique id. `crypto.randomUUID` only exists in secure contexts
@@ -200,12 +223,24 @@ export function ViewEditorPage() {
     });
   }
 
-  function handleAddBlock(type: PageBlock["type"]) {
+  function handleUpdateBlock(blockId: string, patch: Partial<PageBlock>) {
+    handleBlocksChange(blocks.map((block) => (
+      block.id === blockId ? { ...block, ...patch } : block
+    )));
+  }
+
+  function handleUpdateBlockConfig(blockId: string, patch: Record<string, unknown>) {
+    handleBlocksChange(blocks.map((block) => (
+      block.id === blockId ? { ...block, config: { ...block.config, ...patch } } : block
+    )));
+  }
+
+  function handleAddBlock(type: PageBlockType) {
     const newBlock: PageBlock = {
       id: genId(),
       type,
       title: BLOCK_TYPE_META[type]?.label ?? type,
-      config: {},
+      config: defaultBlockConfig(type),
     };
     handleBlocksChange([...blocks, newBlock]);
   }
@@ -368,7 +403,10 @@ export function ViewEditorPage() {
             >
               <BlockCanvas
                 blocks={blocks}
+                fields={userFields}
                 onBlocksChange={handleBlocksChange}
+                onBlockChange={handleUpdateBlock}
+                onBlockConfigChange={handleUpdateBlockConfig}
                 onAddClick={() => setPickerOpen(true)}
               />
             </CollapsibleSection>
@@ -1428,6 +1466,105 @@ function PreviewBlock({
     );
   }
 
+  if (block.type === "kpi") {
+    const label = block.title ?? "KPI";
+    const value = (block.config?.value as string) || String(records.length);
+    const trend = (block.config?.trend as string) ?? "+0%";
+    const positive = !trend.trim().startsWith("-");
+    return (
+      <div className="border border-cardbg rounded-[10px] p-4 flex items-center justify-between gap-4">
+        <div className="flex flex-col">
+          <span className="text-[13px] text-primary/50">{label}</span>
+          <span className="text-[30px] font-bold text-primary">{value}</span>
+        </div>
+        <span
+          className="px-3 py-1 rounded-full text-[13px] font-semibold"
+          style={{ background: positive ? "#DCFCE7" : "#FEE2E2", color: positive ? "#15803D" : "#B91C1C" }}
+        >
+          {trend}
+        </span>
+      </div>
+    );
+  }
+
+  if (block.type === "chart") {
+    const chartType = (block.config?.chart_type as string) ?? "bar";
+    const valueField = (block.config?.value_field as string) ?? "";
+    const values = records.slice(0, 6).map((record, index) => {
+      const raw = valueField ? record.payload[valueField] : undefined;
+      const parsed = typeof raw === "number" ? raw : Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : (index + 1) * 12;
+    });
+    const sample = values.length ? values : [18, 34, 26, 44, 31];
+    const max = Math.max(...sample, 1);
+    return (
+      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[15px] font-semibold text-primary">{block.title ?? "График"}</span>
+          <span className="text-[12px] text-primary/40">{chartType === "line" ? "line" : "bar"}</span>
+        </div>
+        <div className="h-[120px] flex items-end gap-2">
+          {sample.map((value, index) => (
+            <div key={index} className="flex-1 rounded-t-[5px]" style={{ height: `${Math.max(12, (value / max) * 100)}%`, background: accent }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (block.type === "calendar") {
+    const dateField = (block.config?.date_field as string) ?? "";
+    const titleField = (block.config?.title_field as string) ?? "";
+    const fallbackTitle = cols[0]?.name ?? "";
+    const items = records.slice(0, 4).map((record, index) => ({
+      id: record.id,
+      day: formatCalendarDay(record.payload[dateField]) || String(index + 1).padStart(2, "0"),
+      title: formatPreviewValue(record.payload[titleField || fallbackTitle]) || `Событие ${index + 1}`,
+    }));
+    return (
+      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
+        <span className="text-[15px] font-semibold text-primary">{block.title ?? "Календарь"}</span>
+        {(items.length ? items : [{ id: "empty", day: "01", title: "Нет событий" }]).map((item) => (
+          <div key={item.id} className="flex items-center gap-3">
+            <span className="w-[42px] h-[42px] rounded-[8px] flex items-center justify-center text-white font-bold" style={{ background: accent }}>
+              {item.day}
+            </span>
+            <span className="text-[13px] text-primary truncate">{item.title}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (block.type === "kanban") {
+    const groupField = (block.config?.group_by as string) || cols.find((field) => ["select", "boolean", "text"].includes(field.field_type))?.name || "";
+    const titleField = (block.config?.card_title as string) || cols[0]?.name || "";
+    const groups = new Map<string, { id: string; title: string }[]>();
+    records.slice(0, 8).forEach((record, index) => {
+      const key = formatPreviewValue(record.payload[groupField]) || "Без статуса";
+      const title = formatPreviewValue(record.payload[titleField]) || `Карточка ${index + 1}`;
+      groups.set(key, [...(groups.get(key) ?? []), { id: record.id, title }]);
+    });
+    if (groups.size === 0) groups.set("Новые", [{ id: "sample", title: "Пример карточки" }]);
+    return (
+      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
+        <span className="text-[15px] font-semibold text-primary">{block.title ?? "Kanban"}</span>
+        <div className="grid grid-cols-2 gap-2">
+          {[...groups.entries()].slice(0, 4).map(([group, cards]) => (
+            <div key={group} className="bg-mainbg rounded-[8px] p-2 min-h-[90px]">
+              <div className="text-[12px] font-semibold text-primary/60 mb-2 truncate">{group}</div>
+              {cards.slice(0, 3).map((card) => (
+                <div key={card.id} className="bg-white rounded-[6px] px-2 py-1.5 text-[12px] text-primary truncate mb-1">
+                  {card.title}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (block.type === "iframe") {
     const src = (block.config?.src as string) ?? "";
     return (
@@ -1529,6 +1666,19 @@ function formatPreviewCell(value: unknown, field: FieldRead): string {
   return String(value);
 }
 
+function formatPreviewValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "boolean") return value ? "Да" : "Нет";
+  return String(value);
+}
+
+function formatCalendarDay(value: unknown): string {
+  if (!value) return "";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "";
+  return String(date.getDate()).padStart(2, "0");
+}
+
 /* ── Sortable block row ── */
 const BLOCK_ICONS: Record<string, React.ReactNode> = {
   form:      <FormIcon />,
@@ -1537,11 +1687,27 @@ const BLOCK_ICONS: Record<string, React.ReactNode> = {
   view:      <TableIcon />,
   rich_text: <DetailsIcon />,
   metric:    <ChartIcon />,
+  kpi:       <DashboardIcon />,
+  chart:     <ChartIcon />,
+  calendar:  <CalendarIcon />,
+  kanban:    <DeckIcon />,
   divider:   <DashboardIcon />,
   iframe:    <MapIcon />,
 };
 
-function SortableBlockRow({ block, onDelete }: { block: PageBlock; onDelete: () => void }) {
+function SortableBlockRow({
+  block,
+  fields,
+  onChange,
+  onConfigChange,
+  onDelete,
+}: {
+  block: PageBlock;
+  fields: FieldRead[];
+  onChange: (patch: Partial<PageBlock>) => void;
+  onConfigChange: (patch: Record<string, unknown>) => void;
+  onDelete: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: block.id });
 
@@ -1549,43 +1715,213 @@ function SortableBlockRow({ block, onDelete }: { block: PageBlock; onDelete: () 
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-      className="flex items-center gap-[12px] h-[50px] px-5 rounded-btn bg-white"
+      className="rounded-btn bg-white"
     >
-      <button
-        {...attributes} {...listeners}
-        className="w-5 h-5 shrink-0 cursor-grab active:cursor-grabbing text-primary/30 hover:text-primary/60 touch-none"
-        title="Перетащить"
-      >
-        <DragVert />
-      </button>
-      <span className="w-[22px] h-[22px] shrink-0 text-primary/60">
-        {BLOCK_ICONS[block.type] ?? <TableIcon />}
-      </span>
-      <span className="flex-1 text-[16px] text-primary font-medium truncate">
-        {block.title ?? BLOCK_TYPE_META[block.type]?.label ?? block.type}
-      </span>
-      <span className="text-[12px] text-primary/40 shrink-0 font-mono">
-        {BLOCK_TYPE_META[block.type]?.label}
-      </span>
-      <button
-        onClick={onDelete}
-        className="shrink-0 hover:bg-red-50 rounded-full p-1 transition-colors"
-        title="Удалить блок"
-      >
-        <TrashIcon />
-      </button>
+      <div className="flex items-center gap-[12px] min-h-[50px] px-5">
+        <button
+          {...attributes} {...listeners}
+          className="w-5 h-5 shrink-0 cursor-grab active:cursor-grabbing text-primary/30 hover:text-primary/60 touch-none"
+          title="Перетащить"
+        >
+          <DragVert />
+        </button>
+        <span className="w-[22px] h-[22px] shrink-0 text-primary/60">
+          {BLOCK_ICONS[block.type] ?? <TableIcon />}
+        </span>
+        <input
+          value={block.title ?? ""}
+          onChange={(event) => onChange({ title: event.target.value })}
+          className="flex-1 text-[16px] text-primary font-medium bg-transparent outline-none"
+          placeholder={BLOCK_TYPE_META[block.type]?.label ?? block.type}
+        />
+        <span className="text-[12px] text-primary/40 shrink-0">
+          {BLOCK_TYPE_META[block.type]?.label}
+        </span>
+        <button
+          onClick={onDelete}
+          className="shrink-0 hover:bg-red-50 rounded-full p-1 transition-colors"
+          title="Удалить блок"
+        >
+          <TrashIcon />
+        </button>
+      </div>
+      <BlockInlineSettings block={block} fields={fields} onConfigChange={onConfigChange} />
     </div>
+  );
+}
+
+function BlockInlineSettings({
+  block,
+  fields,
+  onConfigChange,
+}: {
+  block: PageBlock;
+  fields: FieldRead[];
+  onConfigChange: (patch: Record<string, unknown>) => void;
+}) {
+  if (block.type === "divider" || block.type === "table" || block.type === "form") return null;
+
+  return (
+    <div className="grid grid-cols-2 gap-[10px] px-5 pb-4">
+      {(block.type === "rich_text") && (
+        <ConfigInput
+          label="Текст"
+          value={(block.config.text as string) ?? ""}
+          onChange={(value) => onConfigChange({ text: value })}
+        />
+      )}
+      {(block.type === "metric" || block.type === "kpi") && (
+        <>
+          <ConfigInput
+            label="Значение"
+            value={(block.config.value as string) ?? ""}
+            onChange={(value) => onConfigChange({ value })}
+          />
+          <ConfigInput
+            label="Динамика"
+            value={(block.config.trend as string) ?? ""}
+            onChange={(trend) => onConfigChange({ trend })}
+          />
+        </>
+      )}
+      {block.type === "chart" && (
+        <>
+          <ConfigSelect
+            label="Тип"
+            value={(block.config.chart_type as string) ?? "bar"}
+            options={[
+              { value: "bar", label: "Столбцы" },
+              { value: "line", label: "Линия" },
+            ]}
+            onChange={(chart_type) => onConfigChange({ chart_type })}
+          />
+          <ConfigSelect
+            label="Поле"
+            value={(block.config.value_field as string) ?? ""}
+            options={fieldOptions(fields, "Любое число")}
+            onChange={(value_field) => onConfigChange({ value_field })}
+          />
+        </>
+      )}
+      {block.type === "calendar" && (
+        <>
+          <ConfigSelect
+            label="Дата"
+            value={(block.config.date_field as string) ?? ""}
+            options={fieldOptions(fields, "Авто")}
+            onChange={(date_field) => onConfigChange({ date_field })}
+          />
+          <ConfigSelect
+            label="Заголовок"
+            value={(block.config.title_field as string) ?? ""}
+            options={fieldOptions(fields, "Первое поле")}
+            onChange={(title_field) => onConfigChange({ title_field })}
+          />
+        </>
+      )}
+      {block.type === "kanban" && (
+        <>
+          <ConfigSelect
+            label="Группировать"
+            value={(block.config.group_by as string) ?? ""}
+            options={fieldOptions(fields, "Авто")}
+            onChange={(group_by) => onConfigChange({ group_by })}
+          />
+          <ConfigSelect
+            label="Заголовок"
+            value={(block.config.card_title as string) ?? ""}
+            options={fieldOptions(fields, "Первое поле")}
+            onChange={(card_title) => onConfigChange({ card_title })}
+          />
+        </>
+      )}
+      {block.type === "iframe" && (
+        <ConfigInput
+          label="URL"
+          value={(block.config.src as string) ?? ""}
+          onChange={(src) => onConfigChange({ src })}
+        />
+      )}
+      {block.type === "button" && (
+        <ConfigInput
+          label="Ссылка"
+          value={(block.config.href as string) ?? ""}
+          onChange={(href) => onConfigChange({ href })}
+        />
+      )}
+    </div>
+  );
+}
+
+function fieldOptions(fields: FieldRead[], emptyLabel: string): { value: string; label: string }[] {
+  return [
+    { value: "", label: emptyLabel },
+    ...fields.map((field) => ({ value: field.name, label: field.display_name })),
+  ];
+}
+
+function ConfigInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-[4px]">
+      <span className="text-[11px] text-primary/45">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-[34px] bg-mainbg rounded-btn px-3 text-[13px] text-primary outline-none"
+      />
+    </label>
+  );
+}
+
+function ConfigSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-[4px]">
+      <span className="text-[11px] text-primary/45">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-[34px] bg-mainbg rounded-btn px-3 text-[13px] text-primary outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 
 /* ── Block canvas ── */
 function BlockCanvas({
   blocks,
+  fields,
   onBlocksChange,
+  onBlockChange,
+  onBlockConfigChange,
   onAddClick,
 }: {
   blocks: PageBlock[];
+  fields: FieldRead[];
   onBlocksChange: (b: PageBlock[]) => void;
+  onBlockChange: (id: string, patch: Partial<PageBlock>) => void;
+  onBlockConfigChange: (id: string, patch: Record<string, unknown>) => void;
   onAddClick: () => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -1609,6 +1945,9 @@ function BlockCanvas({
             <SortableBlockRow
               key={block.id}
               block={block}
+              fields={fields}
+              onChange={(patch) => onBlockChange(block.id, patch)}
+              onConfigChange={(patch) => onBlockConfigChange(block.id, patch)}
               onDelete={() => onBlocksChange(blocks.filter((b) => b.id !== block.id))}
             />
           ))}
@@ -1641,6 +1980,10 @@ function BlockPickerModal({
     button:    <ButtonBlockIcon />,
     rich_text: <DetailsIcon />,
     metric:    <ChartIcon />,
+    kpi:       <DashboardIcon />,
+    chart:     <ChartIcon />,
+    calendar:  <CalendarIcon />,
+    kanban:    <DeckIcon />,
     divider:   <DashboardIcon />,
     iframe:    <MapIcon />,
   };
@@ -1660,10 +2003,11 @@ function BlockPickerModal({
             <button
               key={b.type}
               onClick={() => { onAdd(b.type); onClose(); }}
-              className="flex flex-col items-center gap-[8px] w-[96px] h-[90px] bg-mainbg rounded-[8px] justify-center hover:bg-cardbg transition-colors border-2 border-transparent hover:border-cta"
+              className="flex flex-col items-start gap-[6px] w-[145px] min-h-[112px] bg-mainbg rounded-[8px] justify-center hover:bg-cardbg transition-colors border-2 border-transparent hover:border-cta p-3 text-left"
             >
-              <span className="w-[32px] h-[32px] text-primary">{ICONS[b.type]}</span>
-              <span className="text-[13px] text-primary font-medium">{b.label}</span>
+              <span className="w-[30px] h-[30px] text-primary">{ICONS[b.type]}</span>
+              <span className="text-[13px] text-primary font-semibold">{b.label}</span>
+              <span className="text-[11px] text-primary/50 leading-[1.25]">{b.desc}</span>
             </button>
           ))}
         </div>

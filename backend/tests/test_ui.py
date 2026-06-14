@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import hash_password
 from app.models.identity import Role, User, UserRole
 from app.schemas.ui import (
+    PageBlock,
     PageCreate,
     ViewCreate,
     ViewFieldConfigBulkUpdate,
@@ -52,6 +53,11 @@ class TestPageCreateSchema:
     def test_empty_title_invalid(self) -> None:
         with pytest.raises(ValidationError):
             PageCreate(slug="ok", title="")
+
+    def test_builder_block_types_valid(self) -> None:
+        for block_type in ("kpi", "chart", "calendar", "kanban", "form", "table"):
+            block = PageBlock(id=f"b-{block_type}", type=block_type)
+            assert block.type == block_type
 
 
 class TestViewFieldConfigBulkUpdateSchema:

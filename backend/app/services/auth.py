@@ -18,7 +18,15 @@ from app.core.security import (
     verify_password,
 )
 from app.models.identity import RefreshToken, User
-from app.schemas.auth import ChangePasswordRequest, LoginRequest, TokenPair, TOTPSetupResponse
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LdapLoginRequest,
+    LoginRequest,
+    TokenPair,
+    TOTPSetupResponse,
+    YandexCallbackRequest,
+)
+from app.services.audit import AuditService
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +88,16 @@ class AuthService:
 
         auth_attempts.labels(result="success").inc()
         logger.info("login_success", user_id=str(user.id))
+        await AuditService(self._db).log(
+            "login",
+            user_id=user.id,
+            actor_email=user.email,
+            resource_type="user",
+            resource_id=str(user.id),
+            level="info",
+            ip_address=ip,
+            user_agent=user_agent,
+        )
         return await self._issue_tokens(user, user_agent=user_agent, ip=ip)
 
     # ------------------------------------------------------------------
@@ -236,6 +254,139 @@ class AuthService:
         if user is None:
             raise AuthError("User not found or inactive")
         return user
+
+    # ------------------------------------------------------------------
+    # LDAP login
+    # ------------------------------------------------------------------
+    async def ldap_login(
+        self,
+        req: LdapLoginRequest,
+        *,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> TokenPair:
+        if not settings.LDAP_ENABLED:
+            raise AuthError("LDAP authentication is not enabled", status_code=400)
+
+        from app.core.ldap_auth import LdapAuthError, LdapClient
+
+        client = LdapClient(
+            settings.LDAP_URL,
+            settings.LDAP_BIND_DN,
+            settings.LDAP_BIND_PASSWORD,
+            settings.LDAP_SEARCH_BASE,
+        )
+        try:
+            ldap_user = client.authenticate(req.email, req.password)
+        except LdapAuthError as exc:
+            auth_attempts.labels(result="ldap_failed").inc()
+            raise AuthError("LDAP authentication failed") from exc
+
+        # Find or create local user
+        stmt = select(User).where(User.email == req.email)
+        result = await self._db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            from app.core.security import hash_password as _hp
+            user = User(
+                email=req.email,
+                display_name=ldap_user["display_name"],
+                password_hash=_hp(secrets.token_urlsafe(32)),
+            )
+            self._db.add(user)
+            await self._db.flush()
+        elif not user.is_active:
+            raise AuthError("Account is deactivated")
+
+        await self._db.execute(
+            update(User).where(User.id == user.id).values(last_login_at=datetime.now(UTC))
+        )
+        auth_attempts.labels(result="ldap_success").inc()
+        await AuditService(self._db).log(
+            "login_ldap", user_id=user.id, actor_email=user.email,
+            level="info", ip_address=ip, user_agent=user_agent,
+        )
+        return await self._issue_tokens(user, user_agent=user_agent, ip=ip)
+
+    # ------------------------------------------------------------------
+    # Яндекс ID OAuth
+    # ------------------------------------------------------------------
+    @staticmethod
+    def yandex_auth_url() -> str:
+        from urllib.parse import urlencode
+        params = {
+            "response_type": "code",
+            "client_id": settings.YANDEX_CLIENT_ID,
+            "redirect_uri": settings.YANDEX_REDIRECT_URI,
+        }
+        return "https://oauth.yandex.ru/authorize?" + urlencode(params)
+
+    async def yandex_callback(
+        self,
+        req: YandexCallbackRequest,
+        *,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> TokenPair:
+        import httpx
+
+        if not settings.YANDEX_CLIENT_ID:
+            raise AuthError("Yandex OAuth is not configured", status_code=400)
+
+        # Exchange code for token
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(
+                "https://oauth.yandex.ru/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": req.code,
+                    "client_id": settings.YANDEX_CLIENT_ID,
+                    "client_secret": settings.YANDEX_CLIENT_SECRET,
+                    "redirect_uri": settings.YANDEX_REDIRECT_URI,
+                },
+            )
+        if token_resp.status_code != 200:
+            raise AuthError("Failed to exchange Yandex code for token")
+        access_token = token_resp.json().get("access_token")
+
+        # Get user info
+        async with httpx.AsyncClient() as client:
+            info_resp = await client.get(
+                "https://login.yandex.ru/info",
+                headers={"Authorization": f"OAuth {access_token}"},
+            )
+        if info_resp.status_code != 200:
+            raise AuthError("Failed to fetch Yandex user info")
+        info = info_resp.json()
+        email: str = info.get("default_email") or info.get("login") + "@yandex.ru"
+        display_name: str = info.get("display_name") or info.get("real_name") or email
+
+        # Find or create local user
+        stmt = select(User).where(User.email == email)
+        result = await self._db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            user = User(
+                email=email,
+                display_name=display_name,
+                password_hash=None,
+            )
+            self._db.add(user)
+            await self._db.flush()
+        elif not user.is_active:
+            raise AuthError("Account is deactivated")
+
+        await self._db.execute(
+            update(User).where(User.id == user.id).values(last_login_at=datetime.now(UTC))
+        )
+        auth_attempts.labels(result="yandex_success").inc()
+        await AuditService(self._db).log(
+            "login_yandex", user_id=user.id, actor_email=user.email,
+            level="info", ip_address=ip, user_agent=user_agent,
+        )
+        return await self._issue_tokens(user, user_agent=user_agent, ip=ip)
 
     @staticmethod
     def _verify_totp(secret: str, code: str) -> bool:

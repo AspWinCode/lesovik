@@ -3,10 +3,14 @@ import { apiClient } from "./client";
 export interface TemplateMeta {
   id: string;
   name: string;
+  description?: string | null;
+  modules?: string[];
 }
 
 export interface InstallResult {
+  modules_installed: string[];
   entities_created: number;
+  fields_created: number;
   pages_created: number;
 }
 

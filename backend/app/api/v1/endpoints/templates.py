@@ -19,10 +19,14 @@ router = APIRouter(prefix="/apps/{app_id}/templates", tags=["templates"])
 class TemplateMeta(BaseModel):
     id: str
     name: str
+    description: str | None = None
+    modules: list[str] = []
 
 
 class InstallResult(BaseModel):
+    modules_installed: list[str] = []
     entities_created: int
+    fields_created: int = 0
     pages_created: int
 
 
@@ -69,6 +73,7 @@ async def install_template(
             app_id=app_id,
             template_id=template_id,
             actor_id=current_user.user_id,
+            is_admin=current_user.has_role("platform_admin"),
         )
     except TemplateNotFoundError as exc:
         raise HTTPException(

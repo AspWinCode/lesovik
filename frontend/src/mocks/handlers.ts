@@ -8,6 +8,7 @@ import type { RecordRead } from "@/shared/api/records";
 import type { ViewRead, PageRead } from "@/shared/api/views";
 import type { WorkflowDefRead, StateDefRead } from "@/shared/api/workflows";
 import type { WebhookRead } from "@/shared/api/webhooks";
+import type { ModuleInstallResult, ModuleRead } from "@/shared/api/modules";
 
 /**
  * In-memory mock backend for local frontend dev without Docker.
@@ -67,6 +68,40 @@ const apps: App[] = [
     updated_at: new Date(Date.now() - 2 * 86400_000).toISOString(),
   }),
 ];
+
+const moduleCatalog: ModuleRead[] = [
+  { code: "enterprise", name: "Enterprise", category: "Base", description: "Base company directories", dependencies: [], color: "#4C6EF5", icon: "building" },
+  { code: "warehouse", name: "Warehouse", category: "Operations", description: "Products, balances and stock operations", dependencies: ["enterprise"], color: "#8B5CF6", icon: "package" },
+  { code: "production", name: "Production", category: "Operations", description: "Production orders, BOM and operations", dependencies: ["enterprise", "warehouse"], color: "#64748B", icon: "settings" },
+  { code: "orders", name: "Orders and shipments", category: "Operations", description: "Customer orders and shipments", dependencies: ["enterprise", "warehouse"], color: "#06B6D4", icon: "truck" },
+  { code: "finance", name: "Finance", category: "Finance", description: "Budgets, payments and transactions", dependencies: ["enterprise"], color: "#059669", icon: "coins" },
+  { code: "contracts", name: "Contracts", category: "Finance", description: "Contracts and execution stages", dependencies: ["enterprise"], color: "#DC2626", icon: "file" },
+  { code: "hr", name: "HR", category: "HR", description: "Candidates, hiring and reviews", dependencies: ["enterprise"], color: "#DB2777", icon: "users" },
+  { code: "projects", name: "Tasks and projects", category: "Productivity", description: "Projects, tasks and milestones", dependencies: ["enterprise"], color: "#10B981", icon: "check" },
+  { code: "analytics", name: "Analytics", category: "Analytics", description: "KPI, dashboards and reports", dependencies: [], color: "#0EA5E9", icon: "chart" },
+  { code: "documents", name: "Document flow", category: "Documents", description: "Documents and filing cases", dependencies: ["enterprise"], color: "#7C3AED", icon: "file" },
+  { code: "it_support", name: "IT support", category: "IT", description: "Tickets, equipment and SLA", dependencies: ["enterprise"], color: "#EA580C", icon: "tool" },
+].map((m, index) => ({
+  id: `module-${index + 1}`,
+  is_base: m.code === "enterprise",
+  is_active: true,
+  current_version: "1.0.0",
+  installed: false,
+  installed_version: null,
+  created_at: "2026-01-01T00:00:00Z",
+  ...m,
+}));
+
+const installedModulesByApp: Record<string, Set<string>> = {};
+
+function modulesForApp(appId: string | null): ModuleRead[] {
+  const installed = appId ? installedModulesByApp[appId] ?? new Set<string>() : new Set<string>();
+  return moduleCatalog.map((m) => ({
+    ...m,
+    installed: installed.has(m.code),
+    installed_version: installed.has(m.code) ? m.current_version : null,
+  }));
+}
 
 /* ── Mock Users ── */
 const MOCK_ROLES: UserRole[] = [
@@ -499,6 +534,79 @@ export const handlers = [
     const created = makeApp({ slug: body.slug, name: body.name, description: body.description ?? null });
     apps.push(created);
     return HttpResponse.json(created, { status: 201 });
+  }),
+
+  http.get(`${API}/modules`, ({ request }) => {
+    const url = new URL(request.url);
+    return HttpResponse.json(modulesForApp(url.searchParams.get("app_id")));
+  }),
+
+  http.get(`${API}/apps/:appId/modules`, ({ params }) => {
+    const appId = params.appId as string;
+    const installed = installedModulesByApp[appId] ?? new Set<string>();
+    return HttpResponse.json(
+      modulesForApp(appId)
+        .filter((m) => installed.has(m.code))
+        .map((m) => ({
+          app_id: appId,
+          module_id: m.id,
+          module_code: m.code,
+          module_name: m.name,
+          version: m.current_version,
+          status: "installed",
+          installed_at: new Date().toISOString(),
+          installed_by: MOCK_USER.id,
+        })),
+    );
+  }),
+
+  http.post(`${API}/apps/:appId/modules/:moduleCode/install`, ({ params }) => {
+    const appId = params.appId as string;
+    const moduleCode = params.moduleCode as string;
+    const module = moduleCatalog.find((m) => m.code === moduleCode);
+    if (!module) return HttpResponse.json({ detail: "Module not found" }, { status: 404 });
+    const installed = installedModulesByApp[appId] ?? new Set<string>();
+    installedModulesByApp[appId] = installed;
+    module.dependencies.forEach((dep) => installed.add(dep));
+    installed.add(module.code);
+    const result: ModuleInstallResult = {
+      module: { ...module, installed: true, installed_version: module.current_version },
+      installed_dependencies: module.dependencies,
+      entities_created: 2,
+      fields_created: 6,
+      pages_created: 1,
+    };
+    return HttpResponse.json(result);
+  }),
+
+  http.delete(`${API}/apps/:appId/modules/:moduleCode`, ({ params }) => {
+    const appId = params.appId as string;
+    const moduleCode = params.moduleCode as string;
+    installedModulesByApp[appId]?.delete(moduleCode);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API}/apps/:appId/templates/:templateId/install`, ({ params }) => {
+    const appId = params.appId as string;
+    const templateModules: Record<string, string[]> = {
+      trading_company: ["enterprise", "warehouse", "orders", "finance", "analytics"],
+      manufacturing_company: ["enterprise", "warehouse", "production", "finance", "analytics"],
+      service_company: ["enterprise", "projects", "contracts", "finance", "it_support"],
+      hr_department: ["enterprise", "hr", "projects"],
+      document_flow: ["enterprise", "documents", "contracts"],
+      financial_accounting: ["enterprise", "finance", "analytics"],
+      empty: [],
+    };
+    const modules = templateModules[params.templateId as string] ?? [];
+    const installed = installedModulesByApp[appId] ?? new Set<string>();
+    installedModulesByApp[appId] = installed;
+    modules.forEach((m) => installed.add(m));
+    return HttpResponse.json({
+      modules_installed: [...installed],
+      entities_created: modules.length * 2,
+      fields_created: modules.length * 6,
+      pages_created: modules.length,
+    });
   }),
 
   // Rules (bots)
