@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { NewStepModal, EventSourcesModal } from "@/components/modals/BotModals";
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -72,6 +73,8 @@ export function BotPage() {
   const [groupOpen, setGroupOpen] = useState(true);
   const [selectedCard, setSelectedCard] = useState<SelectedCard>(null);
   const [selectedProcessNode, setSelectedProcessNode] = useState<string | null>(null);
+
+  const [showEventSources, setShowEventSources] = useState(false);
 
   const { data: appsData } = useApps();
   const apps = appsData?.items ?? [];
@@ -247,6 +250,7 @@ export function BotPage() {
               rule={activeRule}
               appId={appId}
               onSave={(ruleId, body) => updateRule.mutate({ ruleId, body })}
+              onOpenEventSources={() => setShowEventSources(true)}
             />
           )}
           {botTab === "Процесс" && (
@@ -280,6 +284,14 @@ export function BotPage() {
           appId={appId}
           selectedCard={selectedCard}
           onSave={(ruleId, body) => updateRule.mutate({ ruleId, body })}
+        />
+      )}
+
+      {showEventSources && (
+        <EventSourcesModal
+          tables={allEntities.map((e) => e.display_name)}
+          onClose={() => setShowEventSources(false)}
+          onSave={() => setShowEventSources(false)}
         />
       )}
     </div>
@@ -912,11 +924,12 @@ function BotFlow({
 
 /* ── События tab (center) ── */
 function EventEditor({
-  rule, appId, onSave,
+  rule, appId, onSave, onOpenEventSources,
 }: {
   rule: Rule | null;
   appId: string | undefined;
   onSave: (ruleId: string, body: Record<string, unknown>) => void;
+  onOpenEventSources: () => void;
 }) {
   const [dc, setDc] = useState(() => eventToDc(rule?.trigger?.event ?? "record.created"));
   const [bypass, setBypass] = useState(false);
@@ -980,15 +993,23 @@ function EventEditor({
         </Row>
 
         <Row label="Источник события" desc="Выберите продукт или расписание, по которому проводится событие." labelW={247}>
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-[8px] w-[580px]">
+            <div className="relative flex-1" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => { setShowSrc((v) => !v); setShowEntityDd(false); }}
+                className="flex items-center justify-between gap-5 w-full h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary"
+              >
+                <span className="truncate">{src}</span>
+                <span className={cn("w-3 h-3 shrink-0 transition-transform", showSrc && "rotate-180")}><Chevron /></span>
+              </button>
+              {showSrc && <SourceDropdown value={src} onChange={(v) => { setSrc(v); setShowSrc(false); }} />}
+            </div>
             <button
-              onClick={() => { setShowSrc((v) => !v); setShowEntityDd(false); }}
-              className="flex items-center justify-between gap-5 w-[580px] h-[41px] px-5 bg-cardbg rounded-btn text-[18px] text-primary"
+              onClick={(e) => { e.stopPropagation(); onOpenEventSources(); }}
+              className="shrink-0 h-[41px] px-4 border-2 border-cta text-cta text-[13px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
             >
-              <span className="truncate">{src}</span>
-              <span className={cn("w-3 h-3 shrink-0 transition-transform", showSrc && "rotate-180")}><Chevron /></span>
+              Источники
             </button>
-            {showSrc && <SourceDropdown value={src} onChange={(v) => { setSrc(v); setShowSrc(false); }} />}
           </div>
         </Row>
 
@@ -1114,6 +1135,7 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
   const delStep = useDeleteStep(appId, ruleId);
   const reorder = useReorderSteps(appId, ruleId);
   const [addOpen, setAddOpen] = useState(false);
+  const [showNewStepModal, setShowNewStepModal] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [localSteps, setLocalSteps] = useState(steps);
 
@@ -1164,27 +1186,53 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
         </SortableContext>
       </DndContext>
 
-      <div className="relative w-fit">
+      <div className="flex items-center gap-[8px]">
         <button
-          onClick={() => setAddOpen((v) => !v)}
+          onClick={() => setShowNewStepModal(true)}
           className="flex items-center gap-2 h-[38px] px-5 bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active transition-colors"
         >
           + Добавить шаг
         </button>
-        {addOpen && (
-          <div className="absolute left-0 top-[42px] z-30 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] p-[5px] flex flex-col min-w-[230px]">
-            {STEP_TYPES.map((t) => (
-              <button
-                key={t.type}
-                onClick={() => { addStep.mutate({ type: t.type, config: defaultsFor(t.type) }); setAddOpen(false); }}
-                className="text-left px-4 py-2 rounded-[8px] text-[14px] text-primary hover:bg-mainbg transition-colors"
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="relative">
+          <button
+            onClick={() => setAddOpen((v) => !v)}
+            className="flex items-center gap-2 h-[38px] px-3 border-2 border-cta text-cta text-[14px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
+            title="Быстрое добавление"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><path d="M2 4 L6 8 L10 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+          {addOpen && (
+            <div className="absolute left-0 top-[42px] z-30 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] p-[5px] flex flex-col min-w-[230px]">
+              {STEP_TYPES.map((t) => (
+                <button
+                  key={t.type}
+                  onClick={() => { addStep.mutate({ type: t.type, config: defaultsFor(t.type) }); setAddOpen(false); }}
+                  className="text-left px-4 py-2 rounded-[8px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {showNewStepModal && (
+        <NewStepModal
+          onClose={() => setShowNewStepModal(false)}
+          onAdd={(type) => {
+            const stepType = STEP_TYPES.find((t) => t.type === type) ? type
+              : type === "add_row" ? "create_record"
+              : type === "delete_row" ? "delete_record"
+              : type === "set_value" ? "set_field"
+              : type === "notify" ? "send_notification"
+              : type === "call" ? "call_webhook"
+              : type;
+            addStep.mutate({ type: stepType, config: defaultsFor(stepType) });
+            setShowNewStepModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

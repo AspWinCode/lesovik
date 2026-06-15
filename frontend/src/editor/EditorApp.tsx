@@ -25,6 +25,8 @@ import { TemplatesPage } from "@/pages/TemplatesPage";
 import { LearningPage } from "@/pages/LearningPage";
 import { RulesPage } from "@/pages/RulesPage";
 import { ModulesPage } from "@/pages/ModulesPage";
+import { ThemesPage } from "@/pages/ThemesPage";
+import { AccountPage } from "@/pages/AccountPage";
 
 export function EditorApp() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -67,6 +69,8 @@ export function EditorApp() {
         <Route path="/learning"  element={<RequireAuth><ScaleToFit><LearningPage /></ScaleToFit></RequireAuth>} />
         <Route path="/rules"     element={<RequireAuth><ScaleToFit><RulesPage /></ScaleToFit></RequireAuth>} />
         <Route path="/modules"   element={<RequireAuth><ScaleToFit><ModulesPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/themes"    element={<RequireAuth><ScaleToFit><ThemesPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/account"   element={<RequireAuth><ScaleToFit><AccountPage /></ScaleToFit></RequireAuth>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

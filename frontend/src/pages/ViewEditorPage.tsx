@@ -17,6 +17,7 @@ import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, 
 import { useEntities } from "@/shared/hooks/useEntities";
 import { useRecords } from "@/shared/hooks/useRecords";
 import type { FieldRead, EntityRead } from "@/shared/api/entities";
+import { SortingModal, GroupingModal, DensityModal, TableViewsModal, NewActionModal } from "@/components/modals/ViewModals";
 
 /* ── View types ── */
 type ViewType =
@@ -133,6 +134,12 @@ export function ViewEditorPage() {
   const [railModule, setRailModule] = useState<RailModule>("constructor");
   const [activeView, setActiveView] = useState<string>("");
   const [editorTab, setEditorTab] = useState("Представления");
+
+  const [showSortModal, setShowSortModal] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showDensityModal, setShowDensityModal] = useState(false);
+  const [showViewsModal, setShowViewsModal] = useState(false);
+  const [showActionModal, setShowActionModal] = useState(false);
 
   const [name, setName] = useState("");
   const [entityDdOpen, setEntityDdOpen] = useState(false);
@@ -392,9 +399,28 @@ export function ViewEditorPage() {
           <DesignTab
             design={design}
             onChange={(d) => patchLayout({ design: d })}
+            onOpenDensityModal={() => setShowDensityModal(true)}
           />
         ) : (
           <div className="flex flex-col gap-[30px] pt-[53px] pb-[40px]">
+            {/* Toolbar: добавить представление / действие */}
+            <div className="flex items-center gap-[10px] px-[40px]">
+              <button
+                onClick={() => setShowViewsModal(true)}
+                className="flex items-center gap-[6px] h-[34px] px-4 border-2 border-cta text-cta text-[13px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3"><line x1="8" y1="2" x2="8" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                Добавить представление
+              </button>
+              <button
+                onClick={() => setShowActionModal(true)}
+                className="flex items-center gap-[6px] h-[34px] px-4 border-2 border-cta text-cta text-[13px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3"><line x1="8" y1="2" x2="8" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                Новое действие
+              </button>
+            </div>
+
             {/* Блоки страницы */}
             <CollapsibleSection
               title="Блоки страницы"
@@ -505,20 +531,38 @@ export function ViewEditorPage() {
             >
               {/* Сортировка */}
               <FieldRow title="Сортировка" desc="Отсортируйте строки по одному или нескольким столбцам.">
-                <SortConfig
-                  fields={userFields}
-                  sort={sortRules}
-                  onChange={(s) => patchLayout({ sort: s })}
-                />
+                <div className="flex flex-col gap-[8px] w-[538px]">
+                  <SortConfig
+                    fields={userFields}
+                    sort={sortRules}
+                    onChange={(s) => patchLayout({ sort: s })}
+                  />
+                  <button
+                    onClick={() => setShowSortModal(true)}
+                    className="flex items-center gap-[6px] w-fit h-[34px] px-4 bg-cta/10 text-cta text-[13px] font-medium rounded-btn hover:bg-cta/20 transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3"><line x1="2" y1="4" x2="10" y2="4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><line x1="2" y1="12" x2="8" y2="12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                    Расширенная сортировка
+                  </button>
+                </div>
               </FieldRow>
 
               {/* Группировка */}
               <FieldRow title="Группировка" desc="Сгруппируйте строки по значениям в одном или нескольких их столбцах.">
-                <GroupConfig
-                  fields={userFields}
-                  groupBy={(layout.group_by as string[]) ?? []}
-                  onChange={(g) => patchLayout({ group_by: g })}
-                />
+                <div className="flex flex-col gap-[8px] w-[538px]">
+                  <GroupConfig
+                    fields={userFields}
+                    groupBy={(layout.group_by as string[]) ?? []}
+                    onChange={(g) => patchLayout({ group_by: g })}
+                  />
+                  <button
+                    onClick={() => setShowGroupModal(true)}
+                    className="flex items-center gap-[6px] w-fit h-[34px] px-4 bg-cta/10 text-cta text-[13px] font-medium rounded-btn hover:bg-cta/20 transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.6" /><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.6" /><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.6" /><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.6" /></svg>
+                    Настройки группировки
+                  </button>
+                </div>
               </FieldRow>
 
               {viewType === "card" ? (
@@ -596,6 +640,73 @@ export function ViewEditorPage() {
         <BlockPickerModal
           onAdd={handleAddBlock}
           onClose={() => setPickerOpen(false)}
+        />
+      )}
+
+      {showSortModal && (
+        <SortingModal
+          columns={userFields.map((f) => f.display_name)}
+          rules={sortRules.map((r) => ({
+            column: userFields.find((f) => f.name === r.field)?.display_name ?? r.field,
+            direction: r.dir,
+          }))}
+          onClose={() => setShowSortModal(false)}
+          onApply={(rules) => {
+            const mapped = rules.map((r) => ({
+              field: userFields.find((f) => f.display_name === r.column)?.name ?? r.column,
+              dir: r.direction,
+            }));
+            patchLayout({ sort: mapped });
+            setShowSortModal(false);
+          }}
+        />
+      )}
+
+      {showGroupModal && (
+        <GroupingModal
+          columns={userFields.map((f) => f.display_name)}
+          onClose={() => setShowGroupModal(false)}
+          onApply={(settings) => {
+            const fieldName = userFields.find((f) => f.display_name === settings.groupBy)?.name ?? settings.groupBy;
+            patchLayout({ group_by: fieldName ? [fieldName] : [] });
+            setShowGroupModal(false);
+          }}
+          onReset={() => {
+            patchLayout({ group_by: [] });
+            setShowGroupModal(false);
+          }}
+        />
+      )}
+
+      {showDensityModal && (
+        <DensityModal
+          current={
+            design.density === "compact" ? "compact"
+            : design.density === "spacious" ? "spacious"
+            : "standard"
+          }
+          onClose={() => setShowDensityModal(false)}
+          onApply={(d) => {
+            patchLayout({ design: { ...design, density: d === "standard" ? "normal" : d } });
+            setShowDensityModal(false);
+          }}
+        />
+      )}
+
+      {showViewsModal && (
+        <TableViewsModal
+          onClose={() => setShowViewsModal(false)}
+          onAdd={(_type) => {
+            handleAddPage("main");
+            setShowViewsModal(false);
+          }}
+        />
+      )}
+
+      {showActionModal && (
+        <NewActionModal
+          onClose={() => setShowActionModal(false)}
+          onConfirm={() => setShowActionModal(false)}
         />
       )}
     </div>
@@ -1228,9 +1339,11 @@ function PlusGlyphWhite() {
 function DesignTab({
   design,
   onChange,
+  onOpenDensityModal,
 }: {
   design: DesignConfig;
   onChange: (d: DesignConfig) => void;
+  onOpenDensityModal: () => void;
 }) {
   const accent = design.accent ?? "#35A7FF";
   const theme = design.theme ?? "light";
@@ -1286,21 +1399,29 @@ function DesignTab({
       {/* Density */}
       <div className="flex flex-col gap-[10px]">
         <span className="text-[18px] font-medium text-primary">Плотность</span>
-        <div className="flex">
-          {(["compact", "normal", "spacious"] as const).map((d, i, arr) => (
-            <button
-              key={d}
-              onClick={() => onChange({ ...design, density: d })}
-              className={cn(
-                "h-[41px] px-7 flex items-center text-[16px] font-medium bg-cardbg border-r border-white",
-                i === 0 && "rounded-l-btn",
-                i === arr.length - 1 && "rounded-r-btn border-r-0",
-                density === d ? "border-2 border-cta text-cta z-10" : "text-primary",
-              )}
-            >
-              {d === "compact" ? "Компактная" : d === "normal" ? "Обычная" : "Просторная"}
-            </button>
-          ))}
+        <div className="flex items-center gap-[10px]">
+          <div className="flex">
+            {(["compact", "normal", "spacious"] as const).map((d, i, arr) => (
+              <button
+                key={d}
+                onClick={() => onChange({ ...design, density: d })}
+                className={cn(
+                  "h-[41px] px-7 flex items-center text-[16px] font-medium bg-cardbg border-r border-white",
+                  i === 0 && "rounded-l-btn",
+                  i === arr.length - 1 && "rounded-r-btn border-r-0",
+                  density === d ? "border-2 border-cta text-cta z-10" : "text-primary",
+                )}
+              >
+                {d === "compact" ? "Компактная" : d === "normal" ? "Обычная" : "Просторная"}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={onOpenDensityModal}
+            className="h-[41px] px-4 border-2 border-cta text-cta text-[14px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
+          >
+            Выбрать визуально
+          </button>
         </div>
       </div>
 

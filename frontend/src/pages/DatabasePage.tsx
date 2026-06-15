@@ -7,6 +7,8 @@ import { useEntities, useCreateEntity, useCreateField } from "@/shared/hooks/use
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import type { FieldRead } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
+import { EditTableModal, EditColumnModal } from "@/components/modals/DbModals";
+import { SortingModal } from "@/components/modals/ViewModals";
 
 type ViewMode = "grid" | "table";
 
@@ -32,6 +34,9 @@ export function DatabasePage() {
   const [activeRow, setActiveRow] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showImport, setShowImport] = useState(false);
+  const [showNewTableModal, setShowNewTableModal] = useState(false);
+  const [showEditColumnModal, setShowEditColumnModal] = useState(false);
+  const [showSortModal, setShowSortModal] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -56,21 +61,12 @@ export function DatabasePage() {
 
   /* ── Handlers ── */
   function handleNewTable() {
-    const name = window.prompt("Название таблицы:");
-    if (!name?.trim()) return;
-    const displayName = name.trim();
-    createEntityMutation.mutate({ slug: slugify(displayName), display_name: displayName });
+    setShowNewTableModal(true);
   }
 
   function handleAddField() {
     if (!entity) return;
-    const name = window.prompt("Название поля:");
-    if (!name?.trim()) return;
-    const displayName = name.trim();
-    createFieldMutation.mutate({
-      entityId: entity.id,
-      body: { name: slugify(displayName), display_name: displayName, field_type: "text" },
-    });
+    setShowEditColumnModal(true);
   }
 
   function handleAddRow() {
@@ -216,7 +212,7 @@ export function DatabasePage() {
         </div>
         <div className="h-5 w-px bg-cardbg" />
         <DropdownButton icon={<FilterIcon />} label="Фильтр" />
-        <DropdownButton icon={<SortIcon />}   label="Сортировка" />
+        <DropdownButton icon={<SortIcon />}   label="Сортировка" onClick={() => setShowSortModal(true)} />
         <div className="ml-auto flex items-center gap-2">
           {entity && (
             <button
@@ -367,6 +363,48 @@ export function DatabasePage() {
           }}
         />
       )}
+
+      {showNewTableModal && (
+        <EditTableModal
+          tableName="Новая таблица"
+          columns={[]}
+          onClose={() => setShowNewTableModal(false)}
+          onAddVirtual={() => {}}
+          onGoToData={() => {}}
+          onDone={(name) => {
+            const displayName = name.trim() || "Новая таблица";
+            createEntityMutation.mutate({ slug: slugify(displayName), display_name: displayName });
+            setShowNewTableModal(false);
+          }}
+        />
+      )}
+
+      {showEditColumnModal && entity && (
+        <EditColumnModal
+          source={entity.display_name}
+          columnName="Новое поле"
+          columnType="Текст"
+          onClose={() => setShowEditColumnModal(false)}
+          onGoToData={() => setShowEditColumnModal(false)}
+          onDone={(name, _type) => {
+            const displayName = name.trim() || "Новое поле";
+            createFieldMutation.mutate({
+              entityId: entity.id,
+              body: { name: slugify(displayName), display_name: displayName, field_type: "text" },
+            });
+            setShowEditColumnModal(false);
+          }}
+        />
+      )}
+
+      {showSortModal && (
+        <SortingModal
+          columns={displayFields.map((f) => f.display_name)}
+          rules={[]}
+          onClose={() => setShowSortModal(false)}
+          onApply={() => setShowSortModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -439,14 +477,19 @@ function ToolButton({ icon, onClick, title }: { icon: React.ReactNode; onClick?:
   );
 }
 
-function DropdownButton({ icon, label, small }: { icon?: React.ReactNode; label: string; small?: boolean }) {
+function DropdownButton({ icon, label, small, onClick }: { icon?: React.ReactNode; label: string; small?: boolean; onClick?: () => void }) {
+  const isActive = !!onClick;
   return (
     <button
-      disabled
-      title="В разработке"
+      disabled={!isActive}
+      onClick={onClick}
+      title={isActive ? undefined : "В разработке"}
       className={cn(
-        "flex items-center gap-1.5 rounded-[6px] text-primary/40 cursor-not-allowed",
-        small ? "px-2 py-1 text-[13px]" : "px-3 py-1.5 text-[13px]"
+        "flex items-center gap-1.5 rounded-[6px] text-[13px]",
+        small ? "px-2 py-1" : "px-3 py-1.5",
+        isActive
+          ? "text-primary hover:bg-mainbg transition-colors cursor-pointer"
+          : "text-primary/40 cursor-not-allowed"
       )}>
       {icon && <span className="w-4 h-4 shrink-0">{icon}</span>}
       {label}

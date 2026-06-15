@@ -57,13 +57,15 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
         </div>
         <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" onClick={() => navigate("/")} />
         <NavIconButton label="Добавить пользователя" icon={<GroupAddIcon />} onClick={onGroupAddClick} />
-        <NavIconButton label="Помощь" icon={<QuestionIcon />} onClick={() => navigate("/learning")} />
+        <HelpDropdown />
+        <SupportDropdown />
         <NavIconButton label="Сменить тему" icon={<MoonIcon />} onClick={toggleTheme} />
-        {/* User avatar — opens a menu (profile / logout) */}
+        {/* User avatar — opens account menu */}
         <AvatarMenu
           label={user ? user.display_name : "Я"}
           initials={user ? initials(user.display_name) : "Я"}
           onProfile={() => navigate("/profile")}
+          onAccount={() => navigate("/account")}
           onLogout={handleLogout}
         />
       </div>
@@ -71,15 +73,122 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
   );
 }
 
+/* ── Help dropdown ── */
+const HELP_ITEMS = [
+  "Документация",
+  "Курс OI",
+  "Форум сообщества",
+  "Видео обучение",
+  "Справочные ресурсы",
+];
+
+function HelpDropdown() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        aria-label="Помощь"
+        title="Помощь"
+        onClick={() => setOpen((v) => !v)}
+        className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-mainbg"
+      >
+        <QuestionIcon />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-10 z-50 min-w-[220px] bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] overflow-hidden py-1">
+          {HELP_ITEMS.map((item) => (
+            <a
+              key={item}
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="flex items-center justify-between px-4 py-2.5 text-[15px] text-primary hover:text-cta hover:bg-mainbg transition-colors"
+            >
+              <span>{item}</span>
+              <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3 shrink-0 ml-2">
+                <path d="M7 2h3v3M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Support dropdown ── */
+const SUPPORT_ITEMS = [
+  { label: "Документация",        icon: "📄" },
+  { label: "Форум сообщества",    icon: "💬" },
+  { label: "Видеообучение",       icon: "🎬" },
+  { label: "Служба поддержки",    icon: "❓" },
+  { label: "Примечания к выпуску", icon: "ℹ️" },
+  { label: "Отправить отзыв",     icon: "↩" },
+];
+
+function SupportDropdown() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        aria-label="Поддержка"
+        title="Поддержка"
+        onClick={() => setOpen((v) => !v)}
+        className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-mainbg"
+      >
+        <SupportIcon />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-10 z-50 min-w-[230px] bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] overflow-hidden py-1">
+          {SUPPORT_ITEMS.map((item) => (
+            <button
+              key={item.label}
+              onClick={() => setOpen(false)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[15px] text-primary hover:text-cta hover:bg-mainbg transition-colors text-left"
+            >
+              <span className="text-base leading-none">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Avatar + account dropdown ── */
 function AvatarMenu({
   label,
   initials,
   onProfile,
+  onAccount,
   onLogout,
 }: {
   label: string;
   initials: string;
   onProfile: () => void;
+  onAccount: () => void;
   onLogout: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -104,20 +213,36 @@ function AvatarMenu({
         {initials}
       </button>
       {open && (
-        <div className="absolute right-0 top-12 z-50 min-w-[180px] bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] overflow-hidden">
+        <div className="absolute right-0 top-12 z-50 min-w-[200px] bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] overflow-hidden">
           <div className="px-4 py-2 text-[13px] text-primary/50 border-b border-mainbg truncate">{label}</div>
+          <button
+            onClick={() => { setOpen(false); onAccount(); }}
+            className="w-full text-left px-4 py-2.5 text-[15px] text-primary hover:bg-mainbg transition-colors"
+          >
+            Политика
+          </button>
           <button
             onClick={() => { setOpen(false); onProfile(); }}
             className="w-full text-left px-4 py-2.5 text-[15px] text-primary hover:bg-mainbg transition-colors"
           >
-            Профиль
+            Мой аккаунт
           </button>
           <button
-            onClick={() => { setOpen(false); onLogout(); }}
-            className="w-full text-left px-4 py-2.5 text-[15px] text-mistake hover:bg-mainbg transition-colors"
+            disabled
+            title="В разработке"
+            className="w-full text-left px-4 py-2.5 text-[15px] text-primary/40 cursor-not-allowed"
           >
-            Выйти
+            Моя команда
+            <span className="ml-2 text-[11px] text-primary/30">В разработке</span>
           </button>
+          <div className="border-t border-mainbg">
+            <button
+              onClick={() => { setOpen(false); onLogout(); }}
+              className="w-full text-left px-4 py-2.5 text-[15px] text-mistake hover:bg-mainbg transition-colors"
+            >
+              Выйти
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -213,6 +338,19 @@ function QuestionIcon() {
       <circle cx="16" cy="16" r="12" stroke="#00205F" strokeWidth="2"/>
       <path d="M13 12 C13 9 19 9 19 13 C19 16 16 16 16 19" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
       <circle cx="16" cy="23" r="1" fill="#00205F"/>
+    </svg>
+  );
+}
+
+function SupportIcon() {
+  return (
+    <svg viewBox="0 0 32 32" className="w-[28px] h-[28px] fill-none stroke-current">
+      <circle cx="16" cy="16" r="12" stroke="#00205F" strokeWidth="2"/>
+      <circle cx="16" cy="16" r="5" stroke="#00205F" strokeWidth="2"/>
+      <line x1="11.5" y1="11.5" x2="7" y2="7" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="20.5" y1="11.5" x2="25" y2="7" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="11.5" y1="20.5" x2="7" y2="25" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="20.5" y1="20.5" x2="25" y2="25" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
     </svg>
   );
 }

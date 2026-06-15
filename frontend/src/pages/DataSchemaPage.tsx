@@ -3,6 +3,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { FormulaAssistantModal, SelectDbModal } from "@/components/modals/Modals";
+import { EditColumnModal, VirtualColumnModal, DbSettingsModal, DbDescriptionModal } from "@/components/modals/DbModals";
 import { cn } from "@/lib/cn";
 
 type ColType = "Число" | "Текст" | "Приложение" | "Дата" | "Изображение" | "Список";
@@ -60,6 +61,11 @@ export function DataSchemaPage() {
   const [activeSource, setActiveSource] = useState("analytics");
   const [formulaModal, setFormulaModal] = useState<FormulaModal>(null);
   const [selectDbOpen, setSelectDbOpen] = useState(false);
+  const [editColModal, setEditColModal] = useState<{ name: string; type: string } | null>(null);
+  const [showVirtualCol, setShowVirtualCol] = useState(false);
+  const [showDotsMenu, setShowDotsMenu] = useState(false);
+  const [showDbSettings, setShowDbSettings] = useState(false);
+  const [showDbDesc, setShowDbDesc] = useState(false);
 
   const source = SOURCES.find((s) => s.id === activeSource);
   const columns = COLUMNS_BY_SOURCE[activeSource] ?? COLUMNS_BY_SOURCE["analytics"];
@@ -171,11 +177,32 @@ export function DataSchemaPage() {
                   <path d="M8 3v10M3 8h10" strokeLinecap="round" />
                 </svg>
               </button>
-              <button className="w-8 h-8 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-primary/60">
-                <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
-                  <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
-                </svg>
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowDotsMenu((v) => !v)}
+                  className="w-8 h-8 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-primary/60"
+                >
+                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
+                  </svg>
+                </button>
+                {showDotsMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-white rounded-[10px] shadow-lg border border-cardbg z-20 min-w-[200px]">
+                    <button
+                      onClick={() => { setShowDbDesc(true); setShowDotsMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg"
+                    >
+                      Описание БД
+                    </button>
+                    <button
+                      onClick={() => { setShowDbSettings(true); setShowDotsMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg"
+                    >
+                      Настройки БД
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-6 text-[13px] text-primary/60">
@@ -201,7 +228,11 @@ export function DataSchemaPage() {
             </thead>
             <tbody>
               {columns.map((col) => (
-                <tr key={col.id} className="border-b border-cardbg hover:bg-white/60 transition-colors">
+                <tr
+                  key={col.id}
+                  onClick={() => setEditColModal({ name: col.name, type: col.type })}
+                  className="border-b border-cardbg hover:bg-white/60 transition-colors cursor-pointer"
+                >
                   <td className="py-2 pr-4">
                     <div className="flex items-center gap-2">
                       <span className="w-5 h-5 text-primary/40">
@@ -269,7 +300,10 @@ export function DataSchemaPage() {
             </tbody>
           </table>
 
-          <button className="mt-4 flex items-center gap-2 text-cta text-[14px] font-medium hover:underline">
+          <button
+            onClick={() => setShowVirtualCol(true)}
+            className="mt-4 flex items-center gap-2 text-cta text-[14px] font-medium hover:underline"
+          >
             <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M8 3v10M3 8h10" strokeLinecap="round" />
             </svg>
@@ -291,6 +325,41 @@ export function DataSchemaPage() {
         <SelectDbModal
           onClose={() => setSelectDbOpen(false)}
           onNew={() => setSelectDbOpen(false)}
+        />
+      )}
+
+      {editColModal && (
+        <EditColumnModal
+          source={source?.name ?? ""}
+          columnName={editColModal.name}
+          columnType={editColModal.type}
+          onClose={() => setEditColModal(null)}
+          onGoToData={() => setEditColModal(null)}
+          onDone={() => setEditColModal(null)}
+        />
+      )}
+
+      {showVirtualCol && (
+        <VirtualColumnModal
+          onClose={() => setShowVirtualCol(false)}
+          onConfirm={() => setShowVirtualCol(false)}
+        />
+      )}
+
+      {showDbDesc && (
+        <DbDescriptionModal
+          name={source?.name ?? ""}
+          description=""
+          onClose={() => setShowDbDesc(false)}
+          onConfirm={() => setShowDbDesc(false)}
+        />
+      )}
+
+      {showDbSettings && (
+        <DbSettingsModal
+          name={source?.name ?? ""}
+          onClose={() => setShowDbSettings(false)}
+          onSave={() => setShowDbSettings(false)}
         />
       )}
     </div>
