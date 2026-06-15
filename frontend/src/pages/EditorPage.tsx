@@ -5,6 +5,35 @@ import { cn } from "@/lib/cn";
 
 type Device = "desktop" | "tablet" | "mobile";
 type PropTab = "basic" | "style" | "events";
+type PickerKind = "color" | "gradient" | "image" | null;
+
+/* ── Preset colour swatches ── */
+const PALETTE_PRESETS = [
+  "#00205F","#35A7FF","#1E90FF","#0066CC","#003D99",
+  "#FF4B4B","#FF8C00","#FFD700","#32CD32","#00CED1",
+  "#9B59B6","#E91E63","#795548","#607D8B","#000000",
+  "#333333","#666666","#999999","#CCCCCC","#FFFFFF",
+];
+
+const GRADIENT_PRESETS = [
+  { from: "#35A7FF", to: "#00205F", angle: 135 },
+  { from: "#FF4B4B", to: "#FFD700", angle: 90 },
+  { from: "#32CD32", to: "#00CED1", angle: 90 },
+  { from: "#9B59B6", to: "#E91E63", angle: 135 },
+  { from: "#FF8C00", to: "#FFD700", angle: 180 },
+  { from: "#000000", to: "#666666", angle: 180 },
+];
+
+const GRADIENT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
+
+const IMAGE_GALLERY = [
+  { id: "img1", label: "Природа",    bg: "linear-gradient(135deg,#32CD32,#00CED1)" },
+  { id: "img2", label: "Офис",       bg: "linear-gradient(135deg,#607D8B,#333)" },
+  { id: "img3", label: "Абстракция", bg: "linear-gradient(135deg,#9B59B6,#E91E63)" },
+  { id: "img4", label: "Горы",       bg: "linear-gradient(135deg,#35A7FF,#00205F)" },
+  { id: "img5", label: "Город",      bg: "linear-gradient(135deg,#FF8C00,#FFD700)" },
+  { id: "img6", label: "Текстура",   bg: "linear-gradient(135deg,#795548,#FFCC80)" },
+];
 
 const COMPONENT_CATEGORIES = [
   {
@@ -56,6 +85,30 @@ export function EditorPage() {
   const [device, setDevice] = useState<Device>("desktop");
   const [activePropTab, setActivePropTab] = useState<PropTab>("basic");
   const [search, setSearch] = useState("");
+
+  /* pickers */
+  const [picker, setPicker] = useState<PickerKind>(null);
+  const [pickerTarget, setPickerTarget] = useState<string>("Цвет текста");
+  const [colorValues, setColorValues] = useState<Record<string, string>>({
+    "Цвет текста": "#00205F",
+    "Фон":         "#FFFFFF",
+    "Граница":     "#E2E8F0",
+  });
+  const [gradFrom, setGradFrom] = useState("#35A7FF");
+  const [gradTo,   setGradTo]   = useState("#00205F");
+  const [gradAngle, setGradAngle] = useState(135);
+  const [gradType, setGradType] = useState<"linear" | "radial">("linear");
+  const [imgTab, setImgTab] = useState<"gallery" | "url" | "upload">("gallery");
+  const [imgUrl, setImgUrl] = useState("");
+  const [selectedImg, setSelectedImg] = useState<string | null>(null);
+
+  function openColorPicker(target: string) {
+    setPickerTarget(target);
+    setPicker(picker === "color" && pickerTarget === target ? null : "color");
+  }
+
+  function openGradient() { setPicker("gradient"); }
+  function openImagePicker() { setPicker(picker === "image" ? null : "image"); }
 
   const deviceSizes: Record<Device, { w: number; h: number }> = {
     desktop: { w: 800, h: 600 },
@@ -249,40 +302,88 @@ export function EditorPage() {
         {activePropTab === "basic" && (
           <div className="p-4 flex flex-col gap-4">
             {[
-              { label: "Ширина",   value: "100%" },
-              { label: "Высота",   value: "auto" },
-              { label: "Отступы",  value: "0" },
-              { label: "Фон",      value: "transparent" },
-              { label: "Текст",    value: "Заголовок страницы" },
+              { label: "Ширина",  value: "100%" },
+              { label: "Высота",  value: "auto" },
+              { label: "Отступы", value: "0" },
             ].map(({ label, value }) => (
               <div key={label}>
                 <label className="block text-[12px] text-primary/60 mb-1">{label}</label>
-                <input
-                  defaultValue={value}
-                  className="w-full px-3 py-2 text-[13px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta"
-                />
+                <input defaultValue={value} className="w-full px-3 py-2 text-[13px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta" />
               </div>
             ))}
+            <div>
+              <label className="block text-[12px] text-primary/60 mb-1">Текст</label>
+              <input defaultValue="Заголовок страницы" className="w-full px-3 py-2 text-[13px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta" />
+            </div>
+            {selectedElement === "image" || selectedElement === "heading" ? (
+              <div>
+                <label className="block text-[12px] text-primary/60 mb-1">Изображение</label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-[60px] rounded-[6px] border border-cardbg bg-mainbg overflow-hidden flex items-center justify-center">
+                    {selectedImg
+                      ? <div className="w-full h-full" style={{ background: IMAGE_GALLERY.find(i=>i.id===selectedImg)?.bg ?? imgUrl }} />
+                      : <span className="text-[11px] text-primary/40">Не выбрано</span>}
+                  </div>
+                  <button
+                    onClick={openImagePicker}
+                    className="shrink-0 px-3 py-2 text-[12px] rounded-[6px] border border-cta text-cta hover:bg-cta/10 transition-colors"
+                  >
+                    Выбрать
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 
         {activePropTab === "style" && (
           <div className="p-4 flex flex-col gap-4">
             {[
-              { label: "Размер шрифта",  value: "20px" },
-              { label: "Жирность",       value: "bold" },
-              { label: "Цвет текста",    value: "#00205F" },
-              { label: "Радиус",         value: "4px" },
-              { label: "Тень",           value: "none" },
+              { label: "Размер шрифта", value: "20px" },
+              { label: "Жирность",      value: "bold" },
+              { label: "Радиус",        value: "4px" },
+              { label: "Тень",          value: "none" },
             ].map(({ label, value }) => (
               <div key={label}>
                 <label className="block text-[12px] text-primary/60 mb-1">{label}</label>
-                <input
-                  defaultValue={value}
-                  className="w-full px-3 py-2 text-[13px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta"
-                />
+                <input defaultValue={value} className="w-full px-3 py-2 text-[13px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta" />
               </div>
             ))}
+
+            {/* Colour fields */}
+            {(["Цвет текста", "Фон", "Граница"] as const).map((label) => (
+              <div key={label}>
+                <label className="block text-[12px] text-primary/60 mb-1">{label}</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openColorPicker(label)}
+                    className={cn(
+                      "w-7 h-7 rounded-[4px] border-2 shrink-0 transition-all",
+                      picker === "color" && pickerTarget === label ? "border-cta scale-110" : "border-cardbg"
+                    )}
+                    style={{ background: colorValues[label] }}
+                    title="Выбрать цвет"
+                  />
+                  <input
+                    value={colorValues[label]}
+                    onChange={(e) => setColorValues((p) => ({ ...p, [label]: e.target.value }))}
+                    className="flex-1 px-3 py-2 text-[13px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta font-mono"
+                  />
+                </div>
+              </div>
+            ))}
+
+            {/* Gradient shortcut */}
+            <button
+              onClick={openGradient}
+              className={cn(
+                "w-full py-2 rounded-[6px] border text-[12px] font-medium transition-colors",
+                picker === "gradient" ? "border-cta text-cta bg-cta/5" : "border-cardbg text-primary/60 hover:border-cta/50 hover:text-primary"
+              )}
+              style={{ background: picker === "gradient" ? undefined : `linear-gradient(90deg,${gradFrom},${gradTo})`, WebkitBackgroundClip: picker === "gradient" ? undefined : "text", WebkitTextFillColor: picker === "gradient" ? undefined : "transparent" }}
+            >
+              🎨 Градиент фона
+            </button>
           </div>
         )}
 
@@ -295,6 +396,250 @@ export function EditorPage() {
                 <button className="text-[12px] text-cta hover:underline">+ Добавить</button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── Color Palette Picker ── */}
+        {picker === "color" && (
+          <div className="absolute right-[285px] top-[220px] z-50 w-[240px] bg-white rounded-[10px] shadow-[0_8px_32px_rgba(0,0,0,0.18)] border border-cardbg p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-primary">{pickerTarget}</span>
+              <button onClick={() => setPicker(null)} className="text-primary/40 hover:text-primary text-[16px] leading-none">✕</button>
+            </div>
+
+            {/* Hex input */}
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-[4px] border border-cardbg shrink-0" style={{ background: colorValues[pickerTarget] }} />
+              <input
+                value={colorValues[pickerTarget]}
+                onChange={(e) => setColorValues((p) => ({ ...p, [pickerTarget]: e.target.value }))}
+                maxLength={7}
+                className="flex-1 px-2 py-1.5 text-[13px] rounded-[4px] border border-cardbg bg-mainbg text-primary font-mono focus:outline-none focus:border-cta"
+              />
+            </div>
+
+            {/* Opacity slider */}
+            <div>
+              <label className="text-[11px] text-primary/50 mb-1 block">Прозрачность</label>
+              <input type="range" min={0} max={100} defaultValue={100} className="w-full accent-cta h-1.5" />
+            </div>
+
+            {/* Preset swatches */}
+            <div className="grid grid-cols-10 gap-1">
+              {PALETTE_PRESETS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setColorValues((p) => ({ ...p, [pickerTarget]: c }))}
+                  className={cn(
+                    "w-[18px] h-[18px] rounded-[3px] border transition-transform hover:scale-110",
+                    colorValues[pickerTarget] === c ? "border-cta scale-110" : "border-cardbg"
+                  )}
+                  style={{ background: c }}
+                  title={c}
+                />
+              ))}
+            </div>
+
+            <button
+              onClick={openGradient}
+              className="w-full py-1.5 rounded-[6px] border border-cardbg text-[12px] text-primary/60 hover:border-cta hover:text-cta transition-colors"
+              style={{ background: `linear-gradient(90deg,${gradFrom},${gradTo})`, color: "white", border: "none" }}
+            >
+              Открыть градиент →
+            </button>
+          </div>
+        )}
+
+        {/* ── Gradient Picker ── */}
+        {picker === "gradient" && (
+          <div className="absolute right-[285px] top-[220px] z-50 w-[280px] bg-white rounded-[10px] shadow-[0_8px_32px_rgba(0,0,0,0.18)] border border-cardbg p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-primary">Градиент</span>
+              <button onClick={() => setPicker(null)} className="text-primary/40 hover:text-primary text-[16px] leading-none">✕</button>
+            </div>
+
+            {/* Preview bar */}
+            <div
+              className="w-full h-8 rounded-[6px] border border-cardbg"
+              style={{
+                background: gradType === "linear"
+                  ? `linear-gradient(${gradAngle}deg, ${gradFrom}, ${gradTo})`
+                  : `radial-gradient(circle, ${gradFrom}, ${gradTo})`
+              }}
+            />
+
+            {/* Type tabs */}
+            <div className="flex bg-mainbg rounded-[6px] p-0.5 gap-0.5">
+              {(["linear", "radial"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setGradType(t)}
+                  className={cn(
+                    "flex-1 py-1 text-[12px] rounded-[4px] transition-colors",
+                    gradType === t ? "bg-white text-cta shadow-sm font-medium" : "text-primary/60"
+                  )}
+                >
+                  {t === "linear" ? "Линейный" : "Радиальный"}
+                </button>
+              ))}
+            </div>
+
+            {/* From / To colours */}
+            <div className="flex gap-3">
+              {([["Начало", gradFrom, setGradFrom], ["Конец", gradTo, setGradTo]] as [string, string, (v:string)=>void][]).map(([lbl, val, set]) => (
+                <div key={lbl} className="flex-1">
+                  <label className="text-[11px] text-primary/50 mb-1 block">{lbl}</label>
+                  <div className="flex items-center gap-1">
+                    <input type="color" value={val} onChange={(e) => set(e.target.value)} className="w-7 h-7 rounded-[3px] border-none cursor-pointer" />
+                    <input value={val} onChange={(e) => set(e.target.value)} maxLength={7}
+                      className="flex-1 px-2 py-1 text-[11px] rounded-[4px] border border-cardbg bg-mainbg font-mono focus:outline-none focus:border-cta" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Angle selector (linear only) */}
+            {gradType === "linear" && (
+              <div>
+                <label className="text-[11px] text-primary/50 mb-1 block">Угол: {gradAngle}°</label>
+                <div className="grid grid-cols-8 gap-1">
+                  {GRADIENT_ANGLES.map((a) => (
+                    <button
+                      key={a}
+                      onClick={() => setGradAngle(a)}
+                      className={cn(
+                        "w-6 h-6 rounded-[4px] border text-[10px] flex items-center justify-center transition-colors",
+                        gradAngle === a ? "border-cta bg-cta/10 text-cta font-bold" : "border-cardbg text-primary/50 hover:border-cta/50"
+                      )}
+                    >
+                      {a}°
+                    </button>
+                  ))}
+                </div>
+                <input type="range" min={0} max={360} value={gradAngle} onChange={(e) => setGradAngle(Number(e.target.value))} className="w-full mt-2 accent-cta h-1.5" />
+              </div>
+            )}
+
+            {/* Presets */}
+            <div>
+              <label className="text-[11px] text-primary/50 mb-1.5 block">Пресеты</label>
+              <div className="grid grid-cols-6 gap-1.5">
+                {GRADIENT_PRESETS.map((g, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setGradFrom(g.from); setGradTo(g.to); setGradAngle(g.angle); }}
+                    className="w-8 h-8 rounded-[4px] border border-cardbg hover:border-cta transition-colors"
+                    style={{ background: `linear-gradient(${g.angle}deg,${g.from},${g.to})` }}
+                    title={`${g.from} → ${g.to}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                const grad = gradType === "linear"
+                  ? `linear-gradient(${gradAngle}deg,${gradFrom},${gradTo})`
+                  : `radial-gradient(circle,${gradFrom},${gradTo})`;
+                setColorValues((p) => ({ ...p, "Фон": grad }));
+                setPicker(null);
+              }}
+              className="w-full py-1.5 bg-cta text-white text-[13px] rounded-[6px] hover:bg-active transition-colors"
+            >
+              Применить
+            </button>
+          </div>
+        )}
+
+        {/* ── Image Picker ── */}
+        {picker === "image" && (
+          <div className="absolute right-[285px] top-[150px] z-50 w-[340px] bg-white rounded-[10px] shadow-[0_8px_32px_rgba(0,0,0,0.18)] border border-cardbg flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-cardbg">
+              <span className="text-[14px] font-semibold text-primary">Изображение</span>
+              <button onClick={() => setPicker(null)} className="text-primary/40 hover:text-primary text-[16px] leading-none">✕</button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-cardbg">
+              {(["gallery", "url", "upload"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setImgTab(t)}
+                  className={cn(
+                    "flex-1 py-2 text-[12px] transition-colors",
+                    imgTab === t ? "text-cta border-b-2 border-cta font-medium" : "text-primary/50 hover:text-primary"
+                  )}
+                >
+                  {t === "gallery" ? "Медиатека" : t === "url" ? "По URL" : "Загрузить"}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-4 flex flex-col gap-3" style={{ minHeight: 220 }}>
+              {imgTab === "gallery" && (
+                <>
+                  <div className="relative">
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary/40" viewBox="0 0 16 16" fill="none">
+                      <circle cx="7" cy="7" r="4" stroke="currentColor" strokeWidth="1.5"/><path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    <input placeholder="Поиск…" className="w-full pl-8 pr-3 py-1.5 text-[12px] rounded-[6px] border border-cardbg bg-mainbg focus:outline-none focus:border-cta" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {IMAGE_GALLERY.map((img) => (
+                      <button
+                        key={img.id}
+                        onClick={() => setSelectedImg(img.id)}
+                        className={cn(
+                          "rounded-[6px] overflow-hidden border-2 transition-all",
+                          selectedImg === img.id ? "border-cta scale-[1.03]" : "border-transparent hover:border-cta/40"
+                        )}
+                      >
+                        <div className="h-16 w-full" style={{ background: img.bg }} />
+                        <p className="text-[10px] text-primary/60 py-0.5 text-center bg-mainbg">{img.label}</p>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {imgTab === "url" && (
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-[11px] text-primary/50 mb-1 block">URL изображения</label>
+                    <input
+                      value={imgUrl}
+                      onChange={(e) => setImgUrl(e.target.value)}
+                      placeholder="https://example.com/image.png"
+                      className="w-full px-3 py-2 text-[12px] rounded-[6px] border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta"
+                    />
+                  </div>
+                  {imgUrl && (
+                    <div className="h-28 rounded-[6px] border border-cardbg bg-mainbg flex items-center justify-center overflow-hidden">
+                      <img src={imgUrl} alt="preview" className="max-h-full max-w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {imgTab === "upload" && (
+                <div
+                  className="flex-1 rounded-[8px] border-2 border-dashed border-cta/30 hover:border-cta/60 transition-colors flex flex-col items-center justify-center gap-2 py-8 cursor-pointer bg-mainbg"
+                  onClick={() => {}}
+                >
+                  <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10 text-cta/40">
+                    <rect x="5" y="10" width="30" height="22" rx="3" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M20 25V15M15 20l5-5 5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <p className="text-[13px] text-primary/60 text-center">Перетащите файл сюда<br/><span className="text-cta">или нажмите для выбора</span></p>
+                  <p className="text-[11px] text-primary/40">PNG, JPG, SVG до 10 МБ</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-cardbg">
+              <button onClick={() => setPicker(null)} className="px-4 py-1.5 text-[13px] border border-cta text-cta rounded-[6px] hover:bg-cta/10 transition-colors">Отмена</button>
+              <button onClick={() => setPicker(null)} className="px-4 py-1.5 text-[13px] bg-cta text-white rounded-[6px] hover:bg-active transition-colors">Выбрать</button>
+            </div>
           </div>
         )}
       </aside>
