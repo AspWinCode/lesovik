@@ -3,7 +3,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { FormulaAssistantModal, SelectDbModal, DeleteDbModal } from "@/components/modals/Modals";
-import { EditColumnModal, VirtualColumnModal, DbSettingsModal, DbDescriptionModal } from "@/components/modals/DbModals";
+import { EditColumnModal, VirtualColumnModal, DbSettingsModal, DbDescriptionModal, TableUsageModal } from "@/components/modals/DbModals";
 import { cn } from "@/lib/cn";
 
 type ColType = "Число" | "Текст" | "Приложение" | "Дата" | "Изображение" | "Список";
@@ -67,6 +67,7 @@ export function DataSchemaPage() {
   const [showDbSettings, setShowDbSettings] = useState(false);
   const [showDbDesc, setShowDbDesc] = useState(false);
   const [showDeleteDb, setShowDeleteDb] = useState(false);
+  const [showTableUsage, setShowTableUsage] = useState(false);
 
   const source = SOURCES.find((s) => s.id === activeSource);
   const columns = COLUMNS_BY_SOURCE[activeSource] ?? COLUMNS_BY_SOURCE["analytics"];
@@ -200,6 +201,12 @@ export function DataSchemaPage() {
                       className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg"
                     >
                       Настройки БД
+                    </button>
+                    <button
+                      onClick={() => { setShowTableUsage(true); setShowDotsMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg"
+                    >
+                      Где используется
                     </button>
                     <button
                       onClick={() => { setShowDeleteDb(true); setShowDotsMenu(false); }}
@@ -375,6 +382,13 @@ export function DataSchemaPage() {
           name={source?.name ?? "База данных"}
           onClose={() => setShowDeleteDb(false)}
           onConfirm={() => setShowDeleteDb(false)}
+        />
+      )}
+
+      {showTableUsage && (
+        <TableUsageModal
+          tableName={source?.name ?? "Таблица"}
+          onClose={() => setShowTableUsage(false)}
         />
       )}
     </div>

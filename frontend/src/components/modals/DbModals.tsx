@@ -224,6 +224,7 @@ export function EditTableModal({
 }) {
   const [name, setName] = useState(tableName);
   const [cols, setCols] = useState<TableColumn[]>(columns);
+  const [formulaColId, setFormulaColId] = useState<string | null>(null);
 
   function updateCol(id: string, patch: Partial<TableColumn>) {
     setCols((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -305,7 +306,15 @@ export function EditTableModal({
                     />
                   </td>
                   <td className="px-4 py-2 text-center">
-                    <button className="w-7 h-7 rounded border border-cta/40 text-cta text-[13px] font-medium hover:bg-cta/10 transition-colors">
+                    <button
+                      onClick={() => setFormulaColId(col.id)}
+                      className={cn(
+                        "w-7 h-7 rounded border text-[13px] font-medium transition-colors",
+                        formulaColId === col.id
+                          ? "border-cta bg-cta text-white"
+                          : "border-cta/40 text-cta hover:bg-cta/10"
+                      )}
+                    >
                       =
                     </button>
                   </td>
@@ -315,6 +324,20 @@ export function EditTableModal({
           </table>
         </div>
       </div>
+
+      {formulaColId && (() => {
+        const col = cols.find((c) => c.id === formulaColId);
+        return (
+          <FormulaAssistantInline
+            columnName={col?.name ?? ""}
+            onClose={() => setFormulaColId(null)}
+            onSave={(expr) => {
+              updateCol(formulaColId, { formula: expr } as Partial<TableColumn>);
+              setFormulaColId(null);
+            }}
+          />
+        );
+      })()}
     </Overlay>
   );
 }
@@ -501,90 +524,6 @@ export function EditColumnModal({
             </div>
           ))}
         </div>
-      </div>
-    </Overlay>
-  );
-}
-
-/* ─────────────────────────────────────────────────
-   3. VirtualColumnModal
-───────────────────────────────────────────────── */
-
-export function VirtualColumnModal({
-  onClose,
-  onConfirm,
-}: {
-  onClose: () => void;
-  onConfirm: (name: string, type: string, formula: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState("");
-  const [formula, setFormula] = useState("=");
-  const [show, setShow] = useState(true);
-
-  return (
-    <Overlay onClose={onClose}>
-      <div style={{ width: 505 }} className="px-10 pb-8">
-        <div className="flex items-center justify-between pt-[30px] mb-6">
-          <h2 className="text-[18px] font-bold text-primary">Добавить виртуальный столбец</h2>
-          <CloseBtn onClick={onClose} />
-        </div>
-
-        <div className="flex flex-col gap-4 mb-6">
-          {/* Название */}
-          <div className="flex flex-col gap-[8px]">
-            <label className="text-[14px] text-primary font-medium">Название</label>
-            <BlueField>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Название столбца"
-                className="w-full bg-transparent outline-none text-[16px] text-primary placeholder-primary/40"
-              />
-            </BlueField>
-          </div>
-
-          {/* Тип */}
-          <div className="flex flex-col gap-[8px]">
-            <label className="text-[14px] text-primary font-medium">Тип</label>
-            <SimpleDropdown
-              value={type}
-              options={COLUMN_TYPES}
-              onChange={setType}
-              placeholder="Выберите тип..."
-            />
-          </div>
-
-          {/* Формула */}
-          <div className="flex flex-col gap-[8px]">
-            <label className="text-[14px] text-primary font-medium">Формула</label>
-            <div className="flex gap-[10px]">
-              <BlueField className="flex-1">
-                <input
-                  value={formula}
-                  onChange={(e) => setFormula(e.target.value)}
-                  className="w-full bg-transparent outline-none text-[16px] text-primary"
-                />
-              </BlueField>
-              <button className="px-4 h-[41px] border-2 border-cta rounded-btn text-cta text-[13px] hover:bg-cta/10 transition-colors whitespace-nowrap">
-                Помощник формул
-              </button>
-            </div>
-          </div>
-
-          {/* Показать */}
-          <div className="flex items-center justify-between">
-            <label className="text-[14px] text-primary font-medium">Показать</label>
-            <Toggle checked={show} onChange={setShow} />
-          </div>
-        </div>
-
-        <ModalButtons
-          onCancel={onClose}
-          onConfirm={() => onConfirm(name, type, formula)}
-          confirmLabel="Добавить"
-          disabled={!name.trim()}
-        />
       </div>
     </Overlay>
   );
@@ -1730,6 +1669,405 @@ export function ShareDbModal({
             className="px-5 py-[3px] h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-meta hover:bg-active transition-colors"
           >
             Готово
+          </button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   FormulaAssistantInline — встроен в EditTableModal
+───────────────────────────────────────────────── */
+
+const FORMULA_FUNCTIONS = [
+  { name: "IF()",        desc: "Условие" },
+  { name: "AND()",       desc: "Логическое И" },
+  { name: "OR()",        desc: "Логическое ИЛИ" },
+  { name: "CONCATENATE()", desc: "Объединить текст" },
+  { name: "LEN()",       desc: "Длина строки" },
+  { name: "TRIM()",      desc: "Убрать пробелы" },
+  { name: "TODAY()",     desc: "Сегодняшняя дата" },
+  { name: "NOW()",       desc: "Текущее время" },
+  { name: "SUM()",       desc: "Сумма" },
+  { name: "AVERAGE()",   desc: "Среднее" },
+  { name: "MAX()",       desc: "Максимум" },
+  { name: "MIN()",       desc: "Минимум" },
+];
+
+function FormulaAssistantInline({
+  columnName,
+  onClose,
+  onSave,
+}: {
+  columnName: string;
+  onClose: () => void;
+  onSave: (expr: string) => void;
+}) {
+  const [expr, setExpr] = useState("=");
+  const [tab, setTab] = useState<"example" | "explorer">("example");
+  const [valid, setValid] = useState(true);
+
+  function validate() {
+    setValid(expr.startsWith("=") && expr.length > 1);
+  }
+
+  return (
+    <div
+      className="absolute inset-0 z-[60] flex items-end justify-center pb-6"
+      style={{ background: "rgba(0,32,95,0.35)" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ width: 680 }}
+        className="bg-mainbg rounded-[10px] shadow-[0_8px_32px_rgba(0,0,0,0.25)] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between px-8 pt-6 pb-4 border-b border-cardbg">
+          <div>
+            <h3 className="text-[18px] font-bold text-primary">Помощник по формуле</h3>
+            <p className="text-[13px] text-primary/50 mt-0.5">= [{columnName}]</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 hover:opacity-60 transition-opacity">
+            <svg viewBox="0 0 28 28" fill="none" className="w-full h-full">
+              <line x1="7" y1="7" x2="21" y2="21" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+              <line x1="21" y1="7" x2="7" y2="21" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-8 py-5 flex flex-col gap-4">
+          {/* Expression input */}
+          <textarea
+            value={expr}
+            onChange={(e) => { setExpr(e.target.value); setValid(true); }}
+            onBlur={validate}
+            rows={3}
+            className={cn(
+              "w-full bg-cardbg rounded-[10px] px-5 py-3 text-[16px] text-primary outline-none resize-none placeholder-primary/40 border-2 transition-colors",
+              valid ? "border-transparent focus:border-cta/40" : "border-red-400"
+            )}
+            placeholder="Начните с = для ввода формулы…"
+          />
+
+          {/* Validate row */}
+          <div className="flex items-center gap-3">
+            {valid ? (
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 shrink-0 text-green-500">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 shrink-0 text-red-400">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-9h2v4h-2V9zm0 6h2v2h-2v-2z" clipRule="evenodd"/>
+              </svg>
+            )}
+            <span className={cn("text-[13px]", valid ? "text-primary/50" : "text-red-400")}>
+              {valid ? "Формула корректна" : "Формула должна начинаться с ="}
+            </span>
+            <button onClick={validate} className="ml-auto text-[13px] text-cta hover:underline flex items-center gap-1">
+              Тест
+              <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3">
+                <path d="M10 3h3v3M13 3L4 12" stroke="#35A7FF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex items-center gap-2">
+            {(["example", "explorer"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "h-[28px] px-5 rounded-[20px] text-[13px] font-medium transition-colors",
+                  tab === t ? "bg-cta text-white" : "bg-cardbg text-primary hover:bg-cardbg/80"
+                )}
+              >
+                {t === "example" ? "Пример" : "Проводник"}
+              </button>
+            ))}
+          </div>
+
+          {/* Functions list */}
+          <div className="grid grid-cols-3 gap-2 max-h-[160px] overflow-y-auto">
+            {FORMULA_FUNCTIONS.map((fn) => (
+              <button
+                key={fn.name}
+                onClick={() => setExpr((prev) => (prev === "=" ? `=${fn.name}` : prev + fn.name))}
+                className="flex flex-col items-start px-3 py-2 rounded-[8px] bg-cardbg hover:bg-cta/10 hover:border-cta border border-transparent transition-colors text-left"
+              >
+                <span className="text-[13px] font-semibold text-cta">{fn.name}</span>
+                <span className="text-[11px] text-primary/50">{fn.desc}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-1">
+            <button
+              onClick={onClose}
+              className="px-5 h-[34px] border-2 border-cta rounded-btn text-cta text-[13px] hover:bg-cta/10 transition-colors"
+            >
+              Отмена
+            </button>
+            <button
+              onClick={() => { if (expr.startsWith("=")) onSave(expr); else setValid(false); }}
+              className="px-5 h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors"
+            >
+              Сохранить
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   VirtualColumnModal — обновлённый (Figma 2610596)
+───────────────────────────────────────────────── */
+
+export function VirtualColumnModal({
+  tableName = "Таблица",
+  availableColumns = [],
+  onClose,
+  onDelete,
+  onGoToData,
+  onConfirm,
+}: {
+  tableName?: string;
+  availableColumns?: string[];
+  onClose: () => void;
+  onDelete?: () => void;
+  onGoToData?: () => void;
+  onConfirm: (name: string, type: string, formula: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState(COLUMN_TYPES[0]);
+  const [formula, setFormula] = useState("");
+  const [show, setShow] = useState(true);
+  const [showFormula, setShowFormula] = useState(false);
+
+  const colOptions = availableColumns.length
+    ? availableColumns
+    : ["План маркетингового проекта", "ID", "Название", "Статус", "Дата создания"];
+
+  function FieldRow({
+    label,
+    desc,
+    children,
+  }: {
+    label: string;
+    desc: string;
+    children: React.ReactNode;
+  }) {
+    return (
+      <div className="flex items-start gap-6 py-4 border-b border-cardbg last:border-0">
+        <div className="w-[200px] shrink-0">
+          <p className="text-[14px] font-semibold text-primary">{label}</p>
+          <p className="text-[12px] text-primary/50 mt-0.5 leading-snug">{desc}</p>
+        </div>
+        <div className="flex-1">{children}</div>
+      </div>
+    );
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 620 }} className="px-8 pb-6">
+        {/* Header */}
+        <div className="flex items-start justify-between pt-6 pb-4 border-b border-cardbg">
+          <div className="flex items-center gap-2">
+            <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5 shrink-0">
+              <rect x="2" y="2" width="16" height="16" rx="2" stroke="#35A7FF" strokeWidth="1.5"/>
+              <path d="M2 7h16M7 7v11" stroke="#35A7FF" strokeWidth="1.5"/>
+            </svg>
+            <div>
+              <h2 className="text-[17px] font-bold text-primary leading-tight">
+                {tableName}: Новый виртуальный столбец
+              </h2>
+              <p className="text-[12px] text-primary/50 mt-0.5">Тип: {type || "Текст"}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            {onGoToData && (
+              <button
+                onClick={onGoToData}
+                className="h-[30px] px-4 border border-cta rounded-btn text-cta text-[12px] hover:bg-cta/10 transition-colors whitespace-nowrap"
+              >
+                Перейти к данным
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="h-[30px] px-4 border border-red-400 rounded-btn text-red-400 text-[12px] hover:bg-red-50 transition-colors"
+              >
+                Удалить
+              </button>
+            )}
+            <CloseBtn onClick={onClose} />
+          </div>
+        </div>
+
+        {/* Fields */}
+        <div className="flex flex-col">
+          <FieldRow label="Название столбца" desc="Как будет называться ваш виртуальный столбец.">
+            <BlueField>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Текст"
+                className="w-full bg-transparent outline-none text-[15px] text-primary placeholder-primary/40"
+              />
+            </BlueField>
+          </FieldRow>
+
+          <FieldRow label="Тип" desc="Тип данных виртуального столбца.">
+            <SimpleDropdown value={type} options={COLUMN_TYPES} onChange={setType} />
+          </FieldRow>
+
+          <FieldRow
+            label="Формула"
+            desc="Вместо того чтобы разрешать пользователю вводить данные, вычислите значение для столбца."
+          >
+            <div className="flex items-center gap-2">
+              <div className="flex-1 relative">
+                <SimpleDropdown
+                  value={formula}
+                  options={colOptions}
+                  onChange={setFormula}
+                  placeholder="Выберите столбец или формулу…"
+                />
+              </div>
+              <button
+                onClick={() => setShowFormula(true)}
+                title="Помощник формул"
+                className="w-[41px] h-[41px] shrink-0 border border-cta/40 rounded-btn text-cta text-[14px] hover:bg-cta/10 transition-colors flex items-center justify-center"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+                  <path d="M2 4h12M5 8h6M7 12h2" stroke="#35A7FF" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </FieldRow>
+
+          <FieldRow label="Показать" desc="Отображать столбец пользователям приложения.">
+            <div className="flex justify-start">
+              <Toggle checked={show} onChange={setShow} />
+            </div>
+          </FieldRow>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pt-4">
+          <button
+            onClick={onClose}
+            className="px-5 h-[34px] border-2 border-cta rounded-btn text-cta text-[13px] hover:bg-cta/10 transition-colors"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={() => onConfirm(name, type, formula)}
+            disabled={!name.trim()}
+            className="px-5 h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors disabled:opacity-60 disabled:cursor-default"
+          >
+            Добавить
+          </button>
+        </div>
+      </div>
+
+      {showFormula && (
+        <FormulaAssistantInline
+          columnName={name || "Новый столбец"}
+          onClose={() => setShowFormula(false)}
+          onSave={(expr) => { setFormula(expr); setShowFormula(false); }}
+        />
+      )}
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   TableUsageModal — «Таблица X используется» (2611086)
+───────────────────────────────────────────────── */
+
+export function TableUsageModal({
+  tableName,
+  apps = [],
+  onClose,
+  onEdit,
+  onPreview,
+}: {
+  tableName: string;
+  apps?: { id: string; name: string; icon?: string }[];
+  onClose: () => void;
+  onEdit?: (appId: string) => void;
+  onPreview?: (appId: string) => void;
+}) {
+  const displayApps = apps.length
+    ? apps
+    : [{ id: "demo", name: "Дикая Сибирь" }];
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 500, maxHeight: 600 }} className="flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-8 pt-6 pb-4 border-b border-cardbg shrink-0">
+          <h2 className="text-[17px] font-bold text-primary">
+            Таблица{" "}
+            <span className="text-cta">{tableName}</span>{" "}
+            используется
+          </h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        {/* App list */}
+        <div className="flex-1 overflow-y-auto px-8 py-4 flex flex-col gap-3">
+          {displayApps.map((app) => (
+            <div
+              key={app.id}
+              className="flex items-center justify-between px-4 py-4 rounded-[10px] bg-cardbg"
+            >
+              <div className="flex items-center gap-3">
+                {/* OI logo placeholder */}
+                <div className="w-10 h-10 rounded-[8px] bg-primary flex items-center justify-center shrink-0">
+                  <span className="text-white text-[14px] font-bold">OI</span>
+                </div>
+                <span className="text-[15px] font-semibold text-primary">{app.name}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onEdit?.(app.id)}
+                  className="h-[30px] px-4 border border-cta rounded-btn text-cta text-[12px] hover:bg-cta/10 transition-colors"
+                >
+                  Редактировать
+                </button>
+                <button
+                  onClick={() => onPreview?.(app.id)}
+                  className="h-[30px] px-4 border border-cta rounded-btn text-cta text-[12px] hover:bg-cta/10 transition-colors"
+                >
+                  Предпросмотр
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {displayApps.length === 0 && (
+            <p className="text-[14px] text-primary/40 text-center py-8">
+              Таблица не используется ни в одном приложении
+            </p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-8 py-4 border-t border-cardbg shrink-0 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-5 h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors"
+          >
+            Закрыть
           </button>
         </div>
       </div>
