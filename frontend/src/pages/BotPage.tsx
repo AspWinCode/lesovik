@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { NewStepModal, EventSourcesModal } from "@/components/modals/BotModals";
+import {
+  NewStepModal, EventSourcesModal,
+  RunTaskModal, WaitModal, DataActionModal, BranchModal, CallProcessModal, ReturnValueModal,
+} from "@/components/modals/BotModals";
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -294,6 +297,7 @@ export function BotPage() {
           onSave={() => setShowEventSources(false)}
         />
       )}
+
     </div>
   );
 }
@@ -1129,6 +1133,14 @@ function ProcessStepsEditor({ rule, appId }: { rule: Rule | null; appId: string 
   return <StepsEditorInner appId={appId} ruleId={rule.id} />;
 }
 
+type ConfigModal =
+  | { kind: "run_task"; stepId?: string; config?: Record<string, unknown> }
+  | { kind: "wait"; stepId?: string; config?: Record<string, unknown> }
+  | { kind: "data_action"; stepId?: string; config?: Record<string, unknown> }
+  | { kind: "branch"; stepId?: string; config?: Record<string, unknown> }
+  | { kind: "call"; stepId?: string; config?: Record<string, unknown> }
+  | { kind: "set_value"; stepId?: string; config?: Record<string, unknown> };
+
 function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) {
   const { data: steps = [], isLoading } = useSteps(appId, ruleId);
   const addStep = useAddStep(appId, ruleId);
@@ -1138,6 +1150,7 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
   const [showNewStepModal, setShowNewStepModal] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [localSteps, setLocalSteps] = useState(steps);
+  const [configModal, setConfigModal] = useState<ConfigModal | null>(null);
 
   useEffect(() => { setLocalSteps(steps); }, [steps]);
 
@@ -1221,16 +1234,63 @@ function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) 
         <NewStepModal
           onClose={() => setShowNewStepModal(false)}
           onAdd={(type) => {
+            setShowNewStepModal(false);
+            if (type === "run_task") { setConfigModal({ kind: "run_task" }); return; }
+            if (type === "wait") { setConfigModal({ kind: "wait" }); return; }
+            if (type === "data_action") { setConfigModal({ kind: "data_action" }); return; }
+            if (type === "branch") { setConfigModal({ kind: "branch" }); return; }
+            if (type === "call") { setConfigModal({ kind: "call" }); return; }
+            if (type === "set_value") { setConfigModal({ kind: "set_value" }); return; }
             const stepType = STEP_TYPES.find((t) => t.type === type) ? type
               : type === "add_row" ? "create_record"
               : type === "delete_row" ? "delete_record"
-              : type === "set_value" ? "set_field"
               : type === "notify" ? "send_notification"
-              : type === "call" ? "call_webhook"
               : type;
             addStep.mutate({ type: stepType, config: defaultsFor(stepType) });
-            setShowNewStepModal(false);
           }}
+        />
+      )}
+
+      {configModal?.kind === "run_task" && (
+        <RunTaskModal
+          initialData={configModal.config as { process?: string; inputData?: string; sync?: boolean } | undefined}
+          onClose={() => setConfigModal(null)}
+          onConfirm={() => setConfigModal(null)}
+        />
+      )}
+      {configModal?.kind === "wait" && (
+        <WaitModal
+          initialData={configModal.config as { amount?: number; unit?: string } | undefined}
+          onClose={() => setConfigModal(null)}
+          onConfirm={() => setConfigModal(null)}
+        />
+      )}
+      {configModal?.kind === "data_action" && (
+        <DataActionModal
+          initialData={configModal.config as { table?: string; operation?: string; condition?: string; values?: string } | undefined}
+          onClose={() => setConfigModal(null)}
+          onConfirm={() => setConfigModal(null)}
+        />
+      )}
+      {configModal?.kind === "branch" && (
+        <BranchModal
+          initialData={configModal.config as { conditions?: Array<{ field: string; operator: string; value: string }> } | undefined}
+          onClose={() => setConfigModal(null)}
+          onConfirm={() => setConfigModal(null)}
+        />
+      )}
+      {configModal?.kind === "call" && (
+        <CallProcessModal
+          initialData={configModal.config as { process?: string; wait?: boolean; passData?: boolean } | undefined}
+          onClose={() => setConfigModal(null)}
+          onConfirm={() => setConfigModal(null)}
+        />
+      )}
+      {configModal?.kind === "set_value" && (
+        <ReturnValueModal
+          initialData={configModal.config as { value?: string; type?: string } | undefined}
+          onClose={() => setConfigModal(null)}
+          onConfirm={() => setConfigModal(null)}
         />
       )}
     </div>

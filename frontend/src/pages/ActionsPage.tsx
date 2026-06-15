@@ -3,6 +3,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { ActionOrderModal } from "@/components/modals/Modals";
+import { EditActionModal } from "@/components/modals/MiscModals";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useEntities } from "@/shared/hooks/useEntities";
@@ -19,6 +20,7 @@ export function ActionsPage() {
   const [displayOpen, setDisplayOpen] = useState(true);
   const [iconTab, setIconTab] = useState("Все");
   const [actionOrderOpen, setActionOrderOpen] = useState(false);
+  const [editAction, setEditAction] = useState(false);
 
   const appsQuery = useApps();
   const appId = appsQuery.data?.items[0]?.id;
@@ -105,6 +107,17 @@ export function ActionsPage() {
           <h1 className="text-nav font-bold text-primary">
             {workflows.find((w) => w.id === activeAction)?.name ?? activeAction}
           </h1>
+          <div className="flex items-center gap-2">
+          <button
+            onClick={() => setEditAction(true)}
+            className="flex items-center gap-2 px-4 h-[32px] border border-cta/40 rounded-btn text-cta text-[13px] hover:bg-cta/10 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="#35A7FF" strokeWidth="1.5" />
+              <path d="M5 7h6M5 9.5h4" stroke="#35A7FF" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Изменить
+          </button>
           <button
             onClick={() => setActionOrderOpen(true)}
             className="flex items-center gap-2 px-4 h-[32px] border border-cta/40 rounded-btn text-cta text-[13px] hover:bg-cta/10 transition-colors"
@@ -117,6 +130,7 @@ export function ActionsPage() {
             </svg>
             Порядок
           </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -240,6 +254,14 @@ export function ActionsPage() {
         <ActionOrderModal
           viewName={openGroup ? (entities.find((e) => e.id === openGroup)?.display_name ?? "Аналитики") : "Аналитики"}
           onClose={() => setActionOrderOpen(false)}
+        />
+      )}
+
+      {editAction && (
+        <EditActionModal
+          actionName={workflows.find((w) => w.id === activeAction)?.name ?? activeAction}
+          onClose={() => setEditAction(false)}
+          onSave={() => setEditAction(false)}
         />
       )}
     </div>

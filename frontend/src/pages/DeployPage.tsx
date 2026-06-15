@@ -6,6 +6,7 @@ import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
 import { useApps, usePublishApp } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
+import { ErrorsModal } from "@/components/modals/MiscModals";
 
 type DeploySection = "deploy" | "versions" | "monitoring" | "upload";
 
@@ -19,6 +20,7 @@ const NAV_ITEMS: { id: DeploySection; label: string; icon: React.ReactNode }[] =
 export function DeployPage() {
   const [railModule, setRailModule] = useState<RailModule>("documents");
   const [active, setActive]         = useState<DeploySection>("versions");
+  const [showErrors, setShowErrors] = useState(false);
   const navigate = useNavigate();
 
   const appsQuery = useApps();
@@ -83,23 +85,47 @@ export function DeployPage() {
         className="absolute bg-mainbg overflow-y-auto"
         style={{ left: 380, top: 70, width: 945, height: 1010 }}
       >
-        {active === "deploy"     && <DeploySection onPublish={handlePublish} publishing={publish.isPending} published={published} onEdit={() => navigate("/views")} />}
-        {active === "versions"   && <VersionsSection onPublish={handlePublish} publishing={publish.isPending} published={published} />}
+        {active === "deploy"     && <DeploySection onPublish={handlePublish} publishing={publish.isPending} published={published} onEdit={() => navigate("/views")} onShowErrors={() => setShowErrors(true)} />}
+        {active === "versions"   && <VersionsSection onPublish={handlePublish} publishing={publish.isPending} published={published} onShowErrors={() => setShowErrors(true)} />}
         {active === "monitoring" && <MonitoringSection />}
         {active === "upload"     && <UploadSection />}
       </main>
 
       <PreviewPanel projectName="Дикая Сибирь" />
+
+      {showErrors && (
+        <ErrorsModal
+          onClose={() => setShowErrors(false)}
+          errors={[
+            "Предупреждения и ошибки при определении приложения",
+            "Приложение недоступно для запуска",
+            "Ошибки в определении приложения",
+          ]}
+        />
+      )}
     </div>
   );
 }
 
 /* ── Sections ── */
 
-function VersionsSection({ onPublish, publishing, published }: { onPublish: () => void; publishing: boolean; published: boolean }) {
+function VersionsSection({ onPublish, publishing, published, onShowErrors }: { onPublish: () => void; publishing: boolean; published: boolean; onShowErrors: () => void }) {
   return (
     <div className="px-[40px] py-[25px]">
-      <h2 className="text-[22px] font-bold text-primary mb-6">Версии</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-[22px] font-bold text-primary">Версии</h2>
+        <button
+          onClick={onShowErrors}
+          className="flex items-center gap-2 h-[34px] px-4 border-2 border-cta text-cta text-[13px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.8" />
+            <line x1="8" y1="5" x2="8" y2="9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="8" cy="11.5" r="1" fill="currentColor" />
+          </svg>
+          Ошибки
+        </button>
+      </div>
       <div className="flex flex-col gap-4">
         <InfoCard
           title="История версий"
@@ -125,7 +151,7 @@ function VersionsSection({ onPublish, publishing, published }: { onPublish: () =
   );
 }
 
-function DeploySection({ onPublish, publishing, published, onEdit }: { onPublish: () => void; publishing: boolean; published: boolean; onEdit: () => void }) {
+function DeploySection({ onPublish, publishing, published, onEdit, onShowErrors }: { onPublish: () => void; publishing: boolean; published: boolean; onEdit: () => void; onShowErrors: () => void }) {
   const checks = [
     { label: "Предупреждения и ошибки при определении приложения", status: "error" as const },
     { label: "Предупреждения и ошибки при определении приложения", status: "error" as const },
@@ -139,7 +165,20 @@ function DeploySection({ onPublish, publishing, published, onEdit }: { onPublish
 
   return (
     <div className="px-[40px] py-[25px]">
-      <h2 className="text-[22px] font-bold text-primary mb-2">Развёртывание</h2>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-[22px] font-bold text-primary">Развёртывание</h2>
+        <button
+          onClick={onShowErrors}
+          className="flex items-center gap-2 h-[34px] px-4 border-2 border-cta text-cta text-[13px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.8" />
+            <line x1="8" y1="5" x2="8" y2="9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="8" cy="11.5" r="1" fill="currentColor" />
+          </svg>
+          Ошибки
+        </button>
+      </div>
       <p className="text-[14px] text-primary/60 mb-5">Пройдите проверку, прежде чем использовать приложение в режиме, отличном от тестового.</p>
 
       <button

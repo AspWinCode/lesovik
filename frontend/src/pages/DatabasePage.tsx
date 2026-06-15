@@ -9,6 +9,7 @@ import type { FieldRead } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
 import { EditTableModal, EditColumnModal } from "@/components/modals/DbModals";
 import { SortingModal } from "@/components/modals/ViewModals";
+import { CopyTableModal, MoveModal } from "@/components/modals/MiscModals";
 
 type ViewMode = "grid" | "table";
 
@@ -37,6 +38,9 @@ export function DatabasePage() {
   const [showNewTableModal, setShowNewTableModal] = useState(false);
   const [showEditColumnModal, setShowEditColumnModal] = useState(false);
   const [showSortModal, setShowSortModal] = useState(false);
+  const [copyTableModal, setCopyTableModal] = useState<string | null>(null);
+  const [moveModal, setMoveModal] = useState<string | null>(null);
+  const [showTableDotsMenu, setShowTableDotsMenu] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -226,6 +230,35 @@ export function DatabasePage() {
               Импорт
             </button>
           )}
+          {entity && (
+            <div className="relative">
+              <button
+                onClick={() => setShowTableDotsMenu((v) => !v)}
+                className="flex items-center justify-center w-[30px] h-[30px] rounded-[6px] border border-cardbg text-primary/60 hover:bg-mainbg hover:text-primary transition-colors"
+                title="Действия с таблицей"
+              >
+                <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
+                  <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
+                </svg>
+              </button>
+              {showTableDotsMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-white rounded-[10px] shadow-lg border border-cardbg z-20 min-w-[180px]">
+                  <button
+                    onClick={() => { setCopyTableModal(entity.display_name); setShowTableDotsMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg rounded-t-[10px]"
+                  >
+                    Копировать
+                  </button>
+                  <button
+                    onClick={() => { setMoveModal(entity.display_name); setShowTableDotsMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg rounded-b-[10px]"
+                  >
+                    Переместить
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <span className="text-[13px] text-primary/50">
             {recordsQuery.isLoading ? "загрузка..." : `${records.length} записей`}
           </span>
@@ -403,6 +436,25 @@ export function DatabasePage() {
           rules={[]}
           onClose={() => setShowSortModal(false)}
           onApply={() => setShowSortModal(false)}
+        />
+      )}
+
+      {copyTableModal !== null && (
+        <CopyTableModal
+          tableName={copyTableModal}
+          onClose={() => setCopyTableModal(null)}
+          onConfirm={() => setCopyTableModal(null)}
+        />
+      )}
+
+      {moveModal !== null && (
+        <MoveModal
+          itemName={moveModal}
+          targets={entities
+            .map((e) => e.display_name)
+            .filter((n) => n !== moveModal)}
+          onClose={() => setMoveModal(null)}
+          onConfirm={() => setMoveModal(null)}
         />
       )}
     </div>

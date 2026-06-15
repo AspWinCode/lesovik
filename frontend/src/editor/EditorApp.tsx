@@ -27,6 +27,10 @@ import { RulesPage } from "@/pages/RulesPage";
 import { ModulesPage } from "@/pages/ModulesPage";
 import { ThemesPage } from "@/pages/ThemesPage";
 import { AccountPage } from "@/pages/AccountPage";
+import { EditorPage } from "@/pages/EditorPage";
+import { PreviewPage } from "@/pages/PreviewPage";
+import { DbHistoryPage } from "@/pages/DbHistoryPage";
+import { DataPage } from "@/pages/DataPage";
 
 export function EditorApp() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -70,7 +74,11 @@ export function EditorApp() {
         <Route path="/rules"     element={<RequireAuth><ScaleToFit><RulesPage /></ScaleToFit></RequireAuth>} />
         <Route path="/modules"   element={<RequireAuth><ScaleToFit><ModulesPage /></ScaleToFit></RequireAuth>} />
         <Route path="/themes"    element={<RequireAuth><ScaleToFit><ThemesPage /></ScaleToFit></RequireAuth>} />
-        <Route path="/account"   element={<RequireAuth><ScaleToFit><AccountPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/account"    element={<RequireAuth><ScaleToFit><AccountPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/editor"     element={<RequireAuth><ScaleToFit><EditorPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/preview"    element={<RequireAuth><ScaleToFit><PreviewPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/db-history" element={<RequireAuth><ScaleToFit><DbHistoryPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/data-page"  element={<RequireAuth><ScaleToFit><DataPage /></ScaleToFit></RequireAuth>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

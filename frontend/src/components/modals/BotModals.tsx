@@ -511,3 +511,402 @@ export function TableExtensionModal({ onClose }: { onClose: () => void }) {
     </Overlay>
   );
 }
+
+/* ─────────────────────────────────────────────────
+   5. RunTaskModal — запустить задачу
+───────────────────────────────────────────────── */
+
+const PROCESS_OPTIONS = ["Обработка заявки", "Уведомление клиента", "Синхронизация данных", "Генерация отчёта"];
+
+export function RunTaskModal({
+  processes = PROCESS_OPTIONS,
+  initialData,
+  onClose,
+  onConfirm,
+}: {
+  processes?: string[];
+  initialData?: { process?: string; inputData?: string; sync?: boolean };
+  onClose: () => void;
+  onConfirm: (process: string, inputData: string, sync: boolean) => void;
+}) {
+  const [process, setProcess] = useState(initialData?.process ?? (processes[0] ?? ""));
+  const [inputData, setInputData] = useState(initialData?.inputData ?? "");
+  const [sync, setSync] = useState(initialData?.sync ?? true);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 480 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Запустить задачу</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Процесс</FieldLabel>
+          <SimpleSelect value={process} onChange={setProcess} options={processes.length ? processes : PROCESS_OPTIONS} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Входящие данные</FieldLabel>
+          <textarea
+            value={inputData}
+            onChange={(e) => setInputData(e.target.value)}
+            placeholder="Данные для передачи в процесс..."
+            rows={3}
+            className="w-full bg-cardbg rounded-btn px-5 py-3 text-[16px] text-primary outline-none resize-none placeholder-primary/40"
+          />
+        </div>
+
+        <div className="flex items-center justify-between px-0 py-1">
+          <FieldLabel>Синхронный запуск</FieldLabel>
+          <Toggle checked={sync} onChange={setSync} />
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(process, inputData, sync)}
+          confirmLabel="Сохранить"
+          disabled={!process}
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   6. WaitModal — подождать
+───────────────────────────────────────────────── */
+
+const TIME_UNITS = ["Секунды", "Минуты", "Часы", "Дни"];
+
+export function WaitModal({
+  initialData,
+  onClose,
+  onConfirm,
+}: {
+  initialData?: { amount?: number; unit?: string };
+  onClose: () => void;
+  onConfirm: (amount: number, unit: string) => void;
+}) {
+  const [amount, setAmount] = useState(String(initialData?.amount ?? 1));
+  const [unit, setUnit] = useState(initialData?.unit ?? TIME_UNITS[1]);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 400 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Подождать</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex gap-3">
+          <div className="flex flex-col gap-[8px] w-[120px]">
+            <FieldLabel>Количество</FieldLabel>
+            <BlueField>
+              <input
+                type="number"
+                min={1}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full bg-transparent outline-none text-[16px] text-primary"
+              />
+            </BlueField>
+          </div>
+          <div className="flex flex-col gap-[8px] flex-1">
+            <FieldLabel>Единица</FieldLabel>
+            <SimpleSelect value={unit} onChange={setUnit} options={TIME_UNITS} />
+          </div>
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(Number(amount) || 1, unit)}
+          confirmLabel="Сохранить"
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   7. DataActionModal — действие с данными
+───────────────────────────────────────────────── */
+
+const DATA_OPERATIONS = ["Добавить строку", "Удалить строку", "Обновить строку", "Найти строку"];
+
+export function DataActionModal({
+  tables = [],
+  initialData,
+  onClose,
+  onConfirm,
+}: {
+  tables?: string[];
+  initialData?: { table?: string; operation?: string; condition?: string; values?: string };
+  onClose: () => void;
+  onConfirm: (table: string, operation: string, condition: string, values: string) => void;
+}) {
+  const tableList = tables.length ? tables : ["Таблица 1", "Таблица 2"];
+  const [table, setTable] = useState(initialData?.table ?? tableList[0]);
+  const [operation, setOperation] = useState(initialData?.operation ?? DATA_OPERATIONS[0]);
+  const [condition, setCondition] = useState(initialData?.condition ?? "");
+  const [values, setValues] = useState(initialData?.values ?? "");
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 500 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Действие с данными</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Таблица</FieldLabel>
+          <SimpleSelect value={table} onChange={setTable} options={tableList} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Операция</FieldLabel>
+          <SimpleSelect value={operation} onChange={setOperation} options={DATA_OPERATIONS} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Условие</FieldLabel>
+          <BlueField>
+            <input
+              value={condition}
+              onChange={(e) => setCondition(e.target.value)}
+              placeholder="например: ID = {ID}"
+              className="w-full bg-transparent outline-none text-[16px] text-primary placeholder-primary/40"
+            />
+          </BlueField>
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Значения</FieldLabel>
+          <textarea
+            value={values}
+            onChange={(e) => setValues(e.target.value)}
+            placeholder="Поле: значение"
+            rows={3}
+            className="w-full bg-cardbg rounded-btn px-5 py-3 text-[16px] text-primary outline-none resize-none placeholder-primary/40"
+          />
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(table, operation, condition, values)}
+          confirmLabel="Сохранить"
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   8. BranchModal — разветвление с условием
+───────────────────────────────────────────────── */
+
+const OPERATORS = ["равно", "не равно", "больше", "меньше", "содержит", "пусто"];
+
+interface BranchCondition { field: string; operator: string; value: string }
+
+export function BranchModal({
+  initialData,
+  onClose,
+  onConfirm,
+}: {
+  initialData?: { conditions?: BranchCondition[] };
+  onClose: () => void;
+  onConfirm: (conditions: BranchCondition[]) => void;
+}) {
+  const [conditions, setConditions] = useState<BranchCondition[]>(
+    initialData?.conditions ?? [{ field: "", operator: OPERATORS[0], value: "" }]
+  );
+
+  function update(i: number, key: keyof BranchCondition, val: string) {
+    setConditions((prev) => prev.map((c, idx) => (idx === i ? { ...c, [key]: val } : c)));
+  }
+
+  function addCondition() {
+    if (conditions.length < 5) {
+      setConditions((prev) => [...prev, { field: "", operator: OPERATORS[0], value: "" }]);
+    }
+  }
+
+  function removeCondition(i: number) {
+    setConditions((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 520 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Разветвление с условием</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {conditions.map((cond, i) => (
+            <div key={i} className="flex items-end gap-2">
+              <div className="flex-1 flex flex-col gap-[6px]">
+                {i === 0 && <FieldLabel>Поле</FieldLabel>}
+                <BlueField>
+                  <input
+                    value={cond.field}
+                    onChange={(e) => update(i, "field", e.target.value)}
+                    placeholder="Название поля"
+                    className="w-full bg-transparent outline-none text-[15px] text-primary placeholder-primary/40"
+                  />
+                </BlueField>
+              </div>
+              <div className="w-[140px] flex flex-col gap-[6px]">
+                {i === 0 && <FieldLabel>Оператор</FieldLabel>}
+                <SimpleSelect value={cond.operator} onChange={(v) => update(i, "operator", v)} options={OPERATORS} />
+              </div>
+              <div className="flex-1 flex flex-col gap-[6px]">
+                {i === 0 && <FieldLabel>Значение</FieldLabel>}
+                <BlueField>
+                  <input
+                    value={cond.value}
+                    onChange={(e) => update(i, "value", e.target.value)}
+                    placeholder="Значение"
+                    className="w-full bg-transparent outline-none text-[15px] text-primary placeholder-primary/40"
+                  />
+                </BlueField>
+              </div>
+              {conditions.length > 1 && (
+                <button onClick={() => removeCondition(i)} className="mb-[1px] text-mistake hover:opacity-70 shrink-0">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {conditions.length < 5 && (
+          <button
+            onClick={addCondition}
+            className="self-start text-[14px] text-cta hover:underline"
+          >
+            + Добавить условие
+          </button>
+        )}
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(conditions)}
+          confirmLabel="Сохранить"
+          disabled={conditions.some((c) => !c.field.trim())}
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   9. CallProcessModal — вызвать процесс
+───────────────────────────────────────────────── */
+
+const CALL_PROCESS_OPTIONS = ["Обработка заявки", "Уведомление клиента", "Синхронизация данных", "Генерация отчёта"];
+
+export function CallProcessModal({
+  processes = CALL_PROCESS_OPTIONS,
+  initialData,
+  onClose,
+  onConfirm,
+}: {
+  processes?: string[];
+  initialData?: { process?: string; wait?: boolean; passData?: boolean };
+  onClose: () => void;
+  onConfirm: (process: string, wait: boolean, passData: boolean) => void;
+}) {
+  const opts = processes.length ? processes : CALL_PROCESS_OPTIONS;
+  const [process, setProcess] = useState(initialData?.process ?? opts[0]);
+  const [wait, setWait] = useState(initialData?.wait ?? true);
+  const [passData, setPassData] = useState(initialData?.passData ?? false);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 460 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Вызвать процесс</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Процесс</FieldLabel>
+          <SimpleSelect value={process} onChange={setProcess} options={opts} />
+        </div>
+
+        <div className="flex items-center justify-between py-1">
+          <FieldLabel>Ждать завершения</FieldLabel>
+          <Toggle checked={wait} onChange={setWait} />
+        </div>
+
+        <div className="flex items-center justify-between py-1">
+          <FieldLabel>Передать данные</FieldLabel>
+          <Toggle checked={passData} onChange={setPassData} />
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(process, wait, passData)}
+          confirmLabel="Сохранить"
+          disabled={!process}
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   10. ReturnValueModal — вернуть значение
+───────────────────────────────────────────────── */
+
+const VALUE_TYPES = ["Текст", "Число", "Дата", "Список", "Запись"];
+
+export function ReturnValueModal({
+  initialData,
+  onClose,
+  onConfirm,
+}: {
+  initialData?: { value?: string; type?: string };
+  onClose: () => void;
+  onConfirm: (value: string, type: string) => void;
+}) {
+  const [value, setValue] = useState(initialData?.value ?? "");
+  const [type, setType] = useState(initialData?.type ?? VALUE_TYPES[0]);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 440 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Вернуть значение</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Значение</FieldLabel>
+          <BlueField>
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="формула или значение"
+              className="w-full bg-transparent outline-none text-[16px] text-primary placeholder-primary/40"
+            />
+          </BlueField>
+        </div>
+
+        <div className="flex flex-col gap-[8px]">
+          <FieldLabel>Тип</FieldLabel>
+          <SimpleSelect value={type} onChange={setType} options={VALUE_TYPES} />
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(value, type)}
+          confirmLabel="Сохранить"
+          disabled={!value.trim()}
+        />
+      </div>
+    </Overlay>
+  );
+}

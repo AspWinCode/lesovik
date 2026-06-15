@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
-import { FormulaAssistantModal, SelectDbModal } from "@/components/modals/Modals";
+import { FormulaAssistantModal, SelectDbModal, DeleteDbModal } from "@/components/modals/Modals";
 import { EditColumnModal, VirtualColumnModal, DbSettingsModal, DbDescriptionModal } from "@/components/modals/DbModals";
 import { cn } from "@/lib/cn";
 
@@ -66,6 +66,7 @@ export function DataSchemaPage() {
   const [showDotsMenu, setShowDotsMenu] = useState(false);
   const [showDbSettings, setShowDbSettings] = useState(false);
   const [showDbDesc, setShowDbDesc] = useState(false);
+  const [showDeleteDb, setShowDeleteDb] = useState(false);
 
   const source = SOURCES.find((s) => s.id === activeSource);
   const columns = COLUMNS_BY_SOURCE[activeSource] ?? COLUMNS_BY_SOURCE["analytics"];
@@ -199,6 +200,12 @@ export function DataSchemaPage() {
                       className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg"
                     >
                       Настройки БД
+                    </button>
+                    <button
+                      onClick={() => { setShowDeleteDb(true); setShowDotsMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-[14px] text-[#D32F2F] hover:bg-mainbg"
+                    >
+                      Удалить базу данных
                     </button>
                   </div>
                 )}
@@ -360,6 +367,14 @@ export function DataSchemaPage() {
           name={source?.name ?? ""}
           onClose={() => setShowDbSettings(false)}
           onSave={() => setShowDbSettings(false)}
+        />
+      )}
+
+      {showDeleteDb && (
+        <DeleteDbModal
+          name={source?.name ?? "База данных"}
+          onClose={() => setShowDeleteDb(false)}
+          onConfirm={() => setShowDeleteDb(false)}
         />
       )}
     </div>
