@@ -25,6 +25,12 @@ class App(Base):
         ForeignKey("identity.user.id", ondelete="SET NULL"),
         nullable=False,
     )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("identity.organisation.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

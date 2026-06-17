@@ -20,12 +20,21 @@ BearerDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme
 
 class CurrentUser:
     """Parsed JWT claims attached to the request."""
-    def __init__(self, user_id: UUID, roles: list[str]) -> None:
+    def __init__(self, user_id: UUID, roles: list[str], org_id: UUID | None = None) -> None:
         self.user_id = user_id
         self.roles = roles
+        self.org_id = org_id
 
     def has_role(self, *roles: str) -> bool:
         return bool(set(self.roles) & set(roles))
+
+    @property
+    def is_platform_admin(self) -> bool:
+        return "platform_admin" in self.roles
+
+    @property
+    def is_org_admin(self) -> bool:
+        return "org_admin" in self.roles
 
 
 async def get_current_user(credentials: BearerDep) -> CurrentUser:
@@ -45,9 +54,11 @@ async def get_current_user(credentials: BearerDep) -> CurrentUser:
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
+    raw_org = payload.get("org_id")
     return CurrentUser(
         user_id=UUID(payload["sub"]),
         roles=payload.get("roles", []),
+        org_id=UUID(raw_org) if raw_org else None,
     )
 
 

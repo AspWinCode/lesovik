@@ -30,10 +30,13 @@ def _build_token(subject: str, extra: dict[str, Any], expire_delta: timedelta) -
     return jwt.encode(payload, settings.JWT_PRIVATE_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_access_token(user_id: UUID, roles: list[str]) -> str:
+def create_access_token(user_id: UUID, roles: list[str], org_id: UUID | None = None) -> str:
+    extra: dict[str, Any] = {"type": "access", "roles": roles, "jti": str(_uuid.uuid4())}
+    if org_id is not None:
+        extra["org_id"] = str(org_id)
     return _build_token(
         subject=str(user_id),
-        extra={"type": "access", "roles": roles, "jti": str(_uuid.uuid4())},
+        extra=extra,
         expire_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
 

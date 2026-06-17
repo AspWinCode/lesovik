@@ -43,6 +43,7 @@ async def list_apps(
         limit=limit,
         search=search,
         include_archived=include_archived,
+        actor_org_id=current_user.org_id,
     )
 
 
@@ -51,7 +52,9 @@ async def create_app(body: AppCreate, current_user: AuthDep, db: DbDep) -> AppRe
     if not current_user.has_role("platform_admin", "app_builder"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
-        return await AppService(db).create_app(body, owner_id=current_user.user_id)
+        return await AppService(db).create_app(
+            body, owner_id=current_user.user_id, org_id=current_user.org_id
+        )
     except AppConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 

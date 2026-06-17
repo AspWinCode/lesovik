@@ -51,11 +51,17 @@ class AppService:
         limit: int = 50,
         search: str | None = None,
         include_archived: bool = False,
+        actor_org_id: uuid.UUID | None = None,
     ) -> CursorPage[AppRead]:
         stmt = select(App).order_by(App.created_at.asc(), App.id.asc())
 
-        if not is_platform_admin:
-            # Non-admins only see apps they own or are members of
+        if is_platform_admin:
+            pass  # sees all apps on the platform
+        elif actor_org_id is not None:
+            # org members see only their org's apps
+            stmt = stmt.where(App.org_id == actor_org_id)
+        else:
+            # legacy: no org — fall back to owner/member check
             stmt = stmt.where(
                 or_(
                     App.owner_id == actor_id,
@@ -101,7 +107,9 @@ class AppService:
             await self._require_member(app_id, actor_id)
         return AppRead.model_validate(app)
 
-    async def create_app(self, data: AppCreate, owner_id: uuid.UUID) -> AppRead:
+    async def create_app(
+        self, data: AppCreate, owner_id: uuid.UUID, org_id: uuid.UUID | None = None
+    ) -> AppRead:
         existing = await self._db.execute(select(App).where(App.slug == data.slug))
         if existing.scalar_one_or_none():
             raise AppConflictError(f"Slug already taken: {data.slug}")
@@ -114,6 +122,7 @@ class AppService:
             color=data.color,
             settings=data.settings,
             owner_id=owner_id,
+            org_id=org_id,
         )
         self._db.add(app)
         await self._db.flush()

@@ -213,7 +213,7 @@ class AuthService:
         ip: str | None = None,
     ) -> TokenPair:
         raw_refresh = secrets.token_urlsafe(64)
-        access = create_access_token(user.id, user.role_ids)
+        access = create_access_token(user.id, user.role_ids, org_id=user.org_id)
         refresh = create_refresh_token(user.id)
 
         # Store hashed refresh token

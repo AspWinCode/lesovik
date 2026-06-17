@@ -41,12 +41,20 @@ class UserService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def list_users(self, params: UserListParams) -> CursorPage[UserRead]:
+    async def list_users(
+        self,
+        params: UserListParams,
+        actor_org_id: uuid.UUID | None = None,
+    ) -> CursorPage[UserRead]:
         stmt = (
             select(User)
             .options(selectinload(User.roles))
             .order_by(User.created_at.asc(), User.id.asc())
         )
+
+        # org_admin sees only users within their organisation
+        if actor_org_id is not None:
+            stmt = stmt.where(User.org_id == actor_org_id)
 
         if params.is_active is not None:
             stmt = stmt.where(User.is_active == params.is_active)
@@ -92,6 +100,7 @@ class UserService:
         data: UserCreate,
         granted_by: uuid.UUID | None = None,
         actor_email: str | None = None,
+        actor_org_id: uuid.UUID | None = None,
     ) -> UserRead:
         # Validate password policy
         try:
@@ -104,10 +113,14 @@ class UserService:
         if existing.scalar_one_or_none():
             raise UserConflictError(f"Email already registered: {data.email}")
 
+        if actor_org_id is not None:
+            self._check_org_assignable_roles(data.roles)
+
         user = User(
             email=data.email,
             display_name=data.display_name,
             password_hash=hash_password(data.password),
+            org_id=actor_org_id,
         )
         self._db.add(user)
         await self._db.flush()
@@ -133,17 +146,22 @@ class UserService:
         data: InviteUserRequest,
         granted_by: uuid.UUID | None = None,
         actor_email: str | None = None,
+        actor_org_id: uuid.UUID | None = None,
     ) -> tuple[UserRead, str]:
         """Create user with random password, return (user, temp_password)."""
         existing = await self._db.execute(select(User).where(User.email == data.email))
         if existing.scalar_one_or_none():
             raise UserConflictError(f"Email already registered: {data.email}")
 
+        if actor_org_id is not None:
+            self._check_org_assignable_roles(data.roles)
+
         temp_password = secrets.token_urlsafe(12)
         user = User(
             email=data.email,
             display_name=data.display_name,
             password_hash=hash_password(temp_password),
+            org_id=actor_org_id,
         )
         self._db.add(user)
         await self._db.flush()
@@ -170,8 +188,14 @@ class UserService:
         data: UserUpdate,
         updated_by: uuid.UUID | None = None,
         actor_email: str | None = None,
+        actor_org_id: uuid.UUID | None = None,
     ) -> UserRead:
         user = await self._fetch_user(user_id)
+
+        # org_admin can only manage users within their own org
+        if actor_org_id is not None and user.org_id != actor_org_id:
+            raise PermissionError("Cannot manage users outside your organisation")
+
         changed: dict[str, object] = {}
 
         if data.display_name is not None:
@@ -181,6 +205,8 @@ class UserService:
             user.is_active = data.is_active
             changed["is_active"] = data.is_active
         if data.roles is not None:
+            if actor_org_id is not None:
+                self._check_org_assignable_roles(data.roles)
             await self._set_roles(user_id, data.roles, granted_by=updated_by)
             changed["roles"] = data.roles
 
@@ -203,10 +229,13 @@ class UserService:
         user_id: uuid.UUID,
         deleted_by: uuid.UUID | None = None,
         actor_email: str | None = None,
+        actor_org_id: uuid.UUID | None = None,
     ) -> None:
         user = await self._fetch_user(user_id)
         if user.is_superuser:
             raise PermissionError("Cannot delete superuser")
+        if actor_org_id is not None and user.org_id != actor_org_id:
+            raise PermissionError("Cannot manage users outside your organisation")
         user.is_active = False
         await self._db.flush()
         logger.info("user_deactivated", user_id=str(user_id))
@@ -272,3 +301,13 @@ class UserService:
         # Insert new ones
         for rid in role_ids:
             self._db.add(UserRole(user_id=user_id, role_id=rid, granted_by=granted_by))
+
+    _ORG_ASSIGNABLE_ROLES = {
+        "org_admin", "app_builder", "app_admin",
+        "data_editor", "data_viewer", "workflow_actor", "auditor", "api_client",
+    }
+
+    def _check_org_assignable_roles(self, role_ids: list[str]) -> None:
+        forbidden = set(role_ids) - self._ORG_ASSIGNABLE_ROLES
+        if forbidden:
+            raise PermissionError(f"Roles not assignable by org_admin: {forbidden}")

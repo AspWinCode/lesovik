@@ -35,21 +35,24 @@ async def list_users(
     role: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
 ) -> CursorPage[UserRead]:
-    if not current_user.has_role("platform_admin", "auditor"):
+    if not current_user.has_role("platform_admin", "auditor", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     params = UserListParams(cursor=cursor, limit=limit, search=search, role=role, is_active=is_active)
-    return await UserService(db).list_users(params)
+    # org_admin sees only their org; platform_admin/auditor see all
+    actor_org_id = current_user.org_id if not current_user.has_role("platform_admin", "auditor") else None
+    return await UserService(db).list_users(params, actor_org_id=actor_org_id)
 
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Create user")
 async def create_user(body: UserCreate, current_user: AuthDep, db: DbDep) -> UserRead:
-    if not current_user.has_role("platform_admin"):
+    if not current_user.has_role("platform_admin", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
         return await UserService(db).create_user(
             body,
             granted_by=current_user.user_id,
             actor_email=current_user.email if hasattr(current_user, "email") else None,
+            actor_org_id=current_user.org_id if current_user.is_org_admin else None,
         )
     except UserConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -64,7 +67,7 @@ async def create_user(body: UserCreate, current_user: AuthDep, db: DbDep) -> Use
     summary="Invite user by email (sends invitation email with temp password)",
 )
 async def invite_user(body: InviteUserRequest, current_user: AuthDep, db: DbDep) -> UserRead:
-    if not current_user.has_role("platform_admin"):
+    if not current_user.has_role("platform_admin", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
         svc = UserService(db)
@@ -72,6 +75,7 @@ async def invite_user(body: InviteUserRequest, current_user: AuthDep, db: DbDep)
             body,
             granted_by=current_user.user_id,
             actor_email=getattr(current_user, "email", None),
+            actor_org_id=current_user.org_id if current_user.is_org_admin else None,
         )
         # Send invitation email (non-blocking — swallows errors)
         import asyncio
@@ -96,33 +100,46 @@ async def me(current_user: AuthDep, db: DbDep) -> UserRead:
 
 @router.get("/{user_id}", response_model=UserRead, summary="Get user by ID")
 async def get_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> UserRead:
-    # Users can read their own profile; admins/auditors can read any
-    if user_id != current_user.user_id and not current_user.has_role("platform_admin", "auditor"):
+    if user_id != current_user.user_id and not current_user.has_role("platform_admin", "auditor", "org_admin"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     try:
-        return await UserService(db).get_by_id(user_id)
+        user = await UserService(db).get_by_id(user_id)
+        # org_admin can only see users in their own org
+        if current_user.is_org_admin and not current_user.is_platform_admin:
+            if user.id != current_user.user_id and user.org_id != current_user.org_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        return user
     except UserNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
 
 
 @router.patch("/{user_id}", response_model=UserRead, summary="Update user")
 async def update_user(user_id: uuid.UUID, body: UserUpdate, current_user: AuthDep, db: DbDep) -> UserRead:
-    if not current_user.has_role("platform_admin"):
+    if not current_user.has_role("platform_admin", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
-        return await UserService(db).update_user(user_id, body, updated_by=current_user.user_id)
+        return await UserService(db).update_user(
+            user_id,
+            body,
+            updated_by=current_user.user_id,
+            actor_org_id=current_user.org_id if current_user.is_org_admin else None,
+        )
     except UserNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Deactivate user")
 async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> None:
-    if not current_user.has_role("platform_admin"):
+    if not current_user.has_role("platform_admin", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
-        await UserService(db).delete_user(user_id)
+        await UserService(db).delete_user(
+            user_id,
+            deleted_by=current_user.user_id,
+            actor_org_id=current_user.org_id if current_user.is_org_admin else None,
+        )
     except UserNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
     except PermissionError as exc:

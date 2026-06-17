@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 
 ROLES = [
     {"id": "platform_admin", "display_name": "Platform Admin"},
+    {"id": "org_admin",      "display_name": "Organisation Admin"},
     {"id": "app_builder",    "display_name": "App Builder"},
     {"id": "app_admin",      "display_name": "App Admin"},
     {"id": "data_editor",    "display_name": "Data Editor"},

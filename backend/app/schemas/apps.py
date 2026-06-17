@@ -19,6 +19,7 @@ class AppRead(BaseModel):
     icon: str | None
     color: str | None
     owner_id: uuid.UUID
+    org_id: uuid.UUID | None = None
     is_published: bool
     is_archived: bool
     settings: dict
