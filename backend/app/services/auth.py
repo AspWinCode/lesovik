@@ -17,11 +17,13 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.identity import RefreshToken, User
+from app.models.identity import PasswordResetToken, RefreshToken, User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     LdapLoginRequest,
     LoginRequest,
+    ResetPasswordRequest,
     TokenPair,
     TOTPSetupResponse,
     YandexCallbackRequest,
@@ -168,6 +170,70 @@ class AuthService:
         )
         await self.logout_all(user_id)
         logger.info("password_changed", user_id=str(user_id))
+
+    # ------------------------------------------------------------------
+    # Forgot / reset password
+    # ------------------------------------------------------------------
+    async def request_password_reset(self, req: ForgotPasswordRequest) -> None:
+        from datetime import timedelta
+        from app.services.email import send_password_reset_email
+
+        result = await self._db.execute(
+            select(User).where(User.email == req.email, User.is_active.is_(True))
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            # Silent — don't reveal whether the email exists
+            return
+
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = _hash_token(raw_token)
+        expires_at = datetime.now(UTC) + timedelta(hours=1)
+
+        self._db.add(PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+        ))
+        await self._db.flush()
+
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
+        await send_password_reset_email(to=user.email, display_name=user.display_name, reset_url=reset_url)
+        logger.info("password_reset_requested", user_id=str(user.id))
+
+    async def reset_password(self, req: ResetPasswordRequest) -> None:
+        from datetime import timedelta
+        from app.core.password_policy import validate_password, PasswordPolicyError
+
+        token_hash = _hash_token(req.token)
+        result = await self._db.execute(
+            select(PasswordResetToken).where(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used.is_(False),
+                PasswordResetToken.expires_at > datetime.now(UTC),
+            )
+        )
+        reset_token = result.scalar_one_or_none()
+        if reset_token is None:
+            raise AuthError("Ссылка недействительна или истекла", status_code=400)
+
+        try:
+            validate_password(req.new_password)
+        except PasswordPolicyError as exc:
+            raise AuthError(str(exc), status_code=422) from exc
+
+        await self._db.execute(
+            update(User)
+            .where(User.id == reset_token.user_id)
+            .values(password_hash=hash_password(req.new_password))
+        )
+        await self._db.execute(
+            update(PasswordResetToken)
+            .where(PasswordResetToken.id == reset_token.id)
+            .values(used=True)
+        )
+        await self.logout_all(reset_token.user_id)
+        logger.info("password_reset_completed", user_id=str(reset_token.user_id))
 
     # ------------------------------------------------------------------
     # TOTP setup / enable / disable

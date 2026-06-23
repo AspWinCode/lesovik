@@ -7,9 +7,11 @@ from app.api.deps import AuthDep, DbDep
 from app.core.rate_limit import limiter
 from app.schemas.auth import (
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     LdapLoginRequest,
     LoginRequest,
     RefreshRequest,
+    ResetPasswordRequest,
     TOTPSetupResponse,
     TOTPVerifyRequest,
     TokenPair,
@@ -63,6 +65,24 @@ async def logout(req: RefreshRequest, db: DbDep) -> None:
 )
 async def logout_all(current_user: AuthDep, db: DbDep) -> None:
     await _svc(db).logout_all(current_user.user_id)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT, summary="Request password reset email")
+@limiter.limit("5/minute")
+async def forgot_password(req: ForgotPasswordRequest, request: Request, db: DbDep) -> None:
+    try:
+        await _svc(db).request_password_reset(req)
+    except AuthError as exc:
+        raise _map_auth_error(exc) from exc
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT, summary="Set new password using reset token")
+@limiter.limit("10/minute")
+async def reset_password(req: ResetPasswordRequest, request: Request, db: DbDep) -> None:
+    try:
+        await _svc(db).reset_password(req)
+    except AuthError as exc:
+        raise _map_auth_error(exc) from exc
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

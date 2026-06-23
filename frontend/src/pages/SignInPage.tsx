@@ -134,11 +134,20 @@ export function SignInPage() {
           </p>
         )}
 
+        {/* Forgot password link */}
+        <Link
+          to="/forgot-password"
+          className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
+          style={{ left: "calc(50% - 175px)", top: totpRequired ? 398 : 313 }}
+        >
+          Забыли пароль?
+        </Link>
+
         {/* Sign-up link */}
         <Link
           to="/signup"
           className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
-          style={{ left: "calc(50% - 56px + 119px)", top: totpRequired ? 398 : 313 }}
+          style={{ left: "calc(50% - 56px + 75px)", top: totpRequired ? 398 : 313 }}
         >
           Ещё нет аккаунта?
         </Link>

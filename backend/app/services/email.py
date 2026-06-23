@@ -40,6 +40,28 @@ async def send_email(
         logger.exception("email_send_failed", to=to, subject=subject)
 
 
+async def send_password_reset_email(
+    to: str,
+    display_name: str,
+    reset_url: str,
+) -> None:
+    subject = "Сброс пароля"
+    html = f"""
+<p>Здравствуйте, {display_name}!</p>
+<p>Мы получили запрос на сброс пароля для вашего аккаунта.</p>
+<p><a href="{reset_url}">Сбросить пароль</a></p>
+<p>Ссылка действительна 1 час. Если вы не запрашивали сброс — просто проигнорируйте это письмо.</p>
+"""
+    text = (
+        f"Здравствуйте, {display_name}!\n\n"
+        "Мы получили запрос на сброс пароля.\n"
+        f"Перейдите по ссылке: {reset_url}\n"
+        "Ссылка действительна 1 час.\n"
+        "Если вы не запрашивали сброс — проигнорируйте это письмо."
+    )
+    await send_email(to, subject, html, text)
+
+
 async def send_invitation_email(
     to: str,
     display_name: str,

@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # CORS — comma-separated string; parse with cors_origins_list property
     CORS_ORIGINS: str = ""
 
+    # Public frontend URL (used in password-reset emails)
+    FRONTEND_URL: str = "http://localhost:5173/editor"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
