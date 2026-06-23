@@ -4,17 +4,19 @@ import { cn } from "@/lib/cn";
 import { useUsers, useDeactivateUser, useUpdateUser, useInviteUser, useRoles } from "@/shared/hooks/useUsers";
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
+import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
 
 /* ── Types ── */
-type AdminSection = "home" | "logs" | "users" | "apps" | "databases";
+type AdminSection = "home" | "orgs" | "logs" | "users" | "apps" | "databases";
 
 /* ── Admin Sidebar ── */
 const adminItems: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
-  { id: "home",      label: "Главная",      icon: <HomeIcon /> },
-  { id: "logs",      label: "Логи",         icon: <LogsIcon /> },
-  { id: "users",     label: "Пользователи", icon: <UsersIcon /> },
-  { id: "apps",      label: "Приложения",   icon: <AppsIcon /> },
-  { id: "databases", label: "Базы данных",  icon: <DbIcon /> },
+  { id: "home",      label: "Главная",        icon: <HomeIcon /> },
+  { id: "orgs",      label: "Организации",    icon: <OrgsIcon /> },
+  { id: "users",     label: "Пользователи",   icon: <UsersIcon /> },
+  { id: "apps",      label: "Приложения",     icon: <AppsIcon /> },
+  { id: "databases", label: "Базы данных",    icon: <DbIcon /> },
+  { id: "logs",      label: "Логи",           icon: <LogsIcon /> },
 ];
 
 function AdminSidebar({
@@ -756,12 +758,206 @@ function AdminDatabases() {
   );
 }
 
+/* ── Organisations ── */
+const PLAN_LABELS: Record<string, string> = {
+  trial:    "Trial",
+  pro:      "Про",
+  business: "Бизнес",
+};
+
+function CreateOrgDialog({ onClose }: { onClose: () => void }) {
+  const [form, setForm] = useState({
+    display_name: "",
+    slug: "",
+    plan: "trial",
+    admin_email: "",
+    admin_display_name: "",
+    admin_password: "",
+  });
+  const create = useCreateOrg();
+
+  function set(k: string, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    create.mutate(form, { onSuccess: onClose });
+  }
+
+  const fields: { key: keyof typeof form; label: string; type?: string; placeholder: string }[] = [
+    { key: "display_name",      label: "Название организации",  placeholder: "ООО Ромашка" },
+    { key: "slug",              label: "Slug (ID)",             placeholder: "romashka" },
+    { key: "plan",              label: "Тариф",                 placeholder: "trial" },
+    { key: "admin_email",       label: "Email администратора",  type: "email", placeholder: "admin@company.ru" },
+    { key: "admin_display_name",label: "Имя администратора",    placeholder: "Иван Петров" },
+    { key: "admin_password",    label: "Пароль администратора", type: "password", placeholder: "••••••••••" },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-[20px] shadow-[0_8px_32px_rgba(0,32,95,0.15)] w-[540px] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-8 py-6 border-b border-[#cbe3ff]">
+          <span className="text-[24px] font-bold text-primary">Создать организацию</span>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+              <path d="M3 3L13 13M13 3L3 13" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5 px-8 py-6">
+          {fields.map(({ key, label, type = "text", placeholder }) => (
+            <div key={key} className="flex flex-col gap-1">
+              <label className="text-[14px] font-semibold text-primary">{label}</label>
+              <input
+                type={type}
+                value={form[key]}
+                onChange={(e) => set(key, e.target.value)}
+                required
+                placeholder={placeholder}
+                className="h-[44px] px-4 bg-mainbg rounded-[8px] text-[15px] text-primary outline-none border border-[#cbe3ff] focus:border-cta"
+              />
+            </div>
+          ))}
+          {create.isError && (
+            <p className="text-[14px] text-[#C22A2A]">Ошибка создания. Проверьте данные.</p>
+          )}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 h-[44px] border-2 border-[#cbe3ff] rounded-[22px] text-[16px] font-semibold text-primary hover:bg-mainbg transition-colors"
+            >
+              Отмена
+            </button>
+            <button
+              type="submit"
+              disabled={create.isPending}
+              className="flex-1 h-[44px] bg-cta rounded-[22px] text-[16px] font-semibold text-white hover:bg-cta/90 disabled:opacity-50 transition-colors"
+            >
+              {create.isPending ? "Создание…" : "Создать"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AdminOrgs() {
+  const [createOpen, setCreateOpen] = useState(false);
+  const { data: orgs, isLoading } = useOrgs();
+  const updateOrg = useUpdateOrg();
+
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleDateString("ru", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  }
+
+  return (
+    <div className="flex flex-col gap-[40px]">
+      {createOpen && <CreateOrgDialog onClose={() => setCreateOpen(false)} />}
+
+      <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-[10px]">
+          <h1 className="text-[40px] font-bold text-primary leading-[150%]">Организации</h1>
+          <p className="text-[18px] font-medium text-primary/60 leading-[150%]">
+            Управление компаниями на платформе
+          </p>
+        </div>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-2 h-[44px] px-6 bg-cta rounded-[22px] text-[15px] font-semibold text-white hover:bg-cta/90 transition-colors shrink-0"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4">
+            <line x1="10" y1="3" x2="10" y2="17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+            <line x1="3" y1="10" x2="17" y2="10" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Создать организацию
+        </button>
+      </div>
+
+      <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-[#cbe3ff]">
+              {["Название", "Slug", "Тариф", "Статус", "Дата создания", ""].map((h) => (
+                <th key={h} className="text-left px-6 py-3 text-[16px] font-semibold text-primary">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={6} className="px-6 py-4 text-center text-primary/50 text-[16px]">Загрузка…</td>
+              </tr>
+            )}
+            {!isLoading && (orgs ?? []).length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-6 py-4 text-center text-primary/50 text-[16px]">
+                  Организаций пока нет
+                </td>
+              </tr>
+            )}
+            {(orgs ?? []).map((org) => (
+              <tr
+                key={org.id}
+                className="border-t-2 border-[#cbe3ff] hover:bg-mainbg/40 transition-colors"
+              >
+                <td className="px-6 py-3 text-[15px] font-semibold text-primary">{org.display_name}</td>
+                <td className="px-6 py-3 text-[14px] text-primary/70 font-mono">{org.slug}</td>
+                <td className="px-6 py-3 text-[14px] font-medium text-primary">
+                  {PLAN_LABELS[org.plan] ?? org.plan}
+                </td>
+                <td className={cn(
+                  "px-6 py-3 text-[14px] font-medium",
+                  org.is_active ? "text-[#20BE4F]" : "text-[#C22A2A]"
+                )}>
+                  {org.is_active ? "Активна" : "Отключена"}
+                </td>
+                <td className="px-6 py-3 text-[14px] text-primary">{fmtDate(org.created_at)}</td>
+                <td className="px-6 py-3">
+                  {org.is_active ? (
+                    <button
+                      onClick={() => updateOrg.mutate({ orgId: org.id, body: { is_active: false } })}
+                      className="text-[13px] text-[#C22A2A] hover:underline"
+                    >
+                      Отключить
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => updateOrg.mutate({ orgId: org.id, body: { is_active: true } })}
+                      className="text-[13px] text-[#20BE4F] hover:underline"
+                    >
+                      Включить
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main export ── */
 export function AdminPage() {
   const [section, setSection] = useState<AdminSection>("home");
 
   const contentMap: Record<AdminSection, React.ReactNode> = {
     home:      <AdminDashboard />,
+    orgs:      <AdminOrgs />,
     logs:      <AdminLogs />,
     users:     <AdminUsers />,
     apps:      <AdminApps />,
@@ -791,6 +987,19 @@ export function AdminPage() {
 }
 
 /* ── Icons ── */
+function OrgsIcon() {
+  return (
+    <svg viewBox="0 0 25 25" fill="none" className="w-full h-full">
+      <rect x="2" y="7" width="10" height="14" rx="2" stroke="#00205F" strokeWidth="2"/>
+      <rect x="13" y="3" width="10" height="18" rx="2" stroke="#00205F" strokeWidth="2"/>
+      <line x1="5" y1="11" x2="9" y2="11" stroke="#00205F" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="5" y1="14" x2="9" y2="14" stroke="#00205F" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="16" y1="7" x2="20" y2="7" stroke="#00205F" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="16" y1="11" x2="20" y2="11" stroke="#00205F" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
 function HomeIcon() {
   return (
     <svg viewBox="0 0 25 25" fill="none" className="w-full h-full">
