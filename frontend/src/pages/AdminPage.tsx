@@ -5,26 +5,28 @@ import { useUsers, useDeactivateUser, useUpdateUser, useInviteUser, useRoles } f
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
 import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
+import { useAuthStore } from "@/shared/auth/store";
 
 /* ── Types ── */
 type AdminSection = "home" | "orgs" | "logs" | "users" | "apps" | "databases";
 
-/* ── Admin Sidebar ── */
-const adminItems: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
+const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode; platformOnly?: boolean }[] = [
   { id: "home",      label: "Главная",        icon: <HomeIcon /> },
-  { id: "orgs",      label: "Организации",    icon: <OrgsIcon /> },
+  { id: "orgs",      label: "Организации",    icon: <OrgsIcon />, platformOnly: true },
   { id: "users",     label: "Пользователи",   icon: <UsersIcon /> },
-  { id: "apps",      label: "Приложения",     icon: <AppsIcon /> },
-  { id: "databases", label: "Базы данных",    icon: <DbIcon /> },
-  { id: "logs",      label: "Логи",           icon: <LogsIcon /> },
+  { id: "apps",      label: "Приложения",     icon: <AppsIcon />, platformOnly: true },
+  { id: "databases", label: "Базы данных",    icon: <DbIcon />, platformOnly: true },
+  { id: "logs",      label: "Журнал аудита",  icon: <LogsIcon /> },
 ];
 
 function AdminSidebar({
   active,
   onChange,
+  items,
 }: {
   active: AdminSection;
   onChange: (s: AdminSection) => void;
+  items: typeof ALL_ADMIN_ITEMS;
 }) {
   return (
     <aside
@@ -32,7 +34,7 @@ function AdminSidebar({
       style={{ padding: "0 15px 12px" }}
     >
       <nav className="flex flex-col w-[250px] gap-[15px]">
-        {adminItems.map((item) => (
+        {items.map((item) => (
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
@@ -269,6 +271,9 @@ function AdminLogs() {
   const [activeTab, setActiveTab] = useState("user");
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const { data: rawLogs, isLoading } = useAuditLogs({ limit: 100 });
+  const user = useAuthStore((s) => s.user);
+  const isOrgAdmin = user?.roles.some((r) => r.id === "org_admin") &&
+    !user?.roles.some((r) => r.id === "platform_admin");
 
   const logs: LogEntry[] = (rawLogs ?? []).map((e) => ({
     time:   new Date(e.created_at).toLocaleString("ru", { dateStyle: "short", timeStyle: "short" }),
@@ -285,10 +290,17 @@ function AdminLogs() {
       {/* Left: list */}
       <div className="flex flex-col gap-[40px] flex-1 min-w-0">
         <div className="flex flex-col gap-[10px]">
-          <h1 className="text-[40px] font-bold text-primary leading-[150%]">Логи и мониторинг</h1>
+          <h1 className="text-[40px] font-bold text-primary leading-[150%]">Журнал аудита</h1>
           <p className="text-[24px] font-medium text-primary leading-[150%]">
-            Обзор состояния платформы и ключевых метрик в реальном времени
+            История действий пользователей в системе
           </p>
+          {isOrgAdmin && (
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-[10px] px-4 py-2 self-start">
+              <span className="text-[14px] text-blue-700">
+                Отображаются только действия пользователей вашей организации
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center bg-white rounded-tab p-[3.6px] gap-2 self-start">
@@ -953,7 +965,15 @@ function AdminOrgs() {
 
 /* ── Main export ── */
 export function AdminPage() {
-  const [section, setSection] = useState<AdminSection>("home");
+  const user = useAuthStore((s) => s.user);
+  const isPlatformAdmin = user?.roles.some((r) => r.id === "platform_admin") ?? false;
+
+  const sidebarItems = ALL_ADMIN_ITEMS.filter(
+    (item) => !item.platformOnly || isPlatformAdmin
+  );
+
+  const defaultSection: AdminSection = isPlatformAdmin ? "home" : "logs";
+  const [section, setSection] = useState<AdminSection>(defaultSection);
 
   const contentMap: Record<AdminSection, React.ReactNode> = {
     home:      <AdminDashboard />,
@@ -967,7 +987,7 @@ export function AdminPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <AdminSidebar active={section} onChange={setSection} />
+      <AdminSidebar active={section} onChange={setSection} items={sidebarItems} />
 
       <main
         className="absolute bg-mainbg overflow-y-auto"

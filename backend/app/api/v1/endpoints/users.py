@@ -161,8 +161,10 @@ async def get_audit_logs(
     level: str | None = Query(default=None),
     action: str | None = Query(default=None),
 ) -> list[AuditLogRead]:
-    if not current_user.has_role("platform_admin", "auditor"):
+    if not current_user.has_role("platform_admin", "auditor", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    # org_admin sees only their org's logs; platform_admin/auditor see all
+    org_id = current_user.org_id if current_user.has_role("org_admin") and not current_user.has_role("platform_admin", "auditor") else None
     return await UserService(db).list_audit_logs(
-        limit=limit, offset=offset, level=level, action=action
+        limit=limit, offset=offset, level=level, action=action, org_id=org_id
     )

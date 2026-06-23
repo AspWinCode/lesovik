@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditLog
+from app.models.identity import User
 
 logger = structlog.get_logger(__name__)
 
@@ -54,9 +55,12 @@ class AuditService:
         level: str | None = None,
         action: str | None = None,
         user_id: uuid.UUID | None = None,
+        org_id: uuid.UUID | None = None,
         since: datetime | None = None,
     ) -> list[AuditLog]:
         stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
+        if org_id:
+            stmt = stmt.join(User, User.id == AuditLog.user_id).where(User.org_id == org_id)
         if level:
             stmt = stmt.where(AuditLog.level == level)
         if action:

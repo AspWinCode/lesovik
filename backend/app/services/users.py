@@ -255,10 +255,11 @@ class UserService:
         offset: int = 0,
         level: str | None = None,
         action: str | None = None,
+        org_id: uuid.UUID | None = None,
     ) -> list[AuditLogRead]:
         from app.services.audit import AuditService
         logs = await AuditService(self._db).list_logs(
-            limit=limit, offset=offset, level=level, action=action
+            limit=limit, offset=offset, level=level, action=action, org_id=org_id
         )
         return [AuditLogRead.model_validate(e) for e in logs]
 
