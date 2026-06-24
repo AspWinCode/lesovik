@@ -66,6 +66,12 @@ function RuntimeShell() {
   });
 
   const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [viewportW, setViewportW] = useState(window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setViewportW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Preselect page from URL param or first page
   const pages = pagesQuery.data ?? [];
@@ -107,6 +113,7 @@ function RuntimeShell() {
   const activePage = navPages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
   const accent = (activePage?.layout?.design as DesignConfig | undefined)?.accent ?? "#35A7FF";
   const entities = entitiesQuery.data ?? [];
+  const narrow = viewportW < 520;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F1F6FF", color: "#00205F", fontFamily: "Inter, sans-serif" }}>
@@ -115,9 +122,30 @@ function RuntimeShell() {
         {app.name}
       </header>
 
-      <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", padding: 16, gap: 16 }}>
-        {/* Page nav */}
-        {navPages.length > 1 && (
+      {/* Horizontal tab nav on narrow screens */}
+      {navPages.length > 1 && narrow && (
+        <nav style={{ display: "flex", overflowX: "auto", gap: 4, padding: "8px 12px", background: "#fff", borderBottom: "1px solid #CBE3FF" }}>
+          {navPages.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setActivePageId(p.id)}
+              style={{
+                flexShrink: 0, padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer",
+                fontSize: 13, whiteSpace: "nowrap",
+                background: p.id === activePage?.id ? accent : "#F1F6FF",
+                color: p.id === activePage?.id ? "#fff" : "#00205F",
+                fontWeight: p.id === activePage?.id ? 600 : 400,
+              }}
+            >
+              {p.title}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", padding: narrow ? "12px 12px" : 16, gap: 16 }}>
+        {/* Sidebar nav on wide screens */}
+        {navPages.length > 1 && !narrow && (
           <nav style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
             {navPages.map((p) => (
               <button
