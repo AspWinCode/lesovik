@@ -1564,18 +1564,152 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   );
 }
 
+/* ── Icon library ── */
+type IconCat = "normal" | "thin" | "filled";
+interface IconDef { name: string; cat: IconCat; d: string | string[]; fill?: boolean }
+
+const ICON_LIB: IconDef[] = [
+  // normal (strokeWidth 1.4)
+  { name: "дом",         cat:"normal", d:"M2 8.5L9 2L16 8.5V16H12V11H6V16H2V8.5Z" },
+  { name: "пользователь",cat:"normal", d:["M9 9a3.5 3.5 0 100-7 3.5 3.5 0 000 7Z","M2.5 16c0-3.5 2.9-6.5 6.5-6.5s6.5 3 6.5 6.5"] },
+  { name: "настройки",   cat:"normal", d:["M9 6.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5Z","M9 1v2M9 15v2M1 9h2M15 9h2M3.34 3.34l1.41 1.41M13.25 13.25l1.41 1.41M3.34 14.66l1.41-1.41M13.25 4.75l1.41-1.41"] },
+  { name: "колокол",     cat:"normal", d:["M9 1.5a5.5 5.5 0 00-5.5 5.5v4l-1.5 2h14l-1.5-2V7A5.5 5.5 0 009 1.5Z","M7 15.5a2 2 0 004 0"] },
+  { name: "поиск",       cat:"normal", d:["M8 2a6 6 0 100 12A6 6 0 008 2Z","M12.5 12.5L16 16"] },
+  { name: "звезда",      cat:"normal", d:"M9 1.5L11 6.5H16.5L12 10L14 15.5L9 12.5L4 15.5L6 10L1.5 6.5H7Z" },
+  { name: "сердце",      cat:"normal", d:"M9 15.5S1.5 11.5 1.5 6a3.5 3.5 0 016.5-1.8A3.5 3.5 0 0116.5 6c0 5.5-7.5 9.5-7.5 9.5Z" },
+  { name: "плюс",        cat:"normal", d:"M9 2V16M2 9H16" },
+  { name: "минус",       cat:"normal", d:"M2 9H16" },
+  { name: "галочка",     cat:"normal", d:"M2 9L7 14L16 4" },
+  { name: "закрыть",     cat:"normal", d:"M3 3L15 15M15 3L3 15" },
+  { name: "карандаш",    cat:"normal", d:"M12.5 2.5L15.5 5.5L6 15L2 16L3 12L12.5 2.5Z" },
+  { name: "корзина",     cat:"normal", d:["M3 5H15","M6 5V3H12V5","M5 5L6 16H12L13 5"] },
+  { name: "письмо",      cat:"normal", d:["M2 4H16V14H2V4Z","M2 4L9 10L16 4"] },
+  { name: "телефон",     cat:"normal", d:"M4 2S6 4 6 6L4.5 7.5C5.5 9.5 8.5 12.5 10.5 13.5L12 12C14 12 16 14 16 14L14 16C10 17 1 8 2 4Z" },
+  { name: "календарь",   cat:"normal", d:["M3 4H15V15H3V4Z","M3 8H15","M7 2V4","M11 2V4"] },
+  { name: "часы",        cat:"normal", d:["M9 2a7 7 0 100 14A7 7 0 009 2Z","M9 5V9L12 11"] },
+  { name: "файл",        cat:"normal", d:["M4 2H11L14 5V16H4V2Z","M11 2V5H14"] },
+  { name: "папка",       cat:"normal", d:"M2 5H7L9 3H16V14H2V5Z" },
+  { name: "диаграмма",   cat:"normal", d:"M2 14H16M4 14V9H7V14M8 14V6H11V14M12 14V11H15V14" },
+  { name: "линия тренда",cat:"normal", d:["M2 13L6 9L9 11L13 6L16 8","M2 14H16"] },
+  { name: "замок",       cat:"normal", d:["M5 8V6a4 4 0 018 0V8","M3 8H15V16H3V8Z","M9 11V13"] },
+  { name: "стрелка вверх",cat:"normal",d:"M9 15V3M3 9L9 3L15 9" },
+  { name: "стрелка вниз",cat:"normal", d:"M9 3V15M3 9L9 15L15 9" },
+  { name: "меню",        cat:"normal", d:"M2 5H16M2 9H16M2 13H16" },
+  { name: "список",      cat:"normal", d:"M6 5H16M6 9H16M6 13H16M2.5 5H3.5M2.5 9H3.5M2.5 13H3.5" },
+  { name: "сетка",       cat:"normal", d:["M2 2H7V7H2V2Z","M11 2H16V7H11V2Z","M2 11H7V16H2V11Z","M11 11H16V16H11V11Z"] },
+  { name: "облако",      cat:"normal", d:"M13 13H5a3.5 3.5 0 010-7h.2A4 4 0 0113 7a3 3 0 010 6Z" },
+  { name: "загрузить",   cat:"normal", d:"M9 2V12M4 8L9 13L14 8M2 16H16" },
+  { name: "выгрузить",   cat:"normal", d:"M9 13V3M14 7L9 2L4 7M2 16H16" },
+  { name: "поделиться",  cat:"normal", d:["M13 3a2 2 0 100 4 2 2 0 000-4Z","M5 7a2 2 0 100 4 2 2 0 000-4Z","M13 11a2 2 0 100 4 2 2 0 000-4Z","M7 9.5L11 7M7 8.5L11 11"] },
+  { name: "ссылка",      cat:"normal", d:["M7.5 10.5L6 12a3 3 0 004.24 4.24L13 13.24a3 3 0 000-4.24L12 8","M10.5 7.5L12 6a3 3 0 00-4.24-4.24L5 4.76a3 3 0 000 4.24L6 10"] },
+  { name: "изображение", cat:"normal", d:["M2 3H16V14H2V3Z","M2 10L5 7L8 10L11 7L16 12"] },
+  { name: "метка",       cat:"normal", d:["M2 2H8L16 10L10 16L2 8V2Z","M5 5H6"] },
+  { name: "глаз",        cat:"normal", d:["M9 4C5 4 2 9 2 9S5 14 9 14S16 9 16 9S13 4 9 4Z","M9 7a2 2 0 100 4 2 2 0 000-4Z"] },
+  { name: "отправить",   cat:"normal", d:["M16 2L2 8L8 10L10 16L16 2Z","M8 10L16 2"] },
+  { name: "закладка",    cat:"normal", d:"M5 2H13V16L9 13L5 16V2Z" },
+  { name: "ключ",        cat:"normal", d:["M6 6a4 4 0 100 8 4 4 0 000-8Z","M10 10H16M13 10V13"] },
+  { name: "фильтр",      cat:"normal", d:"M2 3H16L11 9V15L7 13V9L2 3Z" },
+  { name: "обновить",    cat:"normal", d:["M14 9a5 5 0 10-1 3","M14 12V9H11"] },
+  { name: "база данных", cat:"normal", d:["M2 5C2 3.3 5.1 2 9 2S16 3.3 16 5v2c0 1.7-3.1 3-7 3S2 8.7 2 7V5Z","M2 7v4c0 1.7 3.1 3 7 3s7-1.3 7-3V7","M2 11v2c0 1.7 3.1 3 7 3s7-1.3 7-3V11"] },
+  { name: "глобус",      cat:"normal", d:["M9 2a7 7 0 100 14A7 7 0 009 2Z","M9 2C7 2 5.5 5.1 5.5 9S7 16 9 16s3.5-3.1 3.5-7S11 2 9 2Z","M2 9H16"] },
+  { name: "карта",       cat:"normal", d:["M9 2a5 5 0 00-5 5c0 3.5 5 9 5 9S14 10.5 14 7a5 5 0 00-5-5Z","M9 8a1.5 1.5 0 100-3 1.5 1.5 0 000 3Z"] },
+  { name: "предупреждение",cat:"normal",d:["M9 2L16 14H2L9 2Z","M9 8V11","M9 12.5V13.5"] },
+  { name: "информация",  cat:"normal", d:["M9 2a7 7 0 100 14A7 7 0 009 2Z","M9 8V12","M9 6V7"] },
+  { name: "копировать",  cat:"normal", d:["M6 4H14V14H6V4Z","M4 6H4V16H12V14"] },
+  { name: "солнце",      cat:"normal", d:["M9 6a3 3 0 100 6 3 3 0 000-6Z","M9 1V3M9 15V17M1 9H3M15 9H17M3.34 3.34l1.41 1.41M13.25 13.25l1.41 1.41M3.34 14.66l1.41-1.41M13.25 4.75l1.41-1.41"] },
+  { name: "луна",        cat:"normal", d:"M10 2a7 7 0 100 14A5 5 0 0110 2Z" },
+  { name: "кружок",      cat:"normal", d:"M9 9m-6 0a6 6 0 1012 0a6 6 0 01-12 0Z" },
+  { name: "флаг",        cat:"normal", d:"M3 2V16M3 2L15 5L3 10" },
+  // thin (strokeWidth 1.0)
+  { name: "дом",          cat:"thin", d:"M2 8.5L9 2L16 8.5V16H12V11H6V16H2V8.5Z" },
+  { name: "пользователь", cat:"thin", d:["M9 9a3.5 3.5 0 100-7 3.5 3.5 0 000 7Z","M2.5 16c0-3.5 2.9-6.5 6.5-6.5s6.5 3 6.5 6.5"] },
+  { name: "настройки",    cat:"thin", d:["M9 6.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5Z","M9 1v2M9 15v2M1 9h2M15 9h2M3.34 3.34l1.41 1.41M13.25 13.25l1.41 1.41M3.34 14.66l1.41-1.41M13.25 4.75l1.41-1.41"] },
+  { name: "колокол",      cat:"thin", d:["M9 1.5a5.5 5.5 0 00-5.5 5.5v4l-1.5 2h14l-1.5-2V7A5.5 5.5 0 009 1.5Z","M7 15.5a2 2 0 004 0"] },
+  { name: "поиск",        cat:"thin", d:["M8 2a6 6 0 100 12A6 6 0 008 2Z","M12.5 12.5L16 16"] },
+  { name: "звезда",       cat:"thin", d:"M9 1.5L11 6.5H16.5L12 10L14 15.5L9 12.5L4 15.5L6 10L1.5 6.5H7Z" },
+  { name: "сердце",       cat:"thin", d:"M9 15.5S1.5 11.5 1.5 6a3.5 3.5 0 016.5-1.8A3.5 3.5 0 0116.5 6c0 5.5-7.5 9.5-7.5 9.5Z" },
+  { name: "плюс",         cat:"thin", d:"M9 2V16M2 9H16" },
+  { name: "галочка",      cat:"thin", d:"M2 9L7 14L16 4" },
+  { name: "закрыть",      cat:"thin", d:"M3 3L15 15M15 3L3 15" },
+  { name: "карандаш",     cat:"thin", d:"M12.5 2.5L15.5 5.5L6 15L2 16L3 12L12.5 2.5Z" },
+  { name: "письмо",       cat:"thin", d:["M2 4H16V14H2V4Z","M2 4L9 10L16 4"] },
+  { name: "файл",         cat:"thin", d:["M4 2H11L14 5V16H4V2Z","M11 2V5H14"] },
+  { name: "диаграмма",    cat:"thin", d:"M2 14H16M4 14V9H7V14M8 14V6H11V14M12 14V11H15V14" },
+  { name: "замок",        cat:"thin", d:["M5 8V6a4 4 0 018 0V8","M3 8H15V16H3V8Z","M9 11V13"] },
+  { name: "меню",         cat:"thin", d:"M2 5H16M2 9H16M2 13H16" },
+  { name: "сетка",        cat:"thin", d:["M2 2H7V7H2V2Z","M11 2H16V7H11V2Z","M2 11H7V16H2V11Z","M11 11H16V16H11V11Z"] },
+  { name: "облако",       cat:"thin", d:"M13 13H5a3.5 3.5 0 010-7h.2A4 4 0 0113 7a3 3 0 010 6Z" },
+  { name: "загрузить",    cat:"thin", d:"M9 2V12M4 8L9 13L14 8M2 16H16" },
+  { name: "глаз",         cat:"thin", d:["M9 4C5 4 2 9 2 9S5 14 9 14S16 9 16 9S13 4 9 4Z","M9 7a2 2 0 100 4 2 2 0 000-4Z"] },
+  { name: "фильтр",       cat:"thin", d:"M2 3H16L11 9V15L7 13V9L2 3Z" },
+  { name: "база данных",  cat:"thin", d:["M2 5C2 3.3 5.1 2 9 2S16 3.3 16 5v2c0 1.7-3.1 3-7 3S2 8.7 2 7V5Z","M2 7v4c0 1.7 3.1 3 7 3s7-1.3 7-3V7","M2 11v2c0 1.7 3.1 3 7 3s7-1.3 7-3V11"] },
+  { name: "карта",        cat:"thin", d:["M9 2a5 5 0 00-5 5c0 3.5 5 9 5 9S14 10.5 14 7a5 5 0 00-5-5Z","M9 8a1.5 1.5 0 100-3 1.5 1.5 0 000 3Z"] },
+  { name: "информация",   cat:"thin", d:["M9 2a7 7 0 100 14A7 7 0 009 2Z","M9 8V12","M9 6V7"] },
+  { name: "копировать",   cat:"thin", d:["M6 4H14V14H6V4Z","M4 6H4V16H12V14"] },
+  { name: "флаг",         cat:"thin", d:"M3 2V16M3 2L15 5L3 10" },
+  // filled
+  { name: "дом",          cat:"filled", d:"M2 8.5L9 2L16 8.5V16H12V11H6V16H2V8.5Z", fill:true },
+  { name: "пользователь", cat:"filled", d:["M9 9a3.5 3.5 0 100-7 3.5 3.5 0 000 7Z","M2.5 16c0-3.5 2.9-6.5 6.5-6.5s6.5 3 6.5 6.5"], fill:true },
+  { name: "звезда",       cat:"filled", d:"M9 1.5L11 6.5H16.5L12 10L14 15.5L9 12.5L4 15.5L6 10L1.5 6.5H7Z", fill:true },
+  { name: "сердце",       cat:"filled", d:"M9 15.5S1.5 11.5 1.5 6a3.5 3.5 0 016.5-1.8A3.5 3.5 0 0116.5 6c0 5.5-7.5 9.5-7.5 9.5Z", fill:true },
+  { name: "колокол",      cat:"filled", d:"M9 1.5a5.5 5.5 0 00-5.5 5.5v4l-1.5 2h14l-1.5-2V7A5.5 5.5 0 009 1.5Z", fill:true },
+  { name: "карандаш",     cat:"filled", d:"M12.5 2.5L15.5 5.5L6 15L2 16L3 12L12.5 2.5Z", fill:true },
+  { name: "папка",        cat:"filled", d:"M2 5H7L9 3H16V14H2V5Z", fill:true },
+  { name: "диаграмма",    cat:"filled", d:["M4 9H7V14H4V9Z","M8 6H11V14H8V6Z","M12 11H15V14H12V11Z"], fill:true },
+  { name: "замок",        cat:"filled", d:"M3 8H15V16H3V8Z", fill:true },
+  { name: "метка",        cat:"filled", d:"M2 2H8L16 10L10 16L2 8V2Z", fill:true },
+  { name: "закладка",     cat:"filled", d:"M5 2H13V16L9 13L5 16V2Z", fill:true },
+  { name: "глобус",       cat:"filled", d:"M9 2a7 7 0 100 14A7 7 0 009 2Z", fill:true },
+  { name: "предупреждение",cat:"filled", d:"M9 2L16 14H2L9 2Z", fill:true },
+  { name: "фильтр",       cat:"filled", d:"M2 3H16L11 9V15L7 13V9L2 3Z", fill:true },
+  { name: "флаг",         cat:"filled", d:"M3 2V10L15 5Z", fill:true },
+];
+
+function IconGlyph({ icon }: { icon: IconDef }) {
+  const sw = icon.cat === "thin" ? "1" : "1.4";
+  const paths = Array.isArray(icon.d) ? icon.d : [icon.d];
+  return (
+    <svg viewBox="0 0 18 18" fill="none" className="w-full h-full">
+      {paths.map((d, i) => (
+        <path key={i} d={d}
+          stroke={icon.fill ? "none" : "currentColor"}
+          fill={icon.fill ? "currentColor" : "none"}
+          strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
+        />
+      ))}
+    </svg>
+  );
+}
+
 function IconPicker() {
-  const TABS = ["Все", "Заполненные", "Тонкие", "Обычные"];
-  const [tab, setTab] = useState("Все");
+  const TABS = ["Все", "Заполненные", "Тонкие", "Обычные"] as const;
+  const CAT_MAP: Record<string, IconCat | "all"> = { "Все":"all", "Заполненные":"filled", "Тонкие":"thin", "Обычные":"normal" };
+  const [tab, setTab] = useState<typeof TABS[number]>("Все");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<number | null>(null);
+
+  const visible = ICON_LIB.filter((icon) => {
+    const catOk = CAT_MAP[tab] === "all" || icon.cat === CAT_MAP[tab];
+    const searchOk = !query || icon.name.includes(query.toLowerCase());
+    return catOk && searchOk;
+  });
+
+  const selectedIcon = selected !== null ? ICON_LIB[selected] : null;
+
   return (
     <div className="w-[538px] bg-white rounded-[10px] p-[3px_10px_10px] flex flex-col gap-[5px]">
       <div className="flex items-center gap-[15px] h-[45px]">
-        <span className="w-[41px] h-[41px] flex items-center justify-center bg-selected rounded-full shrink-0">
-          <span className="w-[21px] h-[21px]"><BookIcon /></span>
+        <span className="w-[41px] h-[41px] flex items-center justify-center bg-selected rounded-full shrink-0 text-cta">
+          {selectedIcon ? <span className="w-[21px] h-[21px]"><IconGlyph icon={selectedIcon} /></span> : <span className="w-[21px] h-[21px]"><BookIcon /></span>}
         </span>
         <div className="flex-1 flex items-center gap-[10px] h-[31px] px-5 bg-selected rounded-btn">
           <span className="w-[15px] h-[15px]"><SearchIcon /></span>
-          <span className="text-[14px] text-primary">Поиск</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск"
+            className="flex-1 text-[14px] text-primary bg-transparent outline-none placeholder-primary/40"
+          />
         </div>
       </div>
       <div className="bg-selected rounded-[10px] p-[13px_20px] flex flex-col gap-[10px]">
@@ -1588,9 +1722,26 @@ function IconPicker() {
           ))}
         </div>
         <div className="grid grid-cols-[repeat(13,1fr)] gap-x-1 gap-y-2 h-[118px] overflow-y-auto content-start">
-          {Array.from({ length: 78 }).map((_, i) => (
-            <span key={i} className="w-[18px] h-[18px] text-primary"><GlyphIcon n={i} /></span>
-          ))}
+          {visible.length === 0
+            ? <span className="col-span-13 text-[11px] text-primary/40 py-4">Ничего не найдено</span>
+            : ICON_LIB.map((icon, idx) => {
+                if (!visible.includes(icon)) return null;
+                const isSel = selected === idx;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setSelected(isSel ? null : idx)}
+                    title={icon.name}
+                    className={cn(
+                      "w-[18px] h-[18px] rounded-[3px] text-primary flex items-center justify-center transition-colors hover:bg-cta/15 hover:text-cta",
+                      isSel && "bg-cta text-white",
+                    )}
+                  >
+                    <IconGlyph icon={icon} />
+                  </button>
+                );
+              })
+          }
         </div>
       </div>
     </div>
@@ -1702,15 +1853,6 @@ function StatusIcon() {
 }
 function BookIcon() {
   return <svg viewBox="0 0 21 21" fill="none" className="w-full h-full"><path d="M10.5 4 C8.5 2.5 5 2.5 2.5 3.5 L2.5 17 C5 16 8.5 16 10.5 17.5 C12.5 16 16 16 18.5 17 L18.5 3.5 C16 2.5 12.5 2.5 10.5 4 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /><line x1="10.5" y1="4" x2="10.5" y2="17.5" stroke="#00205F" strokeWidth="1.8" /></svg>;
-}
-function GlyphIcon({ n }: { n: number }) {
-  const v = n % 4;
-  return <svg viewBox="0 0 18 18" fill="none" className="w-full h-full">
-    {v === 0 && <rect x="3" y="3" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.4" />}
-    {v === 1 && <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.4" />}
-    {v === 2 && <path d="M9 2 L16 15 L2 15 Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />}
-    {v === 3 && <path d="M9 2 L11 7 L16 7 L12 11 L13 16 L9 13 L5 16 L6 11 L2 7 L7 7 Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />}
-  </svg>;
 }
 function SortListIcon() {
   return <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><line x1="5" y1="7" x2="11" y2="7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="12" x2="11" y2="12" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="17" x2="11" y2="17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><rect x="14" y="5" width="5" height="5" rx="1" stroke="#35A7FF" strokeWidth="2" transform="rotate(90 16 8.5)" /><path d="M17 13 L17 19 L20 16" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
