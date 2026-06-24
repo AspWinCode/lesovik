@@ -423,8 +423,10 @@ export function DatabasePage() {
           tableName="Новая таблица"
           columns={[]}
           onClose={() => setShowNewTableModal(false)}
-          onAddVirtual={() => {}}
-          onGoToData={() => {}}
+          onGoToData={() => {
+            // Create entity first, then close — data tab is always open
+            setShowNewTableModal(false);
+          }}
           onDone={(name) => {
             const displayName = name.trim() || "Новая таблица";
             createEntityMutation.mutate({ slug: slugify(displayName), display_name: displayName });

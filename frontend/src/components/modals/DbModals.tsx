@@ -226,6 +226,20 @@ export function EditTableModal({
   const [cols, setCols] = useState<TableColumn[]>(columns);
   const [formulaColId, setFormulaColId] = useState<string | null>(null);
 
+  function addVirtualColumn() {
+    const newCol: TableColumn = {
+      id: `col_${Date.now()}`,
+      name: "Новое поле",
+      type: "Текст",
+    };
+    setCols((prev) => [...prev, newCol]);
+    onAddVirtual?.();
+  }
+
+  function deleteCol(id: string) {
+    setCols((prev) => prev.filter((c) => c.id !== id));
+  }
+
   function updateCol(id: string, patch: Partial<TableColumn>) {
     setCols((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
@@ -260,8 +274,10 @@ export function EditTableModal({
         {/* Action buttons */}
         <div className="flex flex-wrap gap-[10px] mb-5">
           <OutlineBtn onClick={onGoToData}>Перейти к данным</OutlineBtn>
-          <OutlineBtn>Перейти к исх. коду</OutlineBtn>
-          <OutlineBtn onClick={onAddVirtual}>Добавить вирт. столбец</OutlineBtn>
+          <OutlineBtn onClick={() => alert("Просмотр исходного кода будет доступен после сохранения таблицы")}>
+            Перейти к исх. коду
+          </OutlineBtn>
+          <OutlineBtn onClick={addVirtualColumn}>Добавить вирт. столбец</OutlineBtn>
           <PrimaryBtn onClick={() => onDone?.(name, cols)}>Готово</PrimaryBtn>
         </div>
 
@@ -270,14 +286,22 @@ export function EditTableModal({
           <table className="w-full text-[13px]">
             <thead className="bg-cardbg">
               <tr>
-                <th className="text-left font-semibold text-primary px-4 py-3 w-[220px]">Название</th>
-                <th className="text-left font-semibold text-primary px-4 py-3 w-[160px]">Тип</th>
-                <th className="text-center font-semibold text-primary px-4 py-3 w-[70px]">Ключ</th>
-                <th className="text-center font-semibold text-primary px-4 py-3 w-[70px]">Метка</th>
-                <th className="text-center font-semibold text-primary px-4 py-3 w-[70px]">Формула</th>
+                <th className="text-left font-semibold text-primary px-4 py-3 w-[200px]">Название</th>
+                <th className="text-left font-semibold text-primary px-4 py-3 w-[140px]">Тип</th>
+                <th className="text-center font-semibold text-primary px-4 py-3 w-[60px]">Ключ</th>
+                <th className="text-center font-semibold text-primary px-4 py-3 w-[60px]">Метка</th>
+                <th className="text-center font-semibold text-primary px-4 py-3 w-[60px]">Формула</th>
+                <th className="w-8" />
               </tr>
             </thead>
             <tbody>
+              {cols.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-[13px] text-primary/40">
+                    Нет полей. Нажмите «Добавить вирт. столбец» чтобы добавить.
+                  </td>
+                </tr>
+              )}
               {cols.map((col, i) => (
                 <tr key={col.id} className={cn("border-t border-white/30", i % 2 === 0 ? "bg-mainbg" : "bg-mainbg/60")}>
                   <td className="px-4 py-2">
@@ -316,6 +340,17 @@ export function EditTableModal({
                       )}
                     >
                       =
+                    </button>
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <button
+                      onClick={() => deleteCol(col.id)}
+                      className="w-6 h-6 flex items-center justify-center text-primary/30 hover:text-red-400 transition-colors mx-auto"
+                      title="Удалить поле"
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+                        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      </svg>
                     </button>
                   </td>
                 </tr>
