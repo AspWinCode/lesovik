@@ -7,7 +7,7 @@ import { useEntities, useCreateEntity, useCreateField } from "@/shared/hooks/use
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import type { FieldRead, FieldType } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
-import { EditTableModal, EditColumnModal, COLUMN_TYPE_TO_FIELD_TYPE } from "@/components/modals/DbModals";
+import { EditTableModal, EditColumnModal, COLUMN_TYPE_TO_FIELD_TYPE, type ColumnOptions } from "@/components/modals/DbModals";
 import { SortingModal } from "@/components/modals/ViewModals";
 import { CopyTableModal, MoveModal } from "@/components/modals/MiscModals";
 
@@ -442,12 +442,27 @@ export function DatabasePage() {
           columnType="Текст"
           onClose={() => setShowEditColumnModal(false)}
           onGoToData={() => setShowEditColumnModal(false)}
-          onDone={(name, type) => {
+          onDone={(name, type, opts: ColumnOptions) => {
             const displayName = name.trim() || "Новое поле";
             const fieldType = (COLUMN_TYPE_TO_FIELD_TYPE[type] ?? "text") as FieldType;
             createFieldMutation.mutate({
               entityId: entity.id,
-              body: { name: slugify(displayName), display_name: displayName, field_type: fieldType },
+              body: {
+                name: slugify(displayName),
+                display_name: displayName,
+                field_type: fieldType,
+                is_required: opts.isRequired,
+                is_unique: opts.isUnique,
+                field_options: {
+                  ...(opts.choices.length > 0 ? { choices: opts.choices } : {}),
+                  ...(opts.formVisible === false ? { form_visible: false } : {}),
+                  ...(opts.formula ? { formula: opts.formula } : {}),
+                  ...(opts.defaultValue ? { default_value: opts.defaultValue } : {}),
+                  ...(opts.minValue ? { min_value: Number(opts.minValue) } : {}),
+                  ...(opts.maxValue ? { max_value: Number(opts.maxValue) } : {}),
+                  ...(opts.maxLength ? { max_length: Number(opts.maxLength) } : {}),
+                } as Record<string, unknown>,
+              },
             });
             setShowEditColumnModal(false);
           }}

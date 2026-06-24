@@ -464,13 +464,18 @@ function CircleCheck({ checked, onChange }: { checked: boolean; onChange: (v: bo
    2. EditColumnModal
 ───────────────────────────────────────────────── */
 
-const ACCORDION_SECTIONS = [
-  "Сведения о типе данных",
-  "Автоматическое вычисление",
-  "Обновленное поведение",
-  "Валидность данных",
-  "Отображение",
-];
+export interface ColumnOptions {
+  formula: string;
+  isRequired: boolean;
+  isUnique: boolean;
+  formVisible: boolean;
+  defaultValue: string;
+  autoUpdateDate: boolean;
+  choices: { value: string; label: string }[];
+  minValue: string;
+  maxValue: string;
+  maxLength: string;
+}
 
 export function EditColumnModal({
   source,
@@ -485,23 +490,64 @@ export function EditColumnModal({
   columnType: string;
   onClose: () => void;
   onGoToData?: () => void;
-  onDone?: (name: string, type: string) => void;
+  onDone?: (name: string, type: string, opts: ColumnOptions) => void;
 }) {
   const [name, setName] = useState(columnName);
   const [type, setType] = useState(columnType);
-  const [show, setShow] = useState(true);
+  const [formula, setFormula] = useState("");
+  const [showFormula, setShowFormula] = useState(false);
   const [openSection, setOpenSection] = useState<string | null>(null);
+
+  // validation
+  const [isRequired, setIsRequired] = useState(false);
+  const [isUnique, setIsUnique] = useState(false);
+  const [minValue, setMinValue] = useState("");
+  const [maxValue, setMaxValue] = useState("");
+  const [maxLength, setMaxLength] = useState("");
+
+  // display
+  const [formVisible, setFormVisible] = useState(true);
+
+  // auto-compute
+  const [defaultValue, setDefaultValue] = useState("");
+  const [autoUpdateDate, setAutoUpdateDate] = useState(false);
+
+  // choices (for select)
+  const [choices, setChoices] = useState<{ value: string; label: string }[]>([]);
+  const [newChoiceLabel, setNewChoiceLabel] = useState("");
+
+  function addChoice() {
+    const label = newChoiceLabel.trim();
+    if (!label) return;
+    const value = label.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    setChoices((prev) => [...prev, { value: value || `opt_${prev.length + 1}`, label }]);
+    setNewChoiceLabel("");
+  }
+
+  function removeChoice(idx: number) {
+    setChoices((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const fieldType = COLUMN_TYPE_TO_FIELD_TYPE[type] ?? "text";
+  const isSelectType = fieldType === "select" || fieldType === "multi_select";
+  const isNumericType = fieldType === "number" || fieldType === "decimal";
+  const isTextType = fieldType === "text" || fieldType === "long_text";
+  const isDateType = fieldType === "date" || fieldType === "datetime";
+
+  function getOpts(): ColumnOptions {
+    return { formula, isRequired, isUnique, formVisible, defaultValue, autoUpdateDate, choices, minValue, maxValue, maxLength };
+  }
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ width: 580 }} className="px-10 pb-8">
+      <div style={{ width: 580 }} className="px-10 pb-8 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-start justify-between pt-[30px] mb-2">
           <div>
             <h2 className="text-[20px] font-bold text-primary">
-              {source}: {columnName}
+              {source}: {name || columnName}
             </h2>
-            <p className="text-[14px] text-primary/60 mt-1">Тип: {columnType}</p>
+            <p className="text-[14px] text-primary/60 mt-1">Тип: {type}</p>
           </div>
           <CloseBtn onClick={onClose} />
         </div>
@@ -509,7 +555,7 @@ export function EditColumnModal({
         {/* Action buttons */}
         <div className="flex gap-[10px] mb-6">
           <OutlineBtn onClick={onGoToData}>Перейти к данным</OutlineBtn>
-          <PrimaryBtn onClick={() => onDone?.(name, type)}>Готово</PrimaryBtn>
+          <PrimaryBtn onClick={() => onDone?.(name, type, getOpts())}>Готово</PrimaryBtn>
         </div>
 
         {/* Fields */}
@@ -530,20 +576,28 @@ export function EditColumnModal({
           <div className="flex items-center gap-4">
             <span className="text-[14px] text-primary/70 w-[160px] shrink-0">Формула</span>
             <BlueField className="flex-1">
-              <button className="w-full flex items-center justify-between text-[16px] text-primary/50">
-                <span>=</span>
-                <FilterIcon />
+              <button
+                type="button"
+                onClick={() => setShowFormula(true)}
+                className="w-full flex items-center justify-between text-[16px] text-left"
+              >
+                <span className={formula ? "text-primary font-mono text-[13px]" : "text-primary/40"}>
+                  {formula || "= Нажмите для ввода формулы"}
+                </span>
+                <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0 text-primary/40">
+                  <path d="M2 4h12M5 8h6M7 12h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
               </button>
             </BlueField>
           </div>
 
-          {/* Показать */}
+          {/* Показать в форме */}
           <div className="flex items-center gap-4">
-            <span className="text-[14px] text-primary/70 w-[160px] shrink-0">Показать</span>
+            <span className="text-[14px] text-primary/70 w-[160px] shrink-0">Показать в форме</span>
             <div className="flex items-center gap-3 h-[41px] bg-cardbg rounded-btn px-5 flex-1">
-              <Toggle checked={show} onChange={setShow} />
-              <span className="text-[14px] text-primary ml-auto">
-                <FilterIcon />
+              <Toggle checked={formVisible} onChange={setFormVisible} />
+              <span className="text-[13px] text-primary/50 ml-2">
+                {formVisible ? "Отображается в форме создания" : "Скрыто в форме"}
               </span>
             </div>
           </div>
@@ -559,28 +613,219 @@ export function EditColumnModal({
 
         {/* Accordion sections */}
         <div className="flex flex-col gap-[2px]">
-          {ACCORDION_SECTIONS.map((section) => (
-            <div key={section} className="border-t border-white/30">
-              <button
-                type="button"
-                onClick={() => setOpenSection(openSection === section ? null : section)}
-                className="w-full flex items-center justify-between py-3 text-[14px] font-medium text-primary hover:text-cta transition-colors"
-              >
-                <span>{section}</span>
-                <span className={cn("text-[10px] transition-transform", openSection === section && "rotate-90")}>
-                  ▶
-                </span>
-              </button>
-              {openSection === section && (
-                <div className="pb-4 text-[13px] text-primary/60 px-2">
-                  Настройки раздела «{section}» появятся здесь.
+
+          {/* 1. Сведения о типе данных */}
+          <AccordionSection
+            title="Сведения о типе данных"
+            open={openSection === "Сведения о типе данных"}
+            onToggle={() => setOpenSection(openSection === "Сведения о типе данных" ? null : "Сведения о типе данных")}
+          >
+            {isSelectType && (
+              <div className="flex flex-col gap-3">
+                <p className="text-[13px] text-primary/60">Варианты списка:</p>
+                <div className="flex flex-col gap-2">
+                  {choices.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-cardbg rounded-[8px] px-3 py-2">
+                      <span className="flex-1 text-[13px] text-primary">{c.label}</span>
+                      <span className="text-[11px] text-primary/40 font-mono">{c.value}</span>
+                      <button onClick={() => removeChoice(i)} className="text-primary/30 hover:text-red-400 transition-colors ml-1">
+                        <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+                          <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <BlueField className="flex-1">
+                    <input
+                      value={newChoiceLabel}
+                      onChange={(e) => setNewChoiceLabel(e.target.value)}
+                      placeholder="Новый вариант"
+                      className="w-full bg-transparent outline-none text-[14px] text-primary placeholder-primary/40"
+                      onKeyDown={(e) => e.key === "Enter" && addChoice()}
+                    />
+                  </BlueField>
+                  <button onClick={addChoice}
+                    className="px-4 h-[41px] bg-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors whitespace-nowrap">
+                    + Добавить
+                  </button>
+                </div>
+              </div>
+            )}
+            {isNumericType && (
+              <div className="flex flex-col gap-3">
+                <p className="text-[13px] text-primary/60">Числовое поле. Хранит целые{fieldType === "decimal" ? " и дробные" : ""} значения.</p>
+              </div>
+            )}
+            {isDateType && (
+              <p className="text-[13px] text-primary/60">
+                {fieldType === "date" ? "Хранит дату в формате YYYY-MM-DD." : "Хранит дату и время с временной зоной."}
+              </p>
+            )}
+            {fieldType === "boolean" && (
+              <p className="text-[13px] text-primary/60">Логическое поле — Да / Нет.</p>
+            )}
+            {!isSelectType && !isNumericType && !isDateType && fieldType !== "boolean" && (
+              <p className="text-[13px] text-primary/60">Текстовое поле типа «{type}».</p>
+            )}
+          </AccordionSection>
+
+          {/* 2. Автоматическое вычисление */}
+          <AccordionSection
+            title="Автоматическое вычисление"
+            open={openSection === "Автоматическое вычисление"}
+            onToggle={() => setOpenSection(openSection === "Автоматическое вычисление" ? null : "Автоматическое вычисление")}
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[13px] text-primary/70">Значение по умолчанию</label>
+                <BlueField>
+                  <input
+                    value={defaultValue}
+                    onChange={(e) => setDefaultValue(e.target.value)}
+                    placeholder={isDateType ? "now()" : isNumericType ? "0" : "пусто"}
+                    className="w-full bg-transparent outline-none text-[14px] text-primary placeholder-primary/40"
+                  />
+                </BlueField>
+              </div>
+              {isDateType && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] text-primary">Обновлять дату при изменении записи</span>
+                  <Toggle checked={autoUpdateDate} onChange={setAutoUpdateDate} />
+                </div>
+              )}
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[13px] text-primary/70">Формула вычисления</label>
+                <button
+                  type="button"
+                  onClick={() => setShowFormula(true)}
+                  className="w-full h-[41px] bg-cardbg rounded-btn px-5 flex items-center justify-between text-[14px] text-primary/40 hover:text-primary transition-colors"
+                >
+                  <span>{formula || "= Не задана"}</span>
+                  <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+                    <path d="M2 4h12M5 8h6M7 12h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </AccordionSection>
+
+          {/* 3. Обновлённое поведение */}
+          <AccordionSection
+            title="Обновлённое поведение"
+            open={openSection === "Обновлённое поведение"}
+            onToggle={() => setOpenSection(openSection === "Обновлённое поведение" ? null : "Обновлённое поведение")}
+          >
+            <div className="flex flex-col gap-3">
+              {isDateType && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] text-primary">Устанавливать текущую дату/время при обновлении</span>
+                  <Toggle checked={autoUpdateDate} onChange={setAutoUpdateDate} />
+                </div>
+              )}
+              {!isDateType && (
+                <p className="text-[13px] text-primary/50">Для этого типа поля особое поведение при обновлении не предусмотрено.</p>
+              )}
+            </div>
+          </AccordionSection>
+
+          {/* 4. Валидность данных */}
+          <AccordionSection
+            title="Валидность данных"
+            open={openSection === "Валидность данных"}
+            onToggle={() => setOpenSection(openSection === "Валидность данных" ? null : "Валидность данных")}
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] text-primary">Обязательное поле</span>
+                <Toggle checked={isRequired} onChange={setIsRequired} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] text-primary">Уникальное значение</span>
+                <Toggle checked={isUnique} onChange={setIsUnique} />
+              </div>
+              {isNumericType && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <label className="text-[13px] text-primary/70 w-[80px] shrink-0">Минимум</label>
+                    <BlueField>
+                      <input type="number" value={minValue} onChange={(e) => setMinValue(e.target.value)}
+                        placeholder="без ограничения"
+                        className="w-full bg-transparent outline-none text-[14px] text-primary placeholder-primary/40" />
+                    </BlueField>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-[13px] text-primary/70 w-[80px] shrink-0">Максимум</label>
+                    <BlueField>
+                      <input type="number" value={maxValue} onChange={(e) => setMaxValue(e.target.value)}
+                        placeholder="без ограничения"
+                        className="w-full bg-transparent outline-none text-[14px] text-primary placeholder-primary/40" />
+                    </BlueField>
+                  </div>
+                </>
+              )}
+              {isTextType && (
+                <div className="flex items-center gap-3">
+                  <label className="text-[13px] text-primary/70 w-[80px] shrink-0">Макс. длина</label>
+                  <BlueField>
+                    <input type="number" value={maxLength} onChange={(e) => setMaxLength(e.target.value)}
+                      placeholder="без ограничения"
+                      className="w-full bg-transparent outline-none text-[14px] text-primary placeholder-primary/40" />
+                  </BlueField>
                 </div>
               )}
             </div>
-          ))}
+          </AccordionSection>
+
+          {/* 5. Отображение */}
+          <AccordionSection
+            title="Отображение"
+            open={openSection === "Отображение"}
+            onToggle={() => setOpenSection(openSection === "Отображение" ? null : "Отображение")}
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] text-primary">Видимость в форме создания / редактирования</span>
+                <Toggle checked={formVisible} onChange={setFormVisible} />
+              </div>
+              <p className="text-[12px] text-primary/50">
+                Управляет показом поля в форме. Тонкая настройка типа отображения — в разделе «Источники данных».
+              </p>
+            </div>
+          </AccordionSection>
+
         </div>
       </div>
+
+      {showFormula && (
+        <FormulaAssistantInline
+          columnName={name || columnName}
+          onClose={() => setShowFormula(false)}
+          onSave={(expr) => { setFormula(expr); setShowFormula(false); }}
+        />
+      )}
     </Overlay>
+  );
+}
+
+function AccordionSection({
+  title, open, onToggle, children,
+}: {
+  title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="border-t border-white/30">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between py-3 text-[14px] font-medium text-primary hover:text-cta transition-colors"
+      >
+        <span>{title}</span>
+        <span className={cn("text-[10px] transition-transform", open && "rotate-90")}>▶</span>
+      </button>
+      {open && <div className="pb-4 px-1">{children}</div>}
+    </div>
   );
 }
 
@@ -2152,10 +2397,3 @@ function TagIcon() {
   );
 }
 
-function FilterIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 text-primary/40">
-      <path d="M2 4h12M5 8h6M7 12h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
