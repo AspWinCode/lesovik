@@ -1748,14 +1748,11 @@ function IframePreview({
     )},
   ];
 
-  // Both modes fill the 540px slot.
-  // Mobile: iframe renders at 390px (phone width) → scaled up 1.38× to 540px.
-  // Desktop: iframe renders at 1280px → scaled down 0.42× to 540px.
-  const FRAME_W = 540;
-  const FRAME_H = 760;
+  // Per Figma design: phone screen 380×800 centered in 580px panel (100px margins each side).
+  // Desktop: 1280px app scaled down to fit the same 380px wide slot.
   const cfg = device === "mobile"
-    ? { frameW: FRAME_W, iframeW: 390, iframeH: Math.ceil(FRAME_H * 390 / FRAME_W) }
-    : { frameW: FRAME_W, iframeW: 1280, iframeH: Math.ceil(FRAME_H * 1280 / FRAME_W) };
+    ? { frameW: 380, iframeW: 390, iframeH: Math.ceil(800 * 390 / 380) }
+    : { frameW: 380, iframeW: 1280, iframeH: Math.ceil(800 * 1280 / 380) };
   const scale = cfg.frameW / cfg.iframeW;
 
   const src = appId
@@ -1777,7 +1774,7 @@ function IframePreview({
       {/* Device frame */}
       <div
         className="shrink-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden relative"
-        style={{ width: cfg.frameW, height: FRAME_H, borderRadius: device === "mobile" ? 40 : 14 }}
+        style={{ width: cfg.frameW, height: 800, borderRadius: device === "mobile" ? 40 : 14 }}
       >
         {src ? (
           <iframe
