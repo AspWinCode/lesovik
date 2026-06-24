@@ -1898,7 +1898,7 @@ function BlockInlineSettings({
   if (block.type === "divider" || block.type === "table" || block.type === "form") return null;
 
   return (
-    <div className="grid grid-cols-2 gap-[10px] px-5 pb-4">
+    <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-1 border-t border-mainbg mt-0">
       {(block.type === "rich_text") && (
         <ConfigInput
           label="Текст"
@@ -1984,28 +1984,29 @@ function BlockInlineSettings({
             label="Ссылка"
             value={(block.config.href as string) ?? ""}
             onChange={(href) => onConfigChange({ href })}
+            placeholder="https://..."
           />
-          <ConfigSelect
+          <ConfigSegmented
             label="Ширина"
             value={(block.config.width as string) ?? "full"}
             options={[
               { value: "full",  label: "Полная" },
-              { value: "half",  label: "Половина" },
-              { value: "third", label: "Треть" },
-              { value: "auto",  label: "По содержимому" },
+              { value: "half",  label: "½" },
+              { value: "third", label: "⅓" },
+              { value: "auto",  label: "Авто" },
             ]}
             onChange={(width) => onConfigChange({ width })}
           />
         </>
       )}
       {(block.type === "metric" || block.type === "kpi") && (
-        <ConfigSelect
+        <ConfigSegmented
           label="Ширина"
           value={(block.config.width as string) ?? "full"}
           options={[
             { value: "full",  label: "Полная" },
-            { value: "half",  label: "Половина" },
-            { value: "third", label: "Треть" },
+            { value: "half",  label: "½" },
+            { value: "third", label: "⅓" },
           ]}
           onChange={(width) => onConfigChange({ width })}
         />
@@ -2025,18 +2026,23 @@ function ConfigInput({
   label,
   value,
   onChange,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
-    <label className="flex flex-col gap-[4px]">
-      <span className="text-[11px] text-primary/45">{label}</span>
+    <label className="flex flex-col gap-[5px]">
+      <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-[34px] bg-mainbg rounded-btn px-3 text-[13px] text-primary outline-none"
+        placeholder={placeholder ?? "—"}
+        className="h-[36px] bg-cardbg rounded-[8px] px-3 text-[14px] text-primary outline-none
+                   border border-transparent focus:border-cta/40 transition-colors
+                   placeholder:text-primary/25"
       />
     </label>
   );
@@ -2054,18 +2060,59 @@ function ConfigSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-[4px]">
-      <span className="text-[11px] text-primary/45">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-[34px] bg-mainbg rounded-btn px-3 text-[13px] text-primary outline-none"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
+    <label className="flex flex-col gap-[5px]">
+      <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">{label}</span>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full h-[36px] appearance-none bg-cardbg rounded-[8px] pl-3 pr-8 text-[14px] text-primary outline-none
+                     border border-transparent focus:border-cta/40 transition-colors cursor-pointer"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <svg viewBox="0 0 16 16" fill="none" className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-primary/40 pointer-events-none">
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
     </label>
+  );
+}
+
+function ConfigSegmented({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-[5px] col-span-2">
+      <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">{label}</span>
+      <div className="flex h-[36px] bg-cardbg rounded-[8px] p-[3px] gap-[2px]">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "flex-1 rounded-[6px] text-[13px] font-medium transition-all",
+              value === opt.value
+                ? "bg-cta text-white shadow-sm"
+                : "text-primary/60 hover:text-primary hover:bg-white/60"
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
