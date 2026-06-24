@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
@@ -6,7 +6,10 @@ import { cn } from "@/lib/cn";
 
 export const EDITOR_DRAFT_KEY = "lesovik_editor_draft";
 
+const GRID = 20;
+
 type Device = "desktop" | "tablet" | "mobile";
+type DraggableId = "heading" | "table" | "buttons";
 type PropTab = "basic" | "style" | "events";
 type PickerKind = "color" | "gradient" | "image" | null;
 type ElementId = "heading" | "table" | "btn-primary" | "btn-secondary" | "btn-danger";
@@ -148,6 +151,22 @@ export function EditorPage() {
   const [device, setDevice] = useState<Device>("desktop");
   const [activePropTab, setActivePropTab] = useState<PropTab>("basic");
   const [search, setSearch] = useState("");
+  const [showGrid, setShowGrid] = useState(true);
+
+  /* drag-and-snap */
+  const [posMap, setPosMap] = useState<Record<DraggableId, { x: number; y: number }>>({
+    heading: { x: 24, y: 24 },
+    table:   { x: 24, y: 96 },
+    buttons: { x: 24, y: 500 },
+  });
+  const [dragState, setDragState] = useState<{
+    id: DraggableId;
+    startMouseX: number;
+    startMouseY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+  const [snapGuide, setSnapGuide] = useState<{ x: number; y: number } | null>(null);
 
   /* per-element state maps */
   const [styleMap, setStyleMap] = useState<Record<string, ElementStyle>>({});
@@ -166,6 +185,31 @@ export function EditorPage() {
   }
   function patchEvent(id: ElementId, patch: Partial<ElementEvent>) {
     setEventMap((m) => ({ ...m, [id]: { ...getEvent(id), ...patch } }));
+  }
+
+  const snap = useCallback((v: number) => Math.round(v / GRID) * GRID, []);
+
+  function onDragStart(id: DraggableId, e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    const pos = posMap[id];
+    setDragState({ id, startMouseX: e.clientX, startMouseY: e.clientY, origX: pos.x, origY: pos.y });
+  }
+
+  function onCanvasMouseMove(e: React.MouseEvent) {
+    if (!dragState) return;
+    const scale = zoom / 100;
+    const dx = (e.clientX - dragState.startMouseX) / scale;
+    const dy = (e.clientY - dragState.startMouseY) / scale;
+    const newX = Math.max(0, snap(dragState.origX + dx));
+    const newY = Math.max(0, snap(dragState.origY + dy));
+    setSnapGuide({ x: newX, y: newY });
+    setPosMap((m) => ({ ...m, [dragState.id]: { x: newX, y: newY } }));
+  }
+
+  function onCanvasMouseUp() {
+    setDragState(null);
+    setSnapGuide(null);
   }
 
   function openPreview() {
@@ -302,6 +346,15 @@ export function EditorPage() {
               <span className="text-[13px] text-primary w-10 text-center">{zoom}%</span>
               <button onClick={() => setZoom((z) => Math.min(200, z + 25))} className="text-primary/60 hover:text-primary px-1 text-[13px]">+</button>
             </div>
+            <div className="w-px h-5 bg-cardbg" />
+            <button
+              onClick={() => setShowGrid((v) => !v)}
+              title={showGrid ? "Скрыть сетку" : "Показать сетку"}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] transition-colors", showGrid ? "bg-cta/10 text-cta" : "text-primary/50 hover:text-primary hover:bg-mainbg")}
+            >
+              <GridIcon className="w-4 h-4" />
+              Сетка
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-mainbg rounded-[6px] p-1">
@@ -334,25 +387,61 @@ export function EditorPage() {
         </div>
 
         {/* workspace */}
-        <div className="flex-1 bg-[#F5F6F8] overflow-auto relative" style={{ backgroundImage: "radial-gradient(circle, #c8cdd6 1px, transparent 1px)", backgroundSize: "20px 20px" }}>
+        <div
+          className="flex-1 bg-[#F5F6F8] overflow-auto relative select-none"
+          style={showGrid ? { backgroundImage: "radial-gradient(circle, #c8cdd6 1.5px, transparent 1.5px)", backgroundSize: `${GRID}px ${GRID}px` } : undefined}
+          onMouseMove={onCanvasMouseMove}
+          onMouseUp={onCanvasMouseUp}
+          onMouseLeave={onCanvasMouseUp}
+        >
           <div className="absolute inset-0 flex items-center justify-center" style={{ minWidth: canvasW + 120, minHeight: canvasH + 120 }}>
             <div
-              className="bg-white shadow-xl rounded-[4px] relative"
-              style={{ width: canvasW, height: canvasH, transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
+              className="bg-white shadow-xl rounded-[4px] relative overflow-hidden"
+              style={{ width: canvasW, height: canvasH, transform: `scale(${zoom / 100})`, transformOrigin: "center center", cursor: dragState ? "grabbing" : "default" }}
             >
+              {/* snap guides overlay */}
+              {dragState && snapGuide && (
+                <div className="absolute inset-0 pointer-events-none z-30">
+                  <div className="absolute left-0 right-0" style={{ top: snapGuide.y, borderTop: "1.5px dashed #35A7FF" }} />
+                  <div className="absolute top-0 bottom-0" style={{ left: snapGuide.x, borderLeft: "1.5px dashed #35A7FF" }} />
+                  <div
+                    className="absolute bg-cta text-white text-[10px] font-mono px-1.5 py-0.5 rounded shadow-sm leading-none"
+                    style={{ left: snapGuide.x + 6, top: snapGuide.y + 6 }}
+                  >
+                    {snapGuide.x}, {snapGuide.y}
+                  </div>
+                </div>
+              )}
+
               {/* Heading */}
               <div
+                className={cn("absolute h-10 flex items-center group rounded-[4px]", selectedElement === "heading" ? "ring-2 ring-cta" : "hover:ring-1 hover:ring-cta/40")}
+                style={{ left: posMap.heading.x, top: posMap.heading.y, right: 24 }}
                 onClick={() => selectEl("heading")}
-                className={cn("absolute top-6 left-6 right-6 h-10 flex items-center cursor-pointer rounded-[4px] px-3", selectedElement === "heading" ? "ring-2 ring-cta" : "hover:ring-1 hover:ring-cta/40")}
               >
-                <span className="text-[20px] font-bold text-primary">{getBasic("heading").text}</span>
+                <div
+                  onMouseDown={(e) => onDragStart("heading", e)}
+                  className="absolute -left-5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-grab text-primary/50 z-10"
+                  title="Перетащить"
+                >
+                  <DragDots />
+                </div>
+                <span className="px-3 text-[20px] font-bold text-primary">{getBasic("heading").text}</span>
               </div>
 
               {/* Table */}
               <div
+                className={cn("absolute group rounded-[4px]", selectedElement === "table" ? "ring-2 ring-cta" : "hover:ring-1 hover:ring-cta/40")}
+                style={{ left: posMap.table.x, top: posMap.table.y, right: 24 }}
                 onClick={() => selectEl("table")}
-                className={cn("absolute top-24 left-6 right-6 cursor-pointer rounded-[4px]", selectedElement === "table" ? "ring-2 ring-cta" : "hover:ring-1 hover:ring-cta/40")}
               >
+                <div
+                  onMouseDown={(e) => onDragStart("table", e)}
+                  className="absolute -left-5 top-2 w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-grab text-primary/50 z-10"
+                  title="Перетащить"
+                >
+                  <DragDots />
+                </div>
                 <div className="bg-[#F5F6F8] rounded-t-[4px] grid grid-cols-4 border border-cardbg">
                   {["Название", "Статус", "Дата", "Пользователь"].map((h) => (
                     <div key={h} className="px-3 py-2 text-[12px] font-semibold text-primary border-r last:border-r-0 border-cardbg">{h}</div>
@@ -368,7 +457,17 @@ export function EditorPage() {
               </div>
 
               {/* Buttons */}
-              <div className="absolute bottom-6 left-6 flex flex-wrap gap-3">
+              <div
+                className="absolute group flex flex-wrap gap-3"
+                style={{ left: posMap.buttons.x, top: posMap.buttons.y }}
+              >
+                <div
+                  onMouseDown={(e) => onDragStart("buttons", e)}
+                  className="absolute -left-5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-grab text-primary/50 z-10"
+                  title="Перетащить"
+                >
+                  <DragDots />
+                </div>
                 {canvasBtn("btn-primary")}
                 {canvasBtn("btn-secondary")}
                 {canvasBtn("btn-danger")}
@@ -971,5 +1070,20 @@ function TabsIcon()     { return <svg viewBox="0 0 20 20" fill="none"><rect x="2
 function LinkIcon()     { return <svg viewBox="0 0 20 20" fill="none"><path d="M7 13l6-6M9 7h4v4" stroke={S} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
 function BlockIcon()    { return <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="16" height="16" rx="2" stroke={S} strokeWidth="1.5" /></svg>; }
 function RowIcon()      { return <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="16" height="7" rx="1.5" stroke={S} strokeWidth="1.5" /><rect x="2" y="11" width="16" height="7" rx="1.5" stroke={S} strokeWidth="1.5" /></svg>; }
-function GridIcon()     { return <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke={S} strokeWidth="1.5" /><rect x="11" y="2" width="7" height="7" rx="1" stroke={S} strokeWidth="1.5" /><rect x="2" y="11" width="7" height="7" rx="1" stroke={S} strokeWidth="1.5" /><rect x="11" y="11" width="7" height="7" rx="1" stroke={S} strokeWidth="1.5" /></svg>; }
+function GridIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none">
+      <path d="M1 4h14M1 8h14M1 12h14M4 1v14M8 1v14M12 1v14" stroke={S} strokeWidth="1" strokeOpacity="0.7" />
+    </svg>
+  );
+}
+function DragDots() {
+  return (
+    <svg viewBox="0 0 10 16" fill="currentColor" className="w-2.5 h-4">
+      <circle cx="2.5" cy="3" r="1.5" /><circle cx="7.5" cy="3" r="1.5" />
+      <circle cx="2.5" cy="8" r="1.5" /><circle cx="7.5" cy="8" r="1.5" />
+      <circle cx="2.5" cy="13" r="1.5" /><circle cx="7.5" cy="13" r="1.5" />
+    </svg>
+  );
+}
 function CardIcon()     { return <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="12" rx="2" stroke={S} strokeWidth="1.5" /><path d="M2 8h16" stroke={S} strokeWidth="1.5" /></svg>; }
