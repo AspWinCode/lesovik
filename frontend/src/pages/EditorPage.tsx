@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { cn } from "@/lib/cn";
+
+export const EDITOR_DRAFT_KEY = "lesovik_editor_draft";
 
 type Device = "desktop" | "tablet" | "mobile";
 type PropTab = "basic" | "style" | "events";
@@ -137,6 +140,7 @@ const ELEMENT_LABELS: Record<ElementId, string> = {
 };
 
 export function EditorPage() {
+  const navigate = useNavigate();
   const [railModule, setRailModule] = useState<RailModule>("documents");
   const [activeCategory, setActiveCategory] = useState<string>("display");
   const [selectedElement, setSelectedElement] = useState<ElementId | null>("heading");
@@ -162,6 +166,17 @@ export function EditorPage() {
   }
   function patchEvent(id: ElementId, patch: Partial<ElementEvent>) {
     setEventMap((m) => ({ ...m, [id]: { ...getEvent(id), ...patch } }));
+  }
+
+  function openPreview() {
+    const allIds: ElementId[] = ["heading", "table", "btn-primary", "btn-secondary", "btn-danger"];
+    const draft = {
+      basicMap: Object.fromEntries(allIds.map((id) => [id, getBasic(id)])),
+      styleMap: Object.fromEntries(allIds.map((id) => [id, getStyle(id)])),
+      eventMap: Object.fromEntries(allIds.map((id) => [id, getEvent(id)])),
+    };
+    localStorage.setItem(EDITOR_DRAFT_KEY, JSON.stringify(draft));
+    navigate("/preview");
   }
 
   /* color picker */
@@ -288,22 +303,33 @@ export function EditorPage() {
               <button onClick={() => setZoom((z) => Math.min(200, z + 25))} className="text-primary/60 hover:text-primary px-1 text-[13px]">+</button>
             </div>
           </div>
-          <div className="flex items-center gap-1 bg-mainbg rounded-[6px] p-1">
-            {(["desktop", "tablet", "mobile"] as Device[]).map((d) => (
-              <button
-                key={d}
-                onClick={() => setDevice(d)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-[13px] transition-colors",
-                  device === d ? "bg-white text-cta shadow-sm font-medium" : "text-primary/60 hover:text-primary"
-                )}
-              >
-                {d === "desktop" && <DesktopIcon className="w-4 h-4" />}
-                {d === "tablet"  && <TabletIcon  className="w-4 h-4" />}
-                {d === "mobile"  && <MobileIcon  className="w-4 h-4" />}
-                {d === "desktop" ? "Десктоп" : d === "tablet" ? "Планшет" : "Мобильный"}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-mainbg rounded-[6px] p-1">
+              {(["desktop", "tablet", "mobile"] as Device[]).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDevice(d)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-[13px] transition-colors",
+                    device === d ? "bg-white text-cta shadow-sm font-medium" : "text-primary/60 hover:text-primary"
+                  )}
+                >
+                  {d === "desktop" && <DesktopIcon className="w-4 h-4" />}
+                  {d === "tablet"  && <TabletIcon  className="w-4 h-4" />}
+                  {d === "mobile"  && <MobileIcon  className="w-4 h-4" />}
+                  {d === "desktop" ? "Десктоп" : d === "tablet" ? "Планшет" : "Мобильный"}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={openPreview}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-[6px] bg-cta text-white text-[13px] font-medium hover:bg-active transition-colors"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+                <polygon points="3,2 13,8 3,14" fill="currentColor" />
+              </svg>
+              Предпросмотр
+            </button>
           </div>
         </div>
 
