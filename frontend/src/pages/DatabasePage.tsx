@@ -18,8 +18,19 @@ function slugify(s: string): string {
   return `${base}_${Date.now().toString(36)}`;
 }
 
+/* ── Effective display type: prefers field_options.display_type over field_type ── */
+function effectiveType(field: FieldRead): string {
+  return (field.field_options?.display_type as string) ?? field.field_type;
+}
+
+/* ── Is field shown in the create/edit form? ── */
+function isFormVisible(field: FieldRead): boolean {
+  return field.field_options?.form_visible !== false;
+}
+
 /* ── Field-type column width ── */
-function colWidth(ft: string): number {
+function colWidth(field: FieldRead): number {
+  const ft = effectiveType(field);
   if (ft === "long_text" || ft === "rich_text") return 300;
   if (ft === "number" || ft === "decimal")       return 120;
   if (ft === "boolean")                          return 80;
@@ -35,6 +46,7 @@ export function DatabasePage() {
   const [activeRow, setActiveRow] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showImport, setShowImport] = useState(false);
+  const [showCreateRecord, setShowCreateRecord] = useState(false);
   const [showNewTableModal, setShowNewTableModal] = useState(false);
   const [showEditColumnModal, setShowEditColumnModal] = useState(false);
   const [showSortModal, setShowSortModal] = useState(false);
@@ -74,12 +86,7 @@ export function DatabasePage() {
   }
 
   function handleAddRow() {
-    createRecord.mutate({ payload: {} }, {
-      onSuccess: (rec) => {
-        setActiveRow(records.length); // will be last after refetch
-        void rec;
-      },
-    });
+    setShowCreateRecord(true);
   }
 
   function startEdit(rowIdx: number, record: { payload: Record<string, unknown> }) {
@@ -97,9 +104,10 @@ export function DatabasePage() {
     displayFields.forEach((f) => {
       const v = editValues[f.name];
       if (v !== undefined) {
-        if (f.field_type === "number" || f.field_type === "decimal") {
+        const et = effectiveType(f);
+        if (et === "number" || et === "decimal") {
           payload[f.name] = v === "" ? null : Number(v);
-        } else if (f.field_type === "boolean") {
+        } else if (et === "boolean") {
           payload[f.name] = v === "true";
         } else {
           payload[f.name] = v === "" ? null : v;
@@ -283,7 +291,7 @@ export function DatabasePage() {
                 {displayFields.map((f) => (
                   <th
                     key={f.id}
-                    style={{ width: colWidth(f.field_type), minWidth: colWidth(f.field_type) }}
+                    style={{ width: colWidth(f), minWidth: colWidth(f) }}
                     className="border-r border-cardbg px-3 py-2 text-left font-medium text-primary whitespace-nowrap"
                   >
                     <div className="flex items-center gap-1">
@@ -327,23 +335,24 @@ export function DatabasePage() {
                       </td>
                       {displayFields.map((f) => {
                         const raw = rec.payload[f.name];
+                        const et = effectiveType(f);
                         return (
                           <td
                             key={f.id}
                             className={cn(
                               "border-r border-cardbg px-3 py-[6px]",
-                              f.field_type === "number" || f.field_type === "decimal" ? "text-right" : ""
+                              et === "number" || et === "decimal" ? "text-right" : ""
                             )}
                           >
-                            {isActive && canInlineEdit(f.field_type) ? (
-                              <input
-                                autoFocus={displayFields[0].id === f.id}
+                            {isActive && canInlineEdit(et) ? (
+                              <InlineEdit
+                                field={f}
                                 value={editValues[f.name] ?? ""}
-                                onChange={(e) => setEditValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                                autoFocus={displayFields[0].id === f.id}
+                                onChange={(v) => setEditValues((p) => ({ ...p, [f.name]: v }))}
                                 onBlur={() => scheduleCommit(rec.id)}
                                 onFocus={cancelCommit}
-                                onKeyDown={(e) => e.key === "Enter" && commitEdit(rec.id)}
-                                className="w-full bg-white border border-cta rounded-[3px] px-1 outline-none text-primary"
+                                onEnter={() => commitEdit(rec.id)}
                               />
                             ) : (
                               <CellValue value={raw} field={f} />
@@ -383,6 +392,18 @@ export function DatabasePage() {
           {entity ? `• ${entity.display_name}` : ""}
         </span>
       </footer>
+
+      {showCreateRecord && appId && entity && (
+        <CreateRecordModal
+          entity={entity}
+          onClose={() => setShowCreateRecord(false)}
+          onConfirm={(payload) => {
+            createRecord.mutate({ payload }, {
+              onSuccess: () => setShowCreateRecord(false),
+            });
+          }}
+        />
+      )}
 
       {showImport && appId && entity && (
         <ImportModal
@@ -461,13 +482,15 @@ export function DatabasePage() {
   );
 }
 
-/* ── Cell value renderer ── */
+/* ── Cell value renderer — uses display_type from field_options ── */
 function CellValue({ value, field }: { value: unknown; field: FieldRead }) {
+  const et = effectiveType(field);
+
   if (value === null || value === undefined || value === "") {
     return <span className="text-primary/25">—</span>;
   }
 
-  if (field.field_type === "boolean") {
+  if (et === "boolean") {
     return value ? (
       <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-cta/10 text-cta">
         <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -477,18 +500,34 @@ function CellValue({ value, field }: { value: unknown; field: FieldRead }) {
     ) : <span className="text-primary/25">—</span>;
   }
 
-  if (field.field_type === "select") {
+  if (et === "select" || et === "multi_select") {
     const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
-    const choice = choices.find((c) => c.value === String(value));
-    const label = choice?.label ?? String(value);
+    const vals = et === "multi_select" ? String(value).split(",") : [String(value)];
     return (
-      <span className="inline-block px-2 py-0.5 rounded-[4px] text-[12px] font-medium bg-[#EBF4FF] text-cta">
-        {label}
+      <span className="flex flex-wrap gap-1">
+        {vals.map((v) => {
+          const label = choices.find((c) => c.value === v.trim())?.label ?? v.trim();
+          return (
+            <span key={v} className="inline-block px-2 py-0.5 rounded-[4px] text-[12px] font-medium bg-[#EBF4FF] text-cta">
+              {label}
+            </span>
+          );
+        })}
       </span>
     );
   }
 
-  if (field.field_type === "long_text" || field.field_type === "rich_text") {
+  if (et === "date") {
+    const d = new Date(String(value));
+    return <span className="text-primary font-mono">{isNaN(d.getTime()) ? String(value) : d.toLocaleDateString("ru")}</span>;
+  }
+
+  if (et === "datetime") {
+    const d = new Date(String(value));
+    return <span className="text-primary font-mono">{isNaN(d.getTime()) ? String(value) : d.toLocaleString("ru", { dateStyle: "short", timeStyle: "short" })}</span>;
+  }
+
+  if (et === "long_text" || et === "rich_text") {
     return (
       <span className="block truncate max-w-[280px] text-primary" title={String(value)}>
         {String(value)}
@@ -496,19 +535,261 @@ function CellValue({ value, field }: { value: unknown; field: FieldRead }) {
     );
   }
 
-  if (field.field_type === "number" || field.field_type === "decimal") {
+  if (et === "number" || et === "decimal") {
     return <span className="text-primary font-mono">{String(value)}</span>;
   }
 
-  if (field.field_type === "email") {
+  if (et === "email") {
     return <span className="text-cta underline truncate">{String(value)}</span>;
+  }
+
+  if (et === "url") {
+    return (
+      <a href={String(value)} target="_blank" rel="noopener noreferrer"
+        className="text-cta underline truncate block max-w-[200px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {String(value)}
+      </a>
+    );
+  }
+
+  if (et === "phone") {
+    return <span className="text-primary font-mono">{String(value)}</span>;
   }
 
   return <span className="text-primary truncate">{String(value)}</span>;
 }
 
-function canInlineEdit(ft: string): boolean {
-  return ["text", "long_text", "number", "decimal", "email", "phone", "url"].includes(ft);
+/* ── Inline edit widget — renders input based on display_type ── */
+function InlineEdit({
+  field, value, autoFocus, onChange, onBlur, onFocus, onEnter,
+}: {
+  field: FieldRead;
+  value: string;
+  autoFocus: boolean;
+  onChange: (v: string) => void;
+  onBlur: () => void;
+  onFocus: () => void;
+  onEnter: () => void;
+}) {
+  const et = effectiveType(field);
+  const base = "w-full bg-white border border-cta rounded-[3px] px-1 outline-none text-primary";
+
+  if (et === "boolean") {
+    return (
+      <input
+        type="checkbox"
+        checked={value === "true"}
+        autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.checked ? "true" : "false")}
+        onBlur={onBlur}
+        onFocus={onFocus}
+        className="w-4 h-4 accent-cta cursor-pointer"
+      />
+    );
+  }
+
+  if (et === "date") {
+    return (
+      <input type="date" value={value} autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
+        onKeyDown={(e) => e.key === "Enter" && onEnter()}
+        className={base}
+      />
+    );
+  }
+
+  if (et === "datetime") {
+    return (
+      <input type="datetime-local" value={value} autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
+        onKeyDown={(e) => e.key === "Enter" && onEnter()}
+        className={base}
+      />
+    );
+  }
+
+  if (et === "number" || et === "decimal") {
+    return (
+      <input type="number" value={value} autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
+        onKeyDown={(e) => e.key === "Enter" && onEnter()}
+        className={base + " text-right"}
+      />
+    );
+  }
+
+  if (et === "select") {
+    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    return (
+      <select value={value} autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
+        className={base}
+      >
+        <option value="">—</option>
+        {choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <input type="text" value={value} autoFocus={autoFocus}
+      onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
+      onKeyDown={(e) => e.key === "Enter" && onEnter()}
+      className={base}
+    />
+  );
+}
+
+/* ── Create record modal — respects form_visible and display_type ── */
+function CreateRecordModal({
+  entity, onClose, onConfirm,
+}: {
+  entity: { display_name: string; fields: FieldRead[] };
+  onClose: () => void;
+  onConfirm: (payload: Record<string, unknown>) => void;
+}) {
+  const formFields = [...entity.fields]
+    .filter((f) => !f.is_system && isFormVisible(f))
+    .sort((a, b) => a.display_order - b.display_order);
+
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(formFields.map((f) => [f.name, ""]))
+  );
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const payload: Record<string, unknown> = {};
+    formFields.forEach((f) => {
+      const v = values[f.name] ?? "";
+      const et = effectiveType(f);
+      if (et === "number" || et === "decimal") payload[f.name] = v === "" ? null : Number(v);
+      else if (et === "boolean") payload[f.name] = v === "true";
+      else payload[f.name] = v === "" ? null : v;
+    });
+    onConfirm(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-white rounded-[16px] shadow-xl w-[520px] max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-cardbg shrink-0">
+          <h2 className="text-[20px] font-bold text-primary">Новая запись · {entity.display_name}</h2>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-[22px] leading-none">×</button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+          {formFields.length === 0 && (
+            <p className="text-[15px] text-primary/50">Нет доступных полей для ввода.<br/>Включите видимость полей в разделе «Источники → Форма».</p>
+          )}
+
+          {formFields.map((f) => {
+            const et = effectiveType(f);
+            const required = f.is_required;
+            return (
+              <div key={f.id} className="flex flex-col gap-1">
+                <label className="text-[14px] font-medium text-primary">
+                  {f.display_name}
+                  {required && <span className="text-red-500 ml-1">*</span>}
+                </label>
+                <FieldInput
+                  field={f}
+                  et={et}
+                  value={values[f.name] ?? ""}
+                  onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
+                  required={required}
+                />
+              </div>
+            );
+          })}
+
+          <div className="flex gap-3 justify-end pt-2 shrink-0">
+            <button type="button" onClick={onClose}
+              className="px-5 py-2 rounded-btn border border-cardbg text-[15px] text-primary hover:bg-mainbg transition-colors">
+              Отмена
+            </button>
+            <button type="submit"
+              className="px-5 py-2 rounded-btn bg-cta text-white text-[15px] font-medium hover:bg-active transition-colors">
+              Создать
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ── Field input for create form ── */
+function FieldInput({ field, et, value, onChange, required }: {
+  field: FieldRead; et: string; value: string;
+  onChange: (v: string) => void; required: boolean;
+}) {
+  const base = "w-full h-[40px] bg-mainbg border border-cardbg rounded-[8px] px-3 text-[15px] text-primary focus:outline-none focus:border-cta transition-colors";
+
+  if (et === "boolean") {
+    return (
+      <div className="flex items-center gap-2">
+        <button type="button"
+          onClick={() => onChange(value === "true" ? "false" : "true")}
+          className={`relative w-[44px] h-[24px] rounded-full transition-colors ${value === "true" ? "bg-cta" : "bg-cardbg"}`}
+        >
+          <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow transition-all ${value === "true" ? "left-[23px]" : "left-[3px]"}`} />
+        </button>
+        <span className="text-[14px] text-primary">{value === "true" ? "Да" : "Нет"}</span>
+      </div>
+    );
+  }
+
+  if (et === "select") {
+    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    return (
+      <select value={value} required={required} onChange={(e) => onChange(e.target.value)}
+        className={base + " appearance-none"}>
+        <option value="">— Выберите —</option>
+        {choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+      </select>
+    );
+  }
+
+  if (et === "date") return (
+    <input type="date" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+  );
+
+  if (et === "datetime") return (
+    <input type="datetime-local" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+  );
+
+  if (et === "number" || et === "decimal") return (
+    <input type="number" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base + " text-right"} />
+  );
+
+  if (et === "long_text") return (
+    <textarea value={value} required={required} onChange={(e) => onChange(e.target.value)} rows={3}
+      className="w-full bg-mainbg border border-cardbg rounded-[8px] px-3 py-2 text-[15px] text-primary focus:outline-none focus:border-cta resize-none transition-colors" />
+  );
+
+  if (et === "email") return (
+    <input type="email" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+  );
+
+  if (et === "url") return (
+    <input type="url" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+  );
+
+  if (et === "phone") return (
+    <input type="tel" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+  );
+
+  return (
+    <input type="text" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+  );
+}
+
+function canInlineEdit(et: string): boolean {
+  return ["text", "long_text", "number", "decimal", "email", "phone", "url", "date", "datetime", "boolean", "select"].includes(et);
 }
 
 /* ── Small helpers ── */
