@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BrowserRouter, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, type PageRead } from "@/shared/api/views";
 import { listEntities, type EntityRead, type FieldRead } from "@/shared/api/entities";
-import { listRecords, type RecordRead } from "@/shared/api/records";
+import { listRecords, createRecord, type RecordRead } from "@/shared/api/records";
 
 interface PageBlock {
   id: string;
@@ -19,14 +19,29 @@ interface DesignConfig {
   show_header?: boolean;
 }
 
-/** End-user runtime: renders an app's published pages from the backend. */
 function RuntimeShell() {
   const [params] = useSearchParams();
   const appId = params.get("app");
+  const preview = params.get("preview") === "true";
+  const pageParam = params.get("page");
 
-  // Runtime data needs auth (same origin shares the editor session). Without a
-  // token, show a friendly gate instead of letting the API client bounce us.
   const authed = isAuthenticated();
+  const queryClient = useQueryClient();
+
+  // Listen for messages from the editor (refetch data, navigate to page)
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (!e.data) return;
+      if (e.data.type === "RT_REFETCH") {
+        void queryClient.invalidateQueries();
+      }
+      if (e.data.type === "RT_NAVIGATE" && e.data.pageId) {
+        setActivePageId(e.data.pageId as string);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [queryClient]);
 
   const appsQuery = useQuery({
     queryKey: ["rt-apps"],
@@ -52,7 +67,21 @@ function RuntimeShell() {
 
   const [activePageId, setActivePageId] = useState<string | null>(null);
 
-  // All hooks above run unconditionally; gates below are render-only.
+  // Preselect page from URL param or first page
+  const pages = pagesQuery.data ?? [];
+  const navPages = preview ? pages : (pages.filter((p) => p.is_published).length > 0
+    ? pages.filter((p) => p.is_published)
+    : pages);
+
+  useEffect(() => {
+    if (navPages.length === 0) return;
+    if (pageParam && navPages.find((p) => p.id === pageParam)) {
+      setActivePageId(pageParam);
+    } else if (!activePageId || !navPages.find((p) => p.id === activePageId)) {
+      setActivePageId(navPages[0].id);
+    }
+  }, [navPages.map((p) => p.id).join(","), pageParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!authed) {
     return (
       <Centered>
@@ -75,27 +104,21 @@ function RuntimeShell() {
     return <Centered>Приложение не найдено. Откройте его из конструктора.</Centered>;
   }
 
-  const pages = pagesQuery.data ?? [];
-  // Prefer published pages; fall back to all so a freshly-built app still shows.
-  const visible = pages.filter((p) => p.is_published);
-  const navPages = visible.length > 0 ? visible : pages;
-  const activePage =
-    navPages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
-
+  const activePage = navPages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
   const accent = (activePage?.layout?.design as DesignConfig | undefined)?.accent ?? "#35A7FF";
   const entities = entitiesQuery.data ?? [];
 
   return (
     <div style={{ minHeight: "100vh", background: "#F1F6FF", color: "#00205F", fontFamily: "Inter, sans-serif" }}>
       {/* App bar */}
-      <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", padding: "0 20px", fontWeight: 600, fontSize: 18 }}>
+      <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", padding: "0 20px", fontWeight: 600, fontSize: 18, flexShrink: 0 }}>
         {app.name}
       </header>
 
       <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", padding: 16, gap: 16 }}>
         {/* Page nav */}
         {navPages.length > 1 && (
-          <nav style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+          <nav style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
             {navPages.map((p) => (
               <button
                 key={p.id}
@@ -149,15 +172,30 @@ function PageView({ page, appId, entities, accent }: {
       {blocks.length === 0 && <Centered>На этой странице ещё нет блоков.</Centered>}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {blocks.map((b) => (
-          <Block key={b.id} block={b} entity={entity} cols={cols} records={records} accent={accent} />
+          <Block
+            key={b.id}
+            block={b}
+            entity={entity}
+            cols={cols}
+            records={records}
+            accent={accent}
+            appId={appId}
+            onRecordCreated={() => recordsQuery.refetch()}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function Block({ block, entity, cols, records, accent }: {
-  block: PageBlock; entity: EntityRead | null; cols: FieldRead[]; records: RecordRead[]; accent: string;
+function Block({ block, entity, cols, records, accent, appId, onRecordCreated }: {
+  block: PageBlock;
+  entity: EntityRead | null;
+  cols: FieldRead[];
+  records: RecordRead[];
+  accent: string;
+  appId: string;
+  onRecordCreated: () => void;
 }) {
   if (block.type === "divider") {
     return <hr style={{ border: "none", borderTop: "1px solid #CBE3FF", margin: "4px 0" }} />;
@@ -181,6 +219,23 @@ function Block({ block, entity, cols, records, accent }: {
     );
   }
 
+  if (block.type === "kpi") {
+    const value = (block.config?.value as string) || String(records.length);
+    const trend = (block.config?.trend as string) ?? "+0%";
+    const positive = !trend.trim().startsWith("-");
+    return (
+      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span style={{ fontSize: 13, color: "#8898AA" }}>{block.title ?? "KPI"}</span>
+          <span style={{ fontSize: 32, fontWeight: 700, color: "#00205F" }}>{value}</span>
+        </div>
+        <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: positive ? "#DCFCE7" : "#FEE2E2", color: positive ? "#15803D" : "#B91C1C" }}>
+          {trend}
+        </span>
+      </section>
+    );
+  }
+
   if (block.type === "iframe") {
     const src = (block.config?.src as string) ?? "";
     return (
@@ -198,8 +253,21 @@ function Block({ block, entity, cols, records, accent }: {
   }
 
   if (block.type === "button") {
+    const href = (block.config?.href as string) ?? "";
+    const style: React.CSSProperties = {
+      alignSelf: "flex-start", background: accent, color: "#fff", border: "none",
+      borderRadius: 8, padding: "10px 20px", fontSize: 15, fontWeight: 500,
+      cursor: "pointer", textDecoration: "none", display: "inline-block",
+    };
+    if (href) {
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" style={style}>
+          {block.title ?? "Кнопка"}
+        </a>
+      );
+    }
     return (
-      <button style={{ alignSelf: "flex-start", background: accent, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 15, fontWeight: 500, cursor: "pointer" }}>
+      <button style={style} onClick={() => alert("Действие кнопки не настроено")}>
         {block.title ?? "Кнопка"}
       </button>
     );
@@ -207,28 +275,14 @@ function Block({ block, entity, cols, records, accent }: {
 
   if (block.type === "form") {
     return (
-      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{block.title ?? "Форма"}</h3>
-        {cols.length === 0 ? (
-          <p style={{ color: "#8898AA", fontSize: 14 }}>Таблица не выбрана.</p>
-        ) : (
-          <form style={{ display: "flex", flexDirection: "column", gap: 10 }} onSubmit={(e) => e.preventDefault()}>
-            {cols.slice(0, 8).map((f) => (
-              <label key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#5b6b86" }}>
-                {f.display_name}{f.is_required && " *"}
-                <input
-                  disabled
-                  placeholder={`Введите ${f.display_name.toLowerCase()}`}
-                  style={{ height: 36, borderRadius: 8, border: "1px solid #CBE3FF", padding: "0 12px", background: "#F1F6FF" }}
-                />
-              </label>
-            ))}
-            <button style={{ alignSelf: "flex-start", background: accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", marginTop: 4 }}>
-              Сохранить
-            </button>
-          </form>
-        )}
-      </section>
+      <FormBlock
+        block={block}
+        entity={entity}
+        cols={cols}
+        appId={appId}
+        accent={accent}
+        onSuccess={onRecordCreated}
+      />
     );
   }
 
@@ -265,6 +319,93 @@ function Block({ block, entity, cols, records, accent }: {
             </tbody>
           </table>
         </div>
+      )}
+    </section>
+  );
+}
+
+function FormBlock({ block, entity, cols, appId, accent, onSuccess }: {
+  block: PageBlock;
+  entity: EntityRead | null;
+  cols: FieldRead[];
+  appId: string;
+  accent: string;
+  onSuccess: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!entity || status === "submitting") return;
+    setStatus("submitting");
+    try {
+      const payload: Record<string, unknown> = {};
+      cols.forEach((f) => {
+        const v = values[f.name];
+        if (v !== undefined && v !== "") payload[f.name] = v;
+      });
+      await createRecord(appId, entity.id, { payload });
+      setValues({});
+      setStatus("success");
+      onSuccess();
+      setTimeout(() => setStatus("idle"), 3000);
+    } catch {
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
+    }
+  }
+
+  return (
+    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff" }}>
+      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{block.title ?? "Форма"}</h3>
+      {cols.length === 0 ? (
+        <p style={{ color: "#8898AA", fontSize: 14 }}>Таблица не выбрана.</p>
+      ) : (
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {cols.slice(0, 8).map((f) => (
+            <label key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#5b6b86" }}>
+              {f.display_name}{f.is_required && " *"}
+              {f.field_type === "boolean" ? (
+                <input
+                  type="checkbox"
+                  checked={values[f.name] === "true"}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.checked ? "true" : "false" }))}
+                  style={{ width: 20, height: 20, cursor: "pointer" }}
+                />
+              ) : (
+                <input
+                  type={f.field_type === "number" ? "number" : f.field_type === "date" ? "date" : "text"}
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  placeholder={`Введите ${f.display_name.toLowerCase()}`}
+                  required={f.is_required}
+                  style={{ height: 36, borderRadius: 8, border: "1px solid #CBE3FF", padding: "0 12px", background: "#F1F6FF", fontSize: 14, outline: "none" }}
+                />
+              )}
+            </label>
+          ))}
+
+          {status === "success" && (
+            <p style={{ color: "#15803D", fontSize: 13, fontWeight: 500 }}>✓ Запись сохранена</p>
+          )}
+          {status === "error" && (
+            <p style={{ color: "#B91C1C", fontSize: 13 }}>Ошибка при сохранении. Попробуйте ещё раз.</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={status === "submitting"}
+            style={{
+              alignSelf: "flex-start", background: accent, color: "#fff", border: "none",
+              borderRadius: 8, padding: "8px 18px", marginTop: 4, fontSize: 14,
+              cursor: status === "submitting" ? "not-allowed" : "pointer",
+              opacity: status === "submitting" ? 0.7 : 1,
+            }}
+          >
+            {status === "submitting" ? "Сохранение…" : "Сохранить"}
+          </button>
+        </form>
       )}
     </section>
   );

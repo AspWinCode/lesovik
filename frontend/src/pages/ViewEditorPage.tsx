@@ -15,8 +15,7 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage } from "@/shared/hooks/useViews";
 import { useEntities } from "@/shared/hooks/useEntities";
-import { useRecords } from "@/shared/hooks/useRecords";
-import type { FieldRead, EntityRead } from "@/shared/api/entities";
+import type { FieldRead } from "@/shared/api/entities";
 import { SortingModal, GroupingModal, DensityModal, TableViewsModal, NewActionModal } from "@/components/modals/ViewModals";
 
 /* ── View types ── */
@@ -167,6 +166,8 @@ export function ViewEditorPage() {
   const selectedEntityId = (layout.entity_id as string) ?? "";
   const position = (layout.position as string) ?? "первый";
 
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
   const appsQuery = useApps();
   const apps = appsQuery.data?.items ?? [];
   const app = useActiveApp(apps);
@@ -191,6 +192,16 @@ export function ViewEditorPage() {
     }
   }, [pages, activeView]);
 
+  // Sync active page into iframe without reloading it
+  useEffect(() => {
+    if (activeView && iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        { type: "RT_NAVIGATE", pageId: activeView },
+        window.location.origin,
+      );
+    }
+  }, [activeView]);
+
   // Sync local state from active page
   useEffect(() => {
     if (!activePage) return;
@@ -207,17 +218,27 @@ export function ViewEditorPage() {
     },
   ];
 
+  function _postRefetch() {
+    iframeRef.current?.contentWindow?.postMessage({ type: "RT_REFETCH" }, window.location.origin);
+  }
+
   // Merge a partial into page.layout and persist to backend.
   function patchLayout(partial: Record<string, unknown>) {
     const next = { ...layoutRef.current, ...partial };
     setLayout(next);
     if (!activeView || !appId) return;
-    updatePageMutation.mutate({ pageId: activeView, body: { layout: next } });
+    updatePageMutation.mutate(
+      { pageId: activeView, body: { layout: next } },
+      { onSuccess: _postRefetch },
+    );
   }
 
   function handleNameBlur() {
     if (!activeView || !appId) return;
-    updatePageMutation.mutate({ pageId: activeView, body: { title: name } });
+    updatePageMutation.mutate(
+      { pageId: activeView, body: { title: name } },
+      { onSuccess: _postRefetch },
+    );
   }
 
   function handleEntityChange(entityId: string) {
@@ -233,10 +254,10 @@ export function ViewEditorPage() {
   function handleBlocksChange(newBlocks: PageBlock[]) {
     setBlocks(newBlocks);
     if (!activeView || !appId) return;
-    updatePageMutation.mutate({
-      pageId: activeView,
-      body: { blocks: newBlocks as unknown as Record<string, unknown>[] },
-    });
+    updatePageMutation.mutate(
+      { pageId: activeView, body: { blocks: newBlocks as unknown as Record<string, unknown>[] } },
+      { onSuccess: _postRefetch },
+    );
   }
 
   function handleUpdateBlock(blockId: string, patch: Partial<PageBlock>) {
@@ -270,14 +291,14 @@ export function ViewEditorPage() {
       .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
     createPageMutation.mutate(
       { slug: `${base}-${Date.now().toString(36)}`, title: title.trim() },
-      { onSuccess: (page) => setActiveView(page.id) },
+      { onSuccess: (page) => { setActiveView(page.id); _postRefetch(); } },
     );
   }
 
   function handleDeletePage(pageId: string) {
     if (!appId) return;
     if (!window.confirm("Удалить страницу?")) return;
-    deletePageMutation.mutate(pageId);
+    deletePageMutation.mutate(pageId, { onSuccess: _postRefetch });
     if (activeView === pageId) {
       const next = pages.find((p) => p.id !== pageId);
       setActiveView(next?.id ?? "");
@@ -310,10 +331,10 @@ export function ViewEditorPage() {
       onClick={() => setEntityDdOpen(false)}
     >
       <Navbar
-        onSave={activeView && appId ? () => updatePageMutation.mutate({
-          pageId: activeView,
-          body: { title: name, layout, blocks: blocks as unknown as Record<string, unknown>[] },
-        }) : undefined}
+        onSave={activeView && appId ? () => updatePageMutation.mutate(
+          { pageId: activeView, body: { title: name, layout, blocks: blocks as unknown as Record<string, unknown>[] } },
+          { onSuccess: _postRefetch },
+        ) : undefined}
       />
       <IconRail active={railModule} onChange={setRailModule} />
       <ViewNavPanel
@@ -635,14 +656,12 @@ export function ViewEditorPage() {
         )}
       </div>
 
-      <LivePreview
+      <IframePreview
         appId={appId}
         appName={app?.name ?? "Приложение"}
-        page={activePage}
-        blocks={blocks}
-        entity={selectedEntity ?? null}
-        hiddenColumns={hiddenColumns}
-        design={design}
+        activePageId={activeView}
+        iframeRef={iframeRef}
+        accent={design.accent ?? "#35A7FF"}
       />
 
       {pickerOpen && (
@@ -1697,32 +1716,21 @@ function DesignTab({
   );
 }
 
-/* ── Live preview of the page being built (right panel) ── */
-function LivePreview({
+/* ── Iframe preview panel (right side, mirrors RuntimeApp at real scale) ── */
+function IframePreview({
   appId,
   appName,
-  page,
-  blocks,
-  entity,
-  hiddenColumns,
-  design,
+  activePageId,
+  iframeRef,
+  accent,
 }: {
   appId: string | undefined;
   appName: string;
-  page: { title: string } | null;
-  blocks: PageBlock[];
-  entity: EntityRead | null;
-  hiddenColumns: string[];
-  design: DesignConfig;
+  activePageId: string;
+  iframeRef: React.RefObject<HTMLIFrameElement>;
+  accent: string;
 }) {
   const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
-  const accent = design.accent ?? "#35A7FF";
-
-  const recordsQuery = useRecords(appId, entity?.id, { limit: 20 });
-  const records = recordsQuery.data?.items ?? [];
-  const cols = (entity?.fields ?? []).filter(
-    (f) => !f.is_system && !hiddenColumns.includes(f.name),
-  );
 
   const tabs = [
     { id: "mobile", label: "Смартфон", icon: (
@@ -1740,7 +1748,16 @@ function LivePreview({
     )},
   ];
 
-  const frameW = device === "mobile" ? 380 : 540;
+  // Mobile: native 390px; Desktop: full 1280px scaled to fit 540px frame
+  const FRAME_H = 760;
+  const cfg = device === "mobile"
+    ? { frameW: 380, iframeW: 390, iframeH: Math.ceil(FRAME_H / (380 / 390)) }
+    : { frameW: 540, iframeW: 1280, iframeH: Math.ceil(FRAME_H / (540 / 1280)) };
+  const scale = cfg.frameW / cfg.iframeW;
+
+  const src = appId
+    ? `/app/?app=${appId}&preview=true&page=${activePageId}`
+    : "";
 
   return (
     <div
@@ -1754,46 +1771,32 @@ function LivePreview({
         className="w-[348px]"
       />
 
-      {/* Phone/desktop frame */}
+      {/* Device frame */}
       <div
-        className="bg-white overflow-hidden shrink-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] flex flex-col"
-        style={{ width: frameW, height: 760, borderRadius: device === "mobile" ? 40 : 14 }}
+        className="shrink-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden relative"
+        style={{ width: cfg.frameW, height: FRAME_H, borderRadius: device === "mobile" ? 40 : 14 }}
       >
-        {/* App header */}
-        {(design.show_header ?? true) && (
-          <div className="px-5 py-[14px] shrink-0 text-white font-semibold text-[17px]" style={{ background: accent }}>
-            {page?.title ?? appName}
+        {src ? (
+          <iframe
+            ref={iframeRef}
+            src={src}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: cfg.iframeW,
+              height: cfg.iframeH,
+              border: 0,
+              transformOrigin: "top left",
+              transform: `scale(${scale})`,
+            }}
+            title="Предпросмотр приложения"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-primary/30 text-[14px]">
+            Выберите приложение
           </div>
         )}
-
-        {/* Blocks */}
-        <div className="flex-1 overflow-y-auto p-4" style={{ fontFamily: design.font_family ?? "Inter" }}>
-          {blocks.length === 0 && (
-            <div className="flex items-center justify-center h-full text-primary/30 text-[14px] text-center px-6">
-              Добавьте блоки на вкладке «Представления», чтобы увидеть страницу
-            </div>
-          )}
-          <div className="grid grid-cols-12 gap-3 items-start">
-            {blocks.map((b) => {
-              const w = (b.config?.width as string) ?? "full";
-              const span = w === "third" ? 4 : w === "half" ? 6 : w === "auto" ? undefined : 12;
-              return (
-                <div
-                  key={b.id}
-                  style={span ? { gridColumn: `span ${span}` } : { gridColumn: "auto" }}
-                >
-                  <PreviewBlock
-                    block={b}
-                    entity={entity}
-                    cols={cols}
-                    records={records}
-                    accent={accent}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       <a
@@ -1809,266 +1812,6 @@ function LivePreview({
   );
 }
 
-function PreviewBlock({
-  block,
-  entity,
-  cols,
-  records,
-  accent,
-}: {
-  block: PageBlock;
-  entity: EntityRead | null;
-  cols: FieldRead[];
-  records: { id: string; payload: Record<string, unknown> }[];
-  accent: string;
-}) {
-  if (block.type === "divider") {
-    return <hr className="border-t border-cardbg my-1" />;
-  }
-
-  if (block.type === "rich_text") {
-    const text = (block.config?.text as string) ?? block.title ?? "Текстовый блок";
-    const fs   = (block.config?.fontSize as string) ?? "14";
-    const fw   = (block.config?.fontWeight as string) ?? "normal";
-    const ff   = (block.config?.fontFamily as string) ?? "inherit";
-    const ta   = (block.config?.textAlign as string) ?? "left";
-    return (
-      <div
-        className="rounded-[10px] p-4 bg-mainbg text-primary leading-relaxed whitespace-pre-wrap"
-        style={{ fontSize: `${fs}px`, fontWeight: fw === "bold" ? 700 : fw === "medium" ? 500 : 400, fontFamily: ff, textAlign: ta as React.CSSProperties["textAlign"] }}
-      >
-        {text}
-      </div>
-    );
-  }
-
-  if (block.type === "metric") {
-    const label = block.title ?? "Метрика";
-    const value = (block.config?.value as string) ?? "—";
-    const fs    = (block.config?.fontSize as string) ?? "32";
-    return (
-      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col items-center gap-1">
-        <span className="text-[13px] text-primary/50">{label}</span>
-        <span className="font-bold" style={{ fontSize: `${fs}px`, color: accent }}>{value}</span>
-      </div>
-    );
-  }
-
-  if (block.type === "kpi") {
-    const label = block.title ?? "KPI";
-    const value = (block.config?.value as string) || String(records.length);
-    const trend = (block.config?.trend as string) ?? "+0%";
-    const fs    = (block.config?.fontSize as string) ?? "30";
-    const positive = !trend.trim().startsWith("-");
-    return (
-      <div className="border border-cardbg rounded-[10px] p-4 flex items-center justify-between gap-4">
-        <div className="flex flex-col">
-          <span className="text-[13px] text-primary/50">{label}</span>
-          <span className="font-bold text-primary" style={{ fontSize: `${fs}px` }}>{value}</span>
-        </div>
-        <span
-          className="px-3 py-1 rounded-full text-[13px] font-semibold"
-          style={{ background: positive ? "#DCFCE7" : "#FEE2E2", color: positive ? "#15803D" : "#B91C1C" }}
-        >
-          {trend}
-        </span>
-      </div>
-    );
-  }
-
-  if (block.type === "chart") {
-    const chartType = (block.config?.chart_type as string) ?? "bar";
-    const valueField = (block.config?.value_field as string) ?? "";
-    const values = records.slice(0, 6).map((record, index) => {
-      const raw = valueField ? record.payload[valueField] : undefined;
-      const parsed = typeof raw === "number" ? raw : Number(raw);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : (index + 1) * 12;
-    });
-    const sample = values.length ? values : [18, 34, 26, 44, 31];
-    const max = Math.max(...sample, 1);
-    return (
-      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-[15px] font-semibold text-primary">{block.title ?? "График"}</span>
-          <span className="text-[12px] text-primary/40">{chartType === "line" ? "line" : "bar"}</span>
-        </div>
-        <div className="h-[120px] flex items-end gap-2">
-          {sample.map((value, index) => (
-            <div key={index} className="flex-1 rounded-t-[5px]" style={{ height: `${Math.max(12, (value / max) * 100)}%`, background: accent }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (block.type === "calendar") {
-    const dateField = (block.config?.date_field as string) ?? "";
-    const titleField = (block.config?.title_field as string) ?? "";
-    const fallbackTitle = cols[0]?.name ?? "";
-    const items = records.slice(0, 4).map((record, index) => ({
-      id: record.id,
-      day: formatCalendarDay(record.payload[dateField]) || String(index + 1).padStart(2, "0"),
-      title: formatPreviewValue(record.payload[titleField || fallbackTitle]) || `Событие ${index + 1}`,
-    }));
-    return (
-      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
-        <span className="text-[15px] font-semibold text-primary">{block.title ?? "Календарь"}</span>
-        {(items.length ? items : [{ id: "empty", day: "01", title: "Нет событий" }]).map((item) => (
-          <div key={item.id} className="flex items-center gap-3">
-            <span className="w-[42px] h-[42px] rounded-[8px] flex items-center justify-center text-white font-bold" style={{ background: accent }}>
-              {item.day}
-            </span>
-            <span className="text-[13px] text-primary truncate">{item.title}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (block.type === "kanban") {
-    const groupField = (block.config?.group_by as string) || cols.find((field) => ["select", "boolean", "text"].includes(field.field_type))?.name || "";
-    const titleField = (block.config?.card_title as string) || cols[0]?.name || "";
-    const groups = new Map<string, { id: string; title: string }[]>();
-    records.slice(0, 8).forEach((record, index) => {
-      const key = formatPreviewValue(record.payload[groupField]) || "Без статуса";
-      const title = formatPreviewValue(record.payload[titleField]) || `Карточка ${index + 1}`;
-      groups.set(key, [...(groups.get(key) ?? []), { id: record.id, title }]);
-    });
-    if (groups.size === 0) groups.set("Новые", [{ id: "sample", title: "Пример карточки" }]);
-    return (
-      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
-        <span className="text-[15px] font-semibold text-primary">{block.title ?? "Kanban"}</span>
-        <div className="grid grid-cols-2 gap-2">
-          {[...groups.entries()].slice(0, 4).map(([group, cards]) => (
-            <div key={group} className="bg-mainbg rounded-[8px] p-2 min-h-[90px]">
-              <div className="text-[12px] font-semibold text-primary/60 mb-2 truncate">{group}</div>
-              {cards.slice(0, 3).map((card) => (
-                <div key={card.id} className="bg-white rounded-[6px] px-2 py-1.5 text-[12px] text-primary truncate mb-1">
-                  {card.title}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (block.type === "iframe") {
-    const src = (block.config?.src as string) ?? "";
-    return (
-      <div className="border border-cardbg rounded-[10px] overflow-hidden">
-        <div className="px-3 py-2 bg-mainbg text-[13px] font-semibold text-primary/60">
-          {block.title ?? "Встроенный фрейм"}
-        </div>
-        {src ? (
-          <iframe src={src} className="w-full h-[180px] border-0" title={block.title ?? "iframe"} />
-        ) : (
-          <div className="h-[80px] flex items-center justify-center text-[13px] text-primary/30">
-            URL не задан
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  if (block.type === "button") {
-    const w  = (block.config?.width as string) ?? "full";
-    const fs = (block.config?.fontSize as string) ?? "15";
-    return (
-      <button
-        className={cn("h-[42px] rounded-btn text-white font-medium", w === "auto" ? "px-6" : "w-full")}
-        style={{ background: accent, fontSize: `${fs}px` }}
-      >
-        {block.title ?? "Кнопка"}
-      </button>
-    );
-  }
-
-  if (block.type === "form") {
-    return (
-      <div className="border border-cardbg rounded-[10px] p-4 flex flex-col gap-3">
-        <span className="text-[15px] font-semibold text-primary">{block.title ?? "Форма"}</span>
-        {cols.length === 0 && <span className="text-[13px] text-primary/40">Выберите таблицу</span>}
-        {cols.slice(0, 6).map((f) => (
-          <div key={f.id} className="flex flex-col gap-1">
-            <span className="text-[12px] text-primary/60">{f.display_name}{f.is_required && " *"}</span>
-            <div className="h-[34px] bg-mainbg rounded-btn px-3 flex items-center text-[13px] text-primary/30">
-              {f.field_type === "boolean" ? "☐" : `Введите ${f.display_name.toLowerCase()}`}
-            </div>
-          </div>
-        ))}
-        <button className="mt-1 h-[36px] rounded-btn text-white text-[14px] font-medium" style={{ background: accent }}>
-          Сохранить
-        </button>
-      </div>
-    );
-  }
-
-  // table (default)
-  return (
-    <div className="border border-cardbg rounded-[10px] overflow-hidden">
-      <div className="px-3 py-2 bg-mainbg text-[14px] font-semibold text-primary flex items-center justify-between">
-        <span>{block.title ?? entity?.display_name ?? "Таблица"}</span>
-        <span className="text-[12px] text-primary/40 font-normal">{records.length} записей</span>
-      </div>
-      {cols.length === 0 ? (
-        <div className="px-3 py-4 text-[13px] text-primary/40">Выберите таблицу на вкладке «Представления»</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-cardbg">
-                {cols.slice(0, 4).map((f) => (
-                  <th key={f.id} className="px-2 py-1.5 text-[11px] font-semibold text-primary/60 whitespace-nowrap">
-                    {f.display_name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {records.slice(0, 8).map((rec) => (
-                <tr key={rec.id} className="border-b border-mainbg last:border-0">
-                  {cols.slice(0, 4).map((f) => (
-                    <td key={f.id} className="px-2 py-1.5 text-[12px] text-primary whitespace-nowrap max-w-[120px] truncate">
-                      {formatPreviewCell(rec.payload[f.name], f)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {records.length === 0 && (
-                <tr><td colSpan={4} className="px-2 py-3 text-[12px] text-primary/30">Нет записей</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function formatPreviewCell(value: unknown, field: FieldRead): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (field.field_type === "boolean") return value ? "✓" : "✗";
-  if (field.field_type === "select") {
-    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
-    return choices.find((c) => c.value === value)?.label ?? String(value);
-  }
-  return String(value);
-}
-
-function formatPreviewValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "";
-  if (typeof value === "boolean") return value ? "Да" : "Нет";
-  return String(value);
-}
-
-function formatCalendarDay(value: unknown): string {
-  if (!value) return "";
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "";
-  return String(date.getDate()).padStart(2, "0");
-}
 
 /* ── Sortable block row ── */
 const BLOCK_ICONS: Record<string, React.ReactNode> = {
