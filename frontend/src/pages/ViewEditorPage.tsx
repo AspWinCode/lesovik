@@ -65,7 +65,15 @@ interface DesignConfig {
   theme?: "light" | "dark";
   density?: "compact" | "normal" | "spacious";
   show_header?: boolean;
+  font_family?: string;
+  heading_size?: string;
+  body_size?: string;
+  input_style?: "outline" | "filled" | "minimal";
+  label_position?: "top" | "inline";
 }
+
+const FONT_FAMILIES = ["Inter", "Roboto", "Open Sans", "Montserrat", "Lato", "Playfair Display", "JetBrains Mono"];
+const FONT_SIZES    = ["11", "12", "13", "14", "15", "16", "18", "20", "24", "28", "32", "40", "48"];
 
 const OP_LABELS: Record<RuleCond["op"], string> = {
   eq: "равно",
@@ -1247,10 +1255,7 @@ function RulesTab({
 }) {
   function addRule() {
     const first = fields[0];
-    onChange([
-      ...rules,
-      { id: genId(), field: first?.name ?? "", op: "eq", value: "" },
-    ]);
+    onChange([...rules, { id: genId(), field: first?.name ?? "", op: "eq", value: "" }]);
   }
   function update(id: string, patch: Partial<RuleCond>) {
     onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -1258,70 +1263,140 @@ function RulesTab({
   function remove(id: string) {
     onChange(rules.filter((r) => r.id !== id));
   }
-
   const needsValue = (op: RuleCond["op"]) => op !== "empty" && op !== "not_empty";
 
   return (
-    <div className="flex flex-col gap-[25px] pt-[40px] px-[40px] pb-[40px]">
-      <div className="flex flex-col gap-[6px]">
-        <h2 className="text-[22px] font-bold text-primary">Правила формирования</h2>
-        <p className="text-[15px] text-primary/70 max-w-[640px]">
-          Условия фильтрации записей. Показываются только строки, удовлетворяющие
-          всем правилам. Поля берутся из выбранной таблицы.
-        </p>
+    <div className="flex flex-col gap-[24px] pt-[36px] px-[40px] pb-[40px]">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-[20px] font-bold text-primary">Правила формирования</h2>
+          <p className="text-[14px] text-primary/55 mt-1 max-w-[480px]">
+            Показываются только строки, удовлетворяющие всем условиям.
+          </p>
+        </div>
+        {fields.length > 0 && (
+          <button
+            onClick={addRule}
+            className="flex items-center gap-[6px] h-[36px] px-4 bg-cta text-white text-[13px] font-medium rounded-[8px] hover:bg-active transition-colors shrink-0"
+          >
+            <PlusGlyphWhite /> Добавить условие
+          </button>
+        )}
       </div>
 
+      {/* No table selected */}
       {fields.length === 0 && (
-        <div className="px-5 py-[14px] bg-[#CBE3FF] rounded-[8px] text-[15px] text-primary">
-          Сначала выберите таблицу на вкладке «Представления».
+        <div className="flex items-center gap-3 px-5 py-4 bg-[#EBF4FF] rounded-[10px]">
+          <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5 shrink-0 text-cta">
+            <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.8" />
+            <line x1="10" y1="9" x2="10" y2="14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="10" cy="6.5" r="1" fill="currentColor" />
+          </svg>
+          <span className="text-[14px] text-primary">Сначала выберите таблицу на вкладке «Представления».</span>
         </div>
       )}
 
-      <div className="flex flex-col gap-[12px]">
-        {rules.length === 0 && fields.length > 0 && (
-          <span className="text-[15px] text-primary/40">Правил пока нет — все записи отображаются.</span>
-        )}
-        {rules.map((r) => (
-          <div key={r.id} className="flex items-center gap-[10px] bg-white rounded-[10px] px-4 py-3">
-            <span className="text-[14px] text-primary/50 w-[40px]">где</span>
-            <select
-              value={r.field}
-              onChange={(e) => update(r.id, { field: e.target.value })}
-              className="bg-cardbg rounded-btn h-[38px] px-3 text-[15px] text-primary outline-none min-w-[160px]"
-            >
-              {fields.map((f) => (
-                <option key={f.id} value={f.name}>{f.display_name}</option>
-              ))}
-            </select>
-            <select
-              value={r.op}
-              onChange={(e) => update(r.id, { op: e.target.value as RuleCond["op"] })}
-              className="bg-cardbg rounded-btn h-[38px] px-3 text-[15px] text-primary outline-none"
-            >
-              {(Object.keys(OP_LABELS) as RuleCond["op"][]).map((op) => (
-                <option key={op} value={op}>{OP_LABELS[op]}</option>
-              ))}
-            </select>
-            {needsValue(r.op) && (
-              <input
-                value={r.value}
-                onChange={(e) => update(r.id, { value: e.target.value })}
-                placeholder="значение"
-                className="flex-1 bg-cardbg rounded-btn h-[38px] px-3 text-[15px] text-primary outline-none placeholder:text-primary/30"
-              />
-            )}
-            <button onClick={() => remove(r.id)} className="w-7 h-7 shrink-0"><TrashIcon /></button>
-          </div>
-        ))}
-      </div>
+      {/* Empty state */}
+      {rules.length === 0 && fields.length > 0 && (
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 text-primary/20">
+            <rect x="6" y="12" width="36" height="6" rx="3" fill="currentColor" />
+            <rect x="6" y="24" width="28" height="6" rx="3" fill="currentColor" />
+            <rect x="6" y="36" width="20" height="6" rx="3" fill="currentColor" />
+          </svg>
+          <p className="text-[14px] text-primary/40">Правил нет — отображаются все записи</p>
+          <button
+            onClick={addRule}
+            className="mt-1 flex items-center gap-2 h-[36px] px-5 border-2 border-cta text-cta text-[13px] font-medium rounded-[8px] hover:bg-cta/10 transition-colors"
+          >
+            <PlusGlyphWhite /> Добавить первое условие
+          </button>
+        </div>
+      )}
 
-      {fields.length > 0 && (
-        <button
-          onClick={addRule}
-          className="flex items-center gap-[8px] w-fit h-[40px] px-5 bg-cta text-white text-[15px] font-medium rounded-btn hover:bg-active transition-colors"
-        >
-          <PlusGlyphWhite /> Добавить правило
-        </button>
+      {/* Rules list */}
+      {rules.length > 0 && (
+        <div className="flex flex-col">
+          {rules.map((r, idx) => (
+            <div key={r.id}>
+              {/* AND connector */}
+              {idx > 0 && (
+                <div className="flex items-center gap-3 my-2 pl-1">
+                  <div className="flex-1 h-px bg-cardbg" />
+                  <span className="text-[11px] font-bold text-primary/35 uppercase tracking-widest px-2">И</span>
+                  <div className="flex-1 h-px bg-cardbg" />
+                </div>
+              )}
+              {/* Rule card */}
+              <div className="flex items-center gap-3 bg-white rounded-[10px] px-4 py-3 border border-cardbg">
+                <span className="text-[12px] font-semibold text-primary/35 w-[28px] shrink-0">
+                  {idx === 0 ? "где" : "и"}
+                </span>
+
+                {/* Field */}
+                <div className="relative flex-1 min-w-[130px]">
+                  <select
+                    value={r.field}
+                    onChange={(e) => update(r.id, { field: e.target.value })}
+                    className="w-full h-[36px] appearance-none bg-cardbg rounded-[8px] pl-3 pr-8 text-[14px] text-primary outline-none focus:ring-1 focus:ring-cta/30 cursor-pointer"
+                  >
+                    {fields.map((f) => (
+                      <option key={f.id} value={f.name}>{f.display_name}</option>
+                    ))}
+                  </select>
+                  <svg viewBox="0 0 16 16" fill="none" className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-primary/40 pointer-events-none">
+                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+
+                {/* Operator */}
+                <div className="relative shrink-0">
+                  <select
+                    value={r.op}
+                    onChange={(e) => update(r.id, { op: e.target.value as RuleCond["op"] })}
+                    className="h-[36px] appearance-none bg-cardbg rounded-[8px] pl-3 pr-8 text-[14px] text-primary outline-none focus:ring-1 focus:ring-cta/30 cursor-pointer"
+                  >
+                    {(Object.keys(OP_LABELS) as RuleCond["op"][]).map((op) => (
+                      <option key={op} value={op}>{OP_LABELS[op]}</option>
+                    ))}
+                  </select>
+                  <svg viewBox="0 0 16 16" fill="none" className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-primary/40 pointer-events-none">
+                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+
+                {/* Value */}
+                {needsValue(r.op) ? (
+                  <input
+                    value={r.value}
+                    onChange={(e) => update(r.id, { value: e.target.value })}
+                    placeholder="значение"
+                    className="flex-1 h-[36px] bg-cardbg rounded-[8px] px-3 text-[14px] text-primary outline-none focus:ring-1 focus:ring-cta/30 placeholder:text-primary/25 min-w-[80px]"
+                  />
+                ) : (
+                  <div className="flex-1" />
+                )}
+
+                {/* Delete */}
+                <button
+                  onClick={() => remove(r.id)}
+                  className="w-7 h-7 shrink-0 flex items-center justify-center rounded-full hover:bg-red-50 text-primary/30 hover:text-red-500 transition-colors"
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {/* Add another rule */}
+          <button
+            onClick={addRule}
+            className="mt-3 self-start flex items-center gap-2 h-[34px] px-4 bg-cta/8 text-cta text-[13px] font-medium rounded-[8px] hover:bg-cta/15 transition-colors"
+          >
+            <PlusGlyph /> Ещё условие
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1435,12 +1510,185 @@ function DesignTab({
         <Toggle on={showHeader} onChange={() => onChange({ ...design, show_header: !showHeader })} />
       </div>
 
+      {/* ── Typography ── */}
+      <div className="flex flex-col gap-[14px]">
+        <div className="flex items-center gap-3">
+          <span className="text-[18px] font-semibold text-primary">Типографика</span>
+          <div className="flex-1 h-px bg-cardbg" />
+        </div>
+
+        <div className="flex flex-col gap-[12px] max-w-[538px]">
+          {/* Font family */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-[16px] font-medium text-primary">Шрифт</span>
+              <p className="text-[13px] text-primary/50">Применяется ко всем текстам страницы</p>
+            </div>
+            <div className="relative w-[200px]">
+              <select
+                value={design.font_family ?? "Inter"}
+                onChange={(e) => onChange({ ...design, font_family: e.target.value })}
+                className="w-full h-[38px] appearance-none bg-cardbg rounded-[8px] pl-3 pr-8 text-[14px] text-primary outline-none cursor-pointer"
+                style={{ fontFamily: design.font_family ?? "Inter" }}
+              >
+                {FONT_FAMILIES.map((f) => (
+                  <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                ))}
+              </select>
+              <svg viewBox="0 0 16 16" fill="none" className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-primary/40 pointer-events-none">
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Heading size */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-[16px] font-medium text-primary">Размер заголовков</span>
+            </div>
+            <div className="flex h-[36px] bg-cardbg rounded-[8px] p-[3px] gap-[2px] w-[200px]">
+              {([["sm","Малый"],["md","Средний"],["lg","Крупный"]] as const).map(([v,l]) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...design, heading_size: v })}
+                  className={cn(
+                    "flex-1 rounded-[6px] text-[12px] font-medium transition-all",
+                    (design.heading_size ?? "md") === v ? "bg-cta text-white shadow-sm" : "text-primary/60 hover:text-primary"
+                  )}
+                >{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Body size */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-[16px] font-medium text-primary">Размер текста</span>
+            </div>
+            <div className="flex h-[36px] bg-cardbg rounded-[8px] p-[3px] gap-[2px] w-[200px]">
+              {([["sm","12px"],["md","14px"],["lg","16px"]] as const).map(([v,l]) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...design, body_size: v })}
+                  className={cn(
+                    "flex-1 rounded-[6px] text-[12px] font-medium transition-all",
+                    (design.body_size ?? "md") === v ? "bg-cta text-white shadow-sm" : "text-primary/60 hover:text-primary"
+                  )}
+                >{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Font preview */}
+        <div
+          className="px-4 py-3 bg-cardbg rounded-[10px] max-w-[538px]"
+          style={{ fontFamily: design.font_family ?? "Inter" }}
+        >
+          <p className={cn("font-bold text-primary mb-1", design.heading_size === "sm" ? "text-[16px]" : design.heading_size === "lg" ? "text-[24px]" : "text-[20px]")}>
+            Заголовок страницы
+          </p>
+          <p className={cn("text-primary/70", design.body_size === "sm" ? "text-[12px]" : design.body_size === "lg" ? "text-[16px]" : "text-[14px]")}>
+            Обычный текст страницы с примером содержимого.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Form settings ── */}
+      <div className="flex flex-col gap-[14px]">
+        <div className="flex items-center gap-3">
+          <span className="text-[18px] font-semibold text-primary">Поля форм</span>
+          <div className="flex-1 h-px bg-cardbg" />
+        </div>
+
+        <div className="flex flex-col gap-[12px] max-w-[538px]">
+          {/* Input style */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-[16px] font-medium text-primary">Стиль полей</span>
+              <p className="text-[13px] text-primary/50">Внешний вид полей ввода в формах</p>
+            </div>
+            <div className="flex h-[36px] bg-cardbg rounded-[8px] p-[3px] gap-[2px] w-[220px]">
+              {([["outline","Рамка"],["filled","Заливка"],["minimal","Линия"]] as const).map(([v,l]) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...design, input_style: v })}
+                  className={cn(
+                    "flex-1 rounded-[6px] text-[12px] font-medium transition-all",
+                    (design.input_style ?? "filled") === v ? "bg-cta text-white shadow-sm" : "text-primary/60 hover:text-primary"
+                  )}
+                >{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Label position */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-[16px] font-medium text-primary">Позиция лейбла</span>
+            </div>
+            <div className="flex h-[36px] bg-cardbg rounded-[8px] p-[3px] gap-[2px] w-[180px]">
+              {([["top","Сверху"],["inline","Внутри"]] as const).map(([v,l]) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...design, label_position: v })}
+                  className={cn(
+                    "flex-1 rounded-[6px] text-[12px] font-medium transition-all",
+                    (design.label_position ?? "top") === v ? "bg-cta text-white shadow-sm" : "text-primary/60 hover:text-primary"
+                  )}
+                >{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Field preview */}
+          <div className="flex flex-col gap-2 p-4 bg-cardbg rounded-[10px]">
+            {(design.label_position ?? "top") === "top" ? (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[12px] text-primary/60 font-medium">Имя клиента</span>
+                  <div className={cn(
+                    "h-[36px] rounded-[8px] flex items-center px-3 text-[14px] text-primary/30",
+                    (design.input_style ?? "filled") === "outline" ? "border-2 border-cardbg bg-white" :
+                    (design.input_style ?? "filled") === "minimal" ? "border-b-2 border-cardbg rounded-none bg-transparent" :
+                    "bg-white"
+                  )}>Иван Петров</div>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[12px] text-primary/60 font-medium">Статус</span>
+                  <div className={cn(
+                    "h-[36px] rounded-[8px] flex items-center px-3 text-[14px] text-primary/30",
+                    (design.input_style ?? "filled") === "outline" ? "border-2 border-cardbg bg-white" :
+                    (design.input_style ?? "filled") === "minimal" ? "border-b-2 border-cardbg rounded-none bg-transparent" :
+                    "bg-white"
+                  )}>Активен</div>
+                </label>
+              </>
+            ) : (
+              <>
+                {["Имя клиента","Статус"].map((label) => (
+                  <div key={label} className={cn(
+                    "h-[42px] rounded-[8px] flex items-center px-3 gap-3",
+                    (design.input_style ?? "filled") === "outline" ? "border-2 border-cardbg bg-white" :
+                    (design.input_style ?? "filled") === "minimal" ? "border-b-2 border-cardbg rounded-none bg-transparent" :
+                    "bg-white"
+                  )}>
+                    <span className="text-[12px] text-primary/50 w-[90px] shrink-0">{label}</span>
+                    <span className="text-[14px] text-primary/30">Введите значение</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Live mini-preview of accent */}
       <div className="flex flex-col gap-[10px]">
         <span className="text-[14px] text-primary/50">Предпросмотр кнопки</span>
         <button
           className="w-fit px-6 h-[42px] rounded-btn text-white text-[15px] font-medium"
-          style={{ background: accent }}
+          style={{ background: accent, fontFamily: design.font_family ?? "Inter" }}
         >
           Кнопка действия
         </button>
@@ -1519,7 +1767,7 @@ function LivePreview({
         )}
 
         {/* Blocks */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4" style={{ fontFamily: design.font_family ?? "Inter" }}>
           {blocks.length === 0 && (
             <div className="flex items-center justify-center h-full text-primary/30 text-[14px] text-center px-6">
               Добавьте блоки на вкладке «Представления», чтобы увидеть страницу
@@ -1580,8 +1828,15 @@ function PreviewBlock({
 
   if (block.type === "rich_text") {
     const text = (block.config?.text as string) ?? block.title ?? "Текстовый блок";
+    const fs   = (block.config?.fontSize as string) ?? "14";
+    const fw   = (block.config?.fontWeight as string) ?? "normal";
+    const ff   = (block.config?.fontFamily as string) ?? "inherit";
+    const ta   = (block.config?.textAlign as string) ?? "left";
     return (
-      <div className="rounded-[10px] p-4 bg-mainbg text-[14px] text-primary leading-relaxed whitespace-pre-wrap">
+      <div
+        className="rounded-[10px] p-4 bg-mainbg text-primary leading-relaxed whitespace-pre-wrap"
+        style={{ fontSize: `${fs}px`, fontWeight: fw === "bold" ? 700 : fw === "medium" ? 500 : 400, fontFamily: ff, textAlign: ta as React.CSSProperties["textAlign"] }}
+      >
         {text}
       </div>
     );
@@ -1590,10 +1845,11 @@ function PreviewBlock({
   if (block.type === "metric") {
     const label = block.title ?? "Метрика";
     const value = (block.config?.value as string) ?? "—";
+    const fs    = (block.config?.fontSize as string) ?? "32";
     return (
       <div className="border border-cardbg rounded-[10px] p-4 flex flex-col items-center gap-1">
         <span className="text-[13px] text-primary/50">{label}</span>
-        <span className="text-[32px] font-bold" style={{ color: accent }}>{value}</span>
+        <span className="font-bold" style={{ fontSize: `${fs}px`, color: accent }}>{value}</span>
       </div>
     );
   }
@@ -1602,12 +1858,13 @@ function PreviewBlock({
     const label = block.title ?? "KPI";
     const value = (block.config?.value as string) || String(records.length);
     const trend = (block.config?.trend as string) ?? "+0%";
+    const fs    = (block.config?.fontSize as string) ?? "30";
     const positive = !trend.trim().startsWith("-");
     return (
       <div className="border border-cardbg rounded-[10px] p-4 flex items-center justify-between gap-4">
         <div className="flex flex-col">
           <span className="text-[13px] text-primary/50">{label}</span>
-          <span className="text-[30px] font-bold text-primary">{value}</span>
+          <span className="font-bold text-primary" style={{ fontSize: `${fs}px` }}>{value}</span>
         </div>
         <span
           className="px-3 py-1 rounded-full text-[13px] font-semibold"
@@ -1716,14 +1973,12 @@ function PreviewBlock({
   }
 
   if (block.type === "button") {
-    const w = (block.config?.width as string) ?? "full";
+    const w  = (block.config?.width as string) ?? "full";
+    const fs = (block.config?.fontSize as string) ?? "15";
     return (
       <button
-        className={cn(
-          "h-[42px] rounded-btn text-white text-[15px] font-medium",
-          w === "auto" ? "px-6" : "w-full"
-        )}
-        style={{ background: accent }}
+        className={cn("h-[42px] rounded-btn text-white font-medium", w === "auto" ? "px-6" : "w-full")}
+        style={{ background: accent, fontSize: `${fs}px` }}
       >
         {block.title ?? "Кнопка"}
       </button>
@@ -1899,12 +2154,46 @@ function BlockInlineSettings({
 
   return (
     <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-1 border-t border-mainbg mt-0">
-      {(block.type === "rich_text") && (
-        <ConfigInput
-          label="Текст"
-          value={(block.config.text as string) ?? ""}
-          onChange={(value) => onConfigChange({ text: value })}
-        />
+      {block.type === "rich_text" && (
+        <>
+          <ConfigInput
+            label="Текст"
+            value={(block.config.text as string) ?? ""}
+            onChange={(value) => onConfigChange({ text: value })}
+          />
+          <ConfigSelect
+            label="Шрифт"
+            value={(block.config.fontFamily as string) ?? "Inter"}
+            options={FONT_FAMILIES.map((f) => ({ value: f, label: f }))}
+            onChange={(fontFamily) => onConfigChange({ fontFamily })}
+          />
+          <ConfigSelect
+            label="Размер"
+            value={(block.config.fontSize as string) ?? "14"}
+            options={FONT_SIZES.map((s) => ({ value: s, label: s + "px" }))}
+            onChange={(fontSize) => onConfigChange({ fontSize })}
+          />
+          <ConfigSegmented
+            label="Начертание"
+            value={(block.config.fontWeight as string) ?? "normal"}
+            options={[
+              { value: "normal",  label: "Обычный" },
+              { value: "medium",  label: "Средний" },
+              { value: "bold",    label: "Жирный" },
+            ]}
+            onChange={(fontWeight) => onConfigChange({ fontWeight })}
+          />
+          <ConfigSegmented
+            label="Выравнивание"
+            value={(block.config.textAlign as string) ?? "left"}
+            options={[
+              { value: "left",    label: "←" },
+              { value: "center",  label: "≡" },
+              { value: "right",   label: "→" },
+            ]}
+            onChange={(textAlign) => onConfigChange({ textAlign })}
+          />
+        </>
       )}
       {(block.type === "metric" || block.type === "kpi") && (
         <>
@@ -1913,10 +2202,18 @@ function BlockInlineSettings({
             value={(block.config.value as string) ?? ""}
             onChange={(value) => onConfigChange({ value })}
           />
-          <ConfigInput
-            label="Динамика"
-            value={(block.config.trend as string) ?? ""}
-            onChange={(trend) => onConfigChange({ trend })}
+          {block.type === "kpi" && (
+            <ConfigInput
+              label="Динамика"
+              value={(block.config.trend as string) ?? ""}
+              onChange={(trend) => onConfigChange({ trend })}
+            />
+          )}
+          <ConfigSelect
+            label="Размер числа"
+            value={(block.config.fontSize as string) ?? "32"}
+            options={["20","24","28","32","40","48","56"].map((s) => ({ value: s, label: s + "px" }))}
+            onChange={(fontSize) => onConfigChange({ fontSize })}
           />
         </>
       )}
@@ -1985,6 +2282,12 @@ function BlockInlineSettings({
             value={(block.config.href as string) ?? ""}
             onChange={(href) => onConfigChange({ href })}
             placeholder="https://..."
+          />
+          <ConfigSelect
+            label="Размер текста"
+            value={(block.config.fontSize as string) ?? "15"}
+            options={["12","13","14","15","16","18","20"].map((s) => ({ value: s, label: s + "px" }))}
+            onChange={(fontSize) => onConfigChange({ fontSize })}
           />
           <ConfigSegmented
             label="Ширина"
