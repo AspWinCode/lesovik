@@ -134,3 +134,44 @@ export async function updateField(
 export async function deleteField(appId: string, entityId: string, fieldId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}/entities/${entityId}/fields/${fieldId}`);
 }
+
+/* ── Relations ── */
+
+export type RelationType = "one_to_one" | "one_to_many" | "many_to_many";
+
+export interface RelationRead {
+  id: string;
+  app_id: string;
+  from_entity_id: string;
+  to_entity_id: string;
+  relation_type: RelationType;
+  from_field_name: string;
+  to_field_name: string | null;
+  display_name: string | null;
+  settings: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RelationCreate {
+  from_entity_id: string;
+  to_entity_id: string;
+  relation_type: RelationType;
+  from_field_name: string;
+  to_field_name?: string | null;
+  display_name?: string | null;
+  settings?: Record<string, unknown>;
+}
+
+export async function listRelations(appId: string): Promise<RelationRead[]> {
+  const { data } = await apiClient.get<RelationRead[]>(`/apps/${appId}/relations`);
+  return data;
+}
+
+export async function createRelation(appId: string, body: RelationCreate): Promise<RelationRead> {
+  const { data } = await apiClient.post<RelationRead>(`/apps/${appId}/relations`, body);
+  return data;
+}
+
+export async function deleteRelation(appId: string, relationId: string): Promise<void> {
+  await apiClient.delete(`/apps/${appId}/relations/${relationId}`);
+}

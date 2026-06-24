@@ -7,10 +7,14 @@ import {
   listEntities,
   updateEntity,
   updateField,
+  listRelations,
+  createRelation,
+  deleteRelation,
   type EntityCreate,
   type EntityUpdate,
   type FieldCreate,
   type FieldUpdate,
+  type RelationCreate,
 } from "../api/entities";
 
 const KEY = (appId: string) => ["entities", appId] as const;
@@ -79,5 +83,37 @@ export function useDeleteField(appId: string) {
     mutationFn: ({ entityId, fieldId }: { entityId: string; fieldId: string }) =>
       deleteField(appId, entityId, fieldId),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: KEY(appId) }); },
+  });
+}
+
+const REL_KEY = (appId: string) => ["relations", appId] as const;
+
+export function useRelations(appId: string | undefined) {
+  return useQuery({
+    queryKey: REL_KEY(appId ?? ""),
+    queryFn: () => listRelations(appId!),
+    enabled: !!appId,
+  });
+}
+
+export function useCreateRelation(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RelationCreate) => createRelation(appId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: REL_KEY(appId) });
+      void qc.invalidateQueries({ queryKey: KEY(appId) });
+    },
+  });
+}
+
+export function useDeleteRelation(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (relationId: string) => deleteRelation(appId, relationId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: REL_KEY(appId) });
+      void qc.invalidateQueries({ queryKey: KEY(appId) });
+    },
   });
 }

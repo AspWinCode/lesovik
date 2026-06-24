@@ -193,7 +193,7 @@ function PrimaryBtn({ onClick, children }: { onClick?: () => void; children: Rea
   );
 }
 
-const COLUMN_TYPES = ["Текст", "Длинный текст", "Число", "Дробное", "Дата", "Дата и время", "Чекбокс", "Список", "Email", "Телефон", "URL", "Изображение", "JSON"];
+const COLUMN_TYPES = ["Текст", "Длинный текст", "Число", "Дробное", "Дата", "Дата и время", "Чекбокс", "Список", "Email", "Телефон", "URL", "Изображение", "JSON", "Связь"];
 
 export const COLUMN_TYPE_TO_FIELD_TYPE: Record<string, string> = {
   "Текст": "text",
@@ -209,6 +209,7 @@ export const COLUMN_TYPE_TO_FIELD_TYPE: Record<string, string> = {
   "URL": "url",
   "Изображение": "image",
   "JSON": "json",
+  "Связь": "relation",
 };
 
 export const FIELD_TYPE_TO_COLUMN_TYPE: Record<string, string> = Object.fromEntries(
@@ -475,12 +476,16 @@ export interface ColumnOptions {
   minValue: string;
   maxValue: string;
   maxLength: string;
+  // relation-specific
+  targetEntityId: string;
+  relationType: string;
 }
 
 export function EditColumnModal({
   source,
   columnName,
   columnType,
+  entities,
   onClose,
   onGoToData,
   onDone,
@@ -488,6 +493,7 @@ export function EditColumnModal({
   source: string;
   columnName: string;
   columnType: string;
+  entities?: { id: string; display_name: string }[];
   onClose: () => void;
   onGoToData?: () => void;
   onDone?: (name: string, type: string, opts: ColumnOptions) => void;
@@ -516,6 +522,10 @@ export function EditColumnModal({
   const [choices, setChoices] = useState<{ value: string; label: string }[]>([]);
   const [newChoiceLabel, setNewChoiceLabel] = useState("");
 
+  // relation
+  const [targetEntityId, setTargetEntityId] = useState("");
+  const [relationType, setRelationType] = useState("one_to_many");
+
   function addChoice() {
     const label = newChoiceLabel.trim();
     if (!label) return;
@@ -534,8 +544,10 @@ export function EditColumnModal({
   const isTextType = fieldType === "text" || fieldType === "long_text";
   const isDateType = fieldType === "date" || fieldType === "datetime";
 
+  const isRelationType = fieldType === "relation";
+
   function getOpts(): ColumnOptions {
-    return { formula, isRequired, isUnique, formVisible, defaultValue, autoUpdateDate, choices, minValue, maxValue, maxLength };
+    return { formula, isRequired, isUnique, formVisible, defaultValue, autoUpdateDate, choices, minValue, maxValue, maxLength, targetEntityId, relationType };
   }
 
   return (
@@ -666,7 +678,37 @@ export function EditColumnModal({
             {fieldType === "boolean" && (
               <p className="text-[13px] text-primary/60">Логическое поле — Да / Нет.</p>
             )}
-            {!isSelectType && !isNumericType && !isDateType && fieldType !== "boolean" && (
+            {isRelationType && (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-[6px]">
+                  <label className="text-[13px] text-primary/70">Целевая таблица</label>
+                  <SimpleDropdown
+                    value={(entities ?? []).find((e) => e.id === targetEntityId)?.display_name ?? ""}
+                    options={(entities ?? []).map((e) => e.display_name)}
+                    onChange={(name) => {
+                      const found = (entities ?? []).find((e) => e.display_name === name);
+                      if (found) setTargetEntityId(found.id);
+                    }}
+                    placeholder="Выберите таблицу..."
+                  />
+                </div>
+                <div className="flex flex-col gap-[6px]">
+                  <label className="text-[13px] text-primary/70">Тип связи</label>
+                  <SimpleDropdown
+                    value={{ one_to_one: "Один к одному", one_to_many: "Один ко многим", many_to_many: "Многие ко многим" }[relationType] ?? relationType}
+                    options={["Один к одному", "Один ко многим", "Многие ко многим"]}
+                    onChange={(label) => {
+                      const map: Record<string, string> = { "Один к одному": "one_to_one", "Один ко многим": "one_to_many", "Многие ко многим": "many_to_many" };
+                      setRelationType(map[label] ?? "one_to_many");
+                    }}
+                  />
+                </div>
+                <p className="text-[12px] text-primary/50 leading-relaxed">
+                  Связь создаёт поле-ссылку между таблицами. Значения записываются как ID связанной записи.
+                </p>
+              </div>
+            )}
+            {!isSelectType && !isNumericType && !isDateType && fieldType !== "boolean" && !isRelationType && (
               <p className="text-[13px] text-primary/60">Текстовое поле типа «{type}».</p>
             )}
           </AccordionSection>
@@ -2369,6 +2411,100 @@ export function TableUsageModal({
           >
             Закрыть
           </button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   RelationsModal — view & delete relations for an entity
+───────────────────────────────────────────────── */
+
+export interface RelationItem {
+  id: string;
+  fromEntityName: string;
+  toEntityName: string;
+  relationType: string;
+  fromFieldName: string;
+  displayName: string | null;
+}
+
+const RELATION_TYPE_LABELS: Record<string, string> = {
+  one_to_one: "1 : 1",
+  one_to_many: "1 : N",
+  many_to_many: "N : N",
+};
+
+export function RelationsModal({
+  entityName,
+  relations,
+  onClose,
+  onDelete,
+}: {
+  entityName: string;
+  relations: RelationItem[];
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 620 }} className="px-10 pb-8">
+        <div className="flex items-start justify-between pt-[30px] mb-5">
+          <div>
+            <h2 className="text-[20px] font-bold text-primary">Связи таблицы: {entityName}</h2>
+            <p className="text-[14px] text-primary/60 mt-1">{relations.length} связей</p>
+          </div>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        {relations.length === 0 ? (
+          <div className="py-10 text-center text-[14px] text-primary/40">
+            Связи не настроены. Добавьте поле типа «Связь» чтобы создать первую.
+          </div>
+        ) : (
+          <div className="rounded-[10px] overflow-hidden border border-white/30 mb-6">
+            <table className="w-full text-[13px]">
+              <thead className="bg-cardbg">
+                <tr>
+                  <th className="text-left font-semibold text-primary px-4 py-3">Из таблицы</th>
+                  <th className="text-left font-semibold text-primary px-4 py-3">Тип</th>
+                  <th className="text-left font-semibold text-primary px-4 py-3">В таблицу</th>
+                  <th className="text-left font-semibold text-primary px-4 py-3">Поле</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {relations.map((r, i) => (
+                  <tr key={r.id} className={cn("border-t border-white/30", i % 2 === 0 ? "bg-mainbg" : "bg-mainbg/60")}>
+                    <td className="px-4 py-2 font-medium text-primary">{r.fromEntityName}</td>
+                    <td className="px-4 py-2">
+                      <span className="px-2 py-0.5 rounded-full bg-cta/10 text-cta text-[12px] font-mono">
+                        {RELATION_TYPE_LABELS[r.relationType] ?? r.relationType}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-primary">{r.toEntityName}</td>
+                    <td className="px-4 py-2 text-primary/60 font-mono text-[12px]">{r.fromFieldName}</td>
+                    <td className="px-2 py-2 text-center">
+                      <button
+                        onClick={() => onDelete(r.id)}
+                        className="w-6 h-6 flex items-center justify-center text-primary/30 hover:text-red-400 transition-colors mx-auto"
+                        title="Удалить связь"
+                      >
+                        <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+                          <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <PrimaryBtn onClick={onClose}>Закрыть</PrimaryBtn>
         </div>
       </div>
     </Overlay>

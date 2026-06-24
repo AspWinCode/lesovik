@@ -3,11 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
-import { useEntities, useCreateEntity, useCreateField } from "@/shared/hooks/useEntities";
+import { useEntities, useCreateEntity, useCreateField, useRelations, useCreateRelation, useDeleteRelation } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import type { FieldRead, FieldType } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
-import { EditTableModal, EditColumnModal, COLUMN_TYPE_TO_FIELD_TYPE, type ColumnOptions } from "@/components/modals/DbModals";
+import { EditTableModal, EditColumnModal, RelationsModal, COLUMN_TYPE_TO_FIELD_TYPE, type ColumnOptions, type RelationItem } from "@/components/modals/DbModals";
 import { SortingModal } from "@/components/modals/ViewModals";
 import { CopyTableModal, MoveModal } from "@/components/modals/MiscModals";
 
@@ -53,6 +53,7 @@ export function DatabasePage() {
   const [copyTableModal, setCopyTableModal] = useState<string | null>(null);
   const [moveModal, setMoveModal] = useState<string | null>(null);
   const [showTableDotsMenu, setShowTableDotsMenu] = useState(false);
+  const [showRelationsModal, setShowRelationsModal] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -72,8 +73,11 @@ export function DatabasePage() {
 
   const createRecord = useCreateRecord(appId ?? "", entity?.id ?? "");
   const updateRecord = useUpdateRecord(appId ?? "", entity?.id ?? "");
-  const createEntityMutation = useCreateEntity(appId ?? "");
-  const createFieldMutation  = useCreateField(appId ?? "");
+  const createEntityMutation  = useCreateEntity(appId ?? "");
+  const createFieldMutation   = useCreateField(appId ?? "");
+  const relationsQuery        = useRelations(appId);
+  const createRelationMutation = useCreateRelation(appId ?? "");
+  const deleteRelationMutation = useDeleteRelation(appId ?? "");
 
   /* ── Handlers ── */
   function handleNewTable() {
@@ -252,8 +256,14 @@ export function DatabasePage() {
               {showTableDotsMenu && (
                 <div className="absolute right-0 top-full mt-1 bg-white rounded-[10px] shadow-lg border border-cardbg z-20 min-w-[180px]">
                   <button
-                    onClick={() => { setCopyTableModal(entity.display_name); setShowTableDotsMenu(false); }}
+                    onClick={() => { setShowRelationsModal(true); setShowTableDotsMenu(false); }}
                     className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg rounded-t-[10px]"
+                  >
+                    Связи таблицы
+                  </button>
+                  <button
+                    onClick={() => { setCopyTableModal(entity.display_name); setShowTableDotsMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-[14px] text-primary hover:bg-mainbg"
                   >
                     Копировать
                   </button>
@@ -440,15 +450,17 @@ export function DatabasePage() {
           source={entity.display_name}
           columnName="Новое поле"
           columnType="Текст"
+          entities={entities.filter((e) => e.id !== entity.id)}
           onClose={() => setShowEditColumnModal(false)}
           onGoToData={() => setShowEditColumnModal(false)}
           onDone={(name, type, opts: ColumnOptions) => {
             const displayName = name.trim() || "Новое поле";
             const fieldType = (COLUMN_TYPE_TO_FIELD_TYPE[type] ?? "text") as FieldType;
+            const fieldName = slugify(displayName);
             createFieldMutation.mutate({
               entityId: entity.id,
               body: {
-                name: slugify(displayName),
+                name: fieldName,
                 display_name: displayName,
                 field_type: fieldType,
                 is_required: opts.isRequired,
@@ -461,9 +473,19 @@ export function DatabasePage() {
                   ...(opts.minValue ? { min_value: Number(opts.minValue) } : {}),
                   ...(opts.maxValue ? { max_value: Number(opts.maxValue) } : {}),
                   ...(opts.maxLength ? { max_length: Number(opts.maxLength) } : {}),
+                  ...(fieldType === "relation" && opts.targetEntityId ? { target_entity_id: opts.targetEntityId } : {}),
                 } as Record<string, unknown>,
               },
             });
+            if (fieldType === "relation" && opts.targetEntityId) {
+              createRelationMutation.mutate({
+                from_entity_id: entity.id,
+                to_entity_id: opts.targetEntityId,
+                relation_type: opts.relationType as "one_to_one" | "one_to_many" | "many_to_many",
+                from_field_name: fieldName,
+                display_name: displayName,
+              });
+            }
             setShowEditColumnModal(false);
           }}
         />
@@ -494,6 +516,24 @@ export function DatabasePage() {
             .filter((n) => n !== moveModal)}
           onClose={() => setMoveModal(null)}
           onConfirm={() => setMoveModal(null)}
+        />
+      )}
+
+      {showRelationsModal && entity && (
+        <RelationsModal
+          entityName={entity.display_name}
+          relations={(relationsQuery.data ?? [])
+            .filter((r) => r.from_entity_id === entity.id || r.to_entity_id === entity.id)
+            .map((r): RelationItem => ({
+              id: r.id,
+              fromEntityName: entities.find((e) => e.id === r.from_entity_id)?.display_name ?? r.from_entity_id,
+              toEntityName: entities.find((e) => e.id === r.to_entity_id)?.display_name ?? r.to_entity_id,
+              relationType: r.relation_type,
+              fromFieldName: r.from_field_name,
+              displayName: r.display_name,
+            }))}
+          onClose={() => setShowRelationsModal(false)}
+          onDelete={(id) => deleteRelationMutation.mutate(id)}
         />
       )}
     </div>
