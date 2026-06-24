@@ -110,12 +110,13 @@ const ADDABLE_BLOCKS: { type: PageBlockType; label: string; desc?: string }[] = 
 
 function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "rich_text") return { text: "Текстовый блок" };
-  if (type === "metric") return { value: "0" };
-  if (type === "kpi") return { value: "0", trend: "+0%", tone: "positive" };
-  if (type === "chart") return { chart_type: "bar", source: "records" };
-  if (type === "calendar") return { date_field: "", title_field: "" };
-  if (type === "kanban") return { group_by: "", card_title: "" };
-  if (type === "iframe") return { src: "" };
+  if (type === "metric")    return { value: "0", width: "third" };
+  if (type === "kpi")       return { value: "0", trend: "+0%", tone: "positive", width: "half" };
+  if (type === "chart")     return { chart_type: "bar", source: "records" };
+  if (type === "calendar")  return { date_field: "", title_field: "" };
+  if (type === "kanban")    return { group_by: "", card_title: "" };
+  if (type === "iframe")    return { src: "" };
+  if (type === "button")    return { width: "half" };
   return {};
 }
 
@@ -1518,22 +1519,32 @@ function LivePreview({
         )}
 
         {/* Blocks */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        <div className="flex-1 overflow-y-auto p-4">
           {blocks.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-primary/30 text-[14px] text-center px-6">
+            <div className="flex items-center justify-center h-full text-primary/30 text-[14px] text-center px-6">
               Добавьте блоки на вкладке «Представления», чтобы увидеть страницу
             </div>
           )}
-          {blocks.map((b) => (
-            <PreviewBlock
-              key={b.id}
-              block={b}
-              entity={entity}
-              cols={cols}
-              records={records}
-              accent={accent}
-            />
-          ))}
+          <div className="grid grid-cols-12 gap-3 items-start">
+            {blocks.map((b) => {
+              const w = (b.config?.width as string) ?? "full";
+              const span = w === "third" ? 4 : w === "half" ? 6 : w === "auto" ? undefined : 12;
+              return (
+                <div
+                  key={b.id}
+                  style={span ? { gridColumn: `span ${span}` } : { gridColumn: "auto" }}
+                >
+                  <PreviewBlock
+                    block={b}
+                    entity={entity}
+                    cols={cols}
+                    records={records}
+                    accent={accent}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1705,9 +1716,13 @@ function PreviewBlock({
   }
 
   if (block.type === "button") {
+    const w = (block.config?.width as string) ?? "full";
     return (
       <button
-        className="w-full h-[42px] rounded-btn text-white text-[15px] font-medium shrink-0"
+        className={cn(
+          "h-[42px] rounded-btn text-white text-[15px] font-medium",
+          w === "auto" ? "px-6" : "w-full"
+        )}
         style={{ background: accent }}
       >
         {block.title ?? "Кнопка"}
@@ -1964,10 +1979,35 @@ function BlockInlineSettings({
         />
       )}
       {block.type === "button" && (
-        <ConfigInput
-          label="Ссылка"
-          value={(block.config.href as string) ?? ""}
-          onChange={(href) => onConfigChange({ href })}
+        <>
+          <ConfigInput
+            label="Ссылка"
+            value={(block.config.href as string) ?? ""}
+            onChange={(href) => onConfigChange({ href })}
+          />
+          <ConfigSelect
+            label="Ширина"
+            value={(block.config.width as string) ?? "full"}
+            options={[
+              { value: "full",  label: "Полная" },
+              { value: "half",  label: "Половина" },
+              { value: "third", label: "Треть" },
+              { value: "auto",  label: "По содержимому" },
+            ]}
+            onChange={(width) => onConfigChange({ width })}
+          />
+        </>
+      )}
+      {(block.type === "metric" || block.type === "kpi") && (
+        <ConfigSelect
+          label="Ширина"
+          value={(block.config.width as string) ?? "full"}
+          options={[
+            { value: "full",  label: "Полная" },
+            { value: "half",  label: "Половина" },
+            { value: "third", label: "Треть" },
+          ]}
+          onChange={(width) => onConfigChange({ width })}
         />
       )}
     </div>
