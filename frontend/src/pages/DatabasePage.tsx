@@ -204,7 +204,7 @@ export function DatabasePage() {
           <ToolButton icon={<HistoryIcon />} />
         </div>
         <div className="h-5 w-px bg-cardbg" />
-        <DropdownButton label="Основной вид" />
+        <DropdownButton label={viewMode === "grid" ? "Сетка" : "Таблица"} />
         <div className="h-5 w-px bg-cardbg" />
         <div className="flex items-center gap-1 bg-mainbg rounded-[6px] p-[3px]">
           <button
@@ -283,7 +283,7 @@ export function DatabasePage() {
         </div>
       </div>
 
-      {/* ── Data table ── */}
+      {/* ── Data area ── */}
       <div className="flex-1 overflow-auto">
         {!entity ? (
           <div className="flex items-center justify-center h-full text-primary/40 text-[16px]">
@@ -293,7 +293,64 @@ export function DatabasePage() {
           <div className="flex items-center justify-center h-full text-primary/40 text-[16px]">
             Загрузка записей...
           </div>
+        ) : viewMode === "grid" ? (
+          /* ── Grid / card view ── */
+          <div className="p-6">
+            {records.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-primary/40 gap-3">
+                <svg viewBox="0 0 48 48" className="w-12 h-12 opacity-30" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="4" y="4" width="18" height="18" rx="3"/><rect x="26" y="4" width="18" height="18" rx="3"/>
+                  <rect x="4" y="26" width="18" height="18" rx="3"/><rect x="26" y="26" width="18" height="18" rx="3"/>
+                </svg>
+                <span className="text-[14px]">Нет записей. Нажмите «+» чтобы добавить.</span>
+                <button
+                  onClick={handleAddRow}
+                  className="mt-1 px-5 py-2 bg-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors"
+                >
+                  + Добавить запись
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+                {records.map((rec) => {
+                  const labelField = displayFields[0];
+                  const label = labelField ? String(rec.payload[labelField.name] ?? "—") : rec.id.slice(0, 8);
+                  return (
+                    <div
+                      key={rec.id}
+                      className="bg-white rounded-[12px] border border-cardbg shadow-sm hover:shadow-md transition-shadow p-4 flex flex-col gap-2 cursor-pointer"
+                      onClick={handleAddRow}
+                    >
+                      <div className="text-[15px] font-semibold text-primary truncate">{label}</div>
+                      {displayFields.slice(1, 5).map((f) => {
+                        const val = rec.payload[f.name];
+                        if (val === null || val === undefined || val === "") return null;
+                        return (
+                          <div key={f.id} className="flex items-center gap-2 text-[12px]">
+                            <span className="text-primary/40 w-[90px] shrink-0 truncate">{f.display_name}</span>
+                            <span className="text-primary truncate flex-1">
+                              <CellValue value={val} field={f} />
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={handleAddRow}
+                  className="rounded-[12px] border-2 border-dashed border-cardbg text-primary/30 hover:border-cta hover:text-cta transition-colors flex items-center justify-center gap-2 p-4 min-h-[80px] text-[13px]"
+                >
+                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+                  </svg>
+                  Добавить запись
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
+          /* ── Table view ── */
           <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="bg-white border-b border-cardbg sticky top-0 z-10">
@@ -375,7 +432,6 @@ export function DatabasePage() {
                   );
                 })
               )}
-              {/* Add row inline ── */}
               <tr
                 onClick={handleAddRow}
                 className="border-b border-cardbg cursor-pointer hover:bg-mainbg/60 group"
