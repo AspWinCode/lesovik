@@ -282,15 +282,16 @@ export function ViewEditorPage() {
     handleBlocksChange([...blocks, newBlock]);
   }
 
-  function handleAddPage(_sectionId: string) {
+  function handleAddPage(_sectionId: string, viewType?: string) {
     if (!appId) return;
     const title = window.prompt("Название страницы:", "Новая страница");
     if (!title?.trim()) return;
     const base = title.trim().toLowerCase()
       .replace(/[а-яё]/gi, (c) => ({ а:"a",б:"b",в:"v",г:"g",д:"d",е:"e",ё:"yo",ж:"zh",з:"z",и:"i",й:"j",к:"k",л:"l",м:"m",н:"n",о:"o",п:"p",р:"r",с:"s",т:"t",у:"u",ф:"f",х:"h",ц:"ts",ч:"ch",ш:"sh",щ:"sch",ъ:"",ы:"y",ь:"",э:"e",ю:"yu",я:"ya" }[c.toLowerCase()] ?? c))
       .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
+    const layout = viewType ? { view_type: viewType === "grid" ? "table" : viewType } : undefined;
     createPageMutation.mutate(
-      { slug: `${base}-${Date.now().toString(36)}`, title: title.trim() },
+      { slug: `${base}-${Date.now().toString(36)}`, title: title.trim(), ...(layout ? { layout } : {}) },
       { onSuccess: (page) => { setActiveView(page.id); _postRefetch(); } },
     );
   }
@@ -724,8 +725,8 @@ export function ViewEditorPage() {
       {showViewsModal && (
         <TableViewsModal
           onClose={() => setShowViewsModal(false)}
-          onAdd={(_type) => {
-            handleAddPage("main");
+          onAdd={(type) => {
+            handleAddPage("main", type);
             setShowViewsModal(false);
           }}
         />
