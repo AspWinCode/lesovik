@@ -1748,11 +1748,14 @@ function IframePreview({
     )},
   ];
 
-  // Mobile: native 390px; Desktop: full 1280px scaled to fit 540px frame
+  // Both modes fill the 540px slot.
+  // Mobile: iframe renders at 390px (phone width) → scaled up 1.38× to 540px.
+  // Desktop: iframe renders at 1280px → scaled down 0.42× to 540px.
+  const FRAME_W = 540;
   const FRAME_H = 760;
   const cfg = device === "mobile"
-    ? { frameW: 380, iframeW: 390, iframeH: Math.ceil(FRAME_H / (380 / 390)) }
-    : { frameW: 540, iframeW: 1280, iframeH: Math.ceil(FRAME_H / (540 / 1280)) };
+    ? { frameW: FRAME_W, iframeW: 390, iframeH: Math.ceil(FRAME_H * 390 / FRAME_W) }
+    : { frameW: FRAME_W, iframeW: 1280, iframeH: Math.ceil(FRAME_H * 1280 / FRAME_W) };
   const scale = cfg.frameW / cfg.iframeW;
 
   const src = appId
