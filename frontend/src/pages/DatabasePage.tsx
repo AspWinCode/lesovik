@@ -13,6 +13,15 @@ import { CopyTableModal, MoveModal } from "@/components/modals/MiscModals";
 
 type ViewMode = "grid" | "table";
 
+type FilterOperator = "contains" | "equals" | "starts_with" | "not_empty" | "is_empty" | "gt" | "lt";
+
+interface FilterRule {
+  id: string;
+  fieldName: string;
+  operator: FilterOperator;
+  value: string;
+}
+
 function slugify(s: string): string {
   const base = s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "table";
   return `${base}_${Date.now().toString(36)}`;
@@ -54,6 +63,8 @@ export function DatabasePage() {
   const [moveModal, setMoveModal] = useState<string | null>(null);
   const [showTableDotsMenu, setShowTableDotsMenu] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [filterRules, setFilterRules] = useState<FilterRule[]>([]);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -70,6 +81,24 @@ export function DatabasePage() {
   const records = recordsQuery.data?.items ?? [];
 
   const displayFields: FieldRead[] = entity?.fields.filter((f) => !f.is_system) ?? [];
+
+  const filteredRecords = filterRules.length === 0 ? records : records.filter((rec) =>
+    filterRules.every((rule) => {
+      const raw = rec.payload[rule.fieldName];
+      const cell = raw === null || raw === undefined ? "" : String(raw).toLowerCase();
+      const val = rule.value.toLowerCase();
+      switch (rule.operator) {
+        case "contains":    return cell.includes(val);
+        case "equals":      return cell === val;
+        case "starts_with": return cell.startsWith(val);
+        case "is_empty":    return cell === "";
+        case "not_empty":   return cell !== "";
+        case "gt":          return Number(raw) > Number(rule.value);
+        case "lt":          return Number(raw) < Number(rule.value);
+        default:            return true;
+      }
+    })
+  );
 
   const createRecord = useCreateRecord(appId ?? "", entity?.id ?? "");
   const updateRecord = useUpdateRecord(appId ?? "", entity?.id ?? "");
@@ -227,7 +256,11 @@ export function DatabasePage() {
           </button>
         </div>
         <div className="h-5 w-px bg-cardbg" />
-        <DropdownButton icon={<FilterIcon />} label="Фильтр" />
+        <DropdownButton
+          icon={<FilterIcon />}
+          label={filterRules.length > 0 ? `Фильтр (${filterRules.length})` : "Фильтр"}
+          onClick={() => setShowFilterPanel((v) => !v)}
+        />
         <DropdownButton icon={<SortIcon />}   label="Сортировка" onClick={() => setShowSortModal(true)} />
         <div className="ml-auto flex items-center gap-2">
           {entity && (
@@ -283,6 +316,16 @@ export function DatabasePage() {
         </div>
       </div>
 
+      {/* ── Filter panel ── */}
+      {showFilterPanel && displayFields.length > 0 && (
+        <FilterPanel
+          fields={displayFields}
+          rules={filterRules}
+          onChange={setFilterRules}
+          onClose={() => setShowFilterPanel(false)}
+        />
+      )}
+
       {/* ── Data area ── */}
       <div className="flex-1 overflow-auto">
         {!entity ? (
@@ -296,23 +339,22 @@ export function DatabasePage() {
         ) : viewMode === "grid" ? (
           /* ── Grid / card view ── */
           <div className="p-6">
-            {records.length === 0 ? (
+            {filteredRecords.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-primary/40 gap-3">
                 <svg viewBox="0 0 48 48" className="w-12 h-12 opacity-30" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <rect x="4" y="4" width="18" height="18" rx="3"/><rect x="26" y="4" width="18" height="18" rx="3"/>
                   <rect x="4" y="26" width="18" height="18" rx="3"/><rect x="26" y="26" width="18" height="18" rx="3"/>
                 </svg>
-                <span className="text-[14px]">Нет записей. Нажмите «+» чтобы добавить.</span>
-                <button
-                  onClick={handleAddRow}
-                  className="mt-1 px-5 py-2 bg-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors"
-                >
-                  + Добавить запись
-                </button>
+                <span className="text-[14px]">{filterRules.length > 0 ? "Нет записей, соответствующих фильтру." : "Нет записей. Нажмите «+» чтобы добавить."}</span>
+                {filterRules.length === 0 && (
+                  <button onClick={handleAddRow} className="mt-1 px-5 py-2 bg-cta rounded-btn text-white text-[13px] hover:bg-active transition-colors">
+                    + Добавить запись
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
-                {records.map((rec) => {
+                {filteredRecords.map((rec) => {
                   const labelField = displayFields[0];
                   const label = labelField ? String(rec.payload[labelField.name] ?? "—") : rec.id.slice(0, 8);
                   return (
@@ -379,14 +421,14 @@ export function DatabasePage() {
               </tr>
             </thead>
             <tbody>
-              {records.length === 0 ? (
+              {filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={displayFields.length + 2} className="py-16 text-center text-primary/40 text-[14px]">
-                    Нет записей. Нажмите «+» чтобы добавить.
+                    {filterRules.length > 0 ? "Нет записей, соответствующих фильтру." : "Нет записей. Нажмите «+» чтобы добавить."}
                   </td>
                 </tr>
               ) : (
-                records.map((rec, i) => {
+                filteredRecords.map((rec, i) => {
                   const isActive = activeRow === i;
                   return (
                     <tr
@@ -453,7 +495,9 @@ export function DatabasePage() {
       {/* ── Footer ── */}
       <footer className="h-[44px] shrink-0 flex items-center justify-end gap-4 px-6 bg-white border-t border-cardbg">
         <span className="text-[13px] text-primary/60">Строки:</span>
-        <span className="text-[13px] font-medium text-primary">{records.length}</span>
+        <span className="text-[13px] font-medium text-primary">
+          {filterRules.length > 0 ? `${filteredRecords.length} / ${records.length}` : records.length}
+        </span>
         <span className="text-[13px] text-primary/60">
           {entity ? `• ${entity.display_name}` : ""}
         </span>
@@ -944,6 +988,123 @@ function DropdownButton({ icon, label, small, onClick }: { icon?: React.ReactNod
         <path d="M2 4l4 4 4-4H2z" />
       </svg>
     </button>
+  );
+}
+
+/* ── Filter panel ── */
+
+const OPERATORS_TEXT: { value: FilterOperator; label: string }[] = [
+  { value: "contains",    label: "содержит" },
+  { value: "equals",      label: "равно" },
+  { value: "starts_with", label: "начинается с" },
+  { value: "not_empty",   label: "не пустое" },
+  { value: "is_empty",    label: "пустое" },
+];
+const OPERATORS_NUM: { value: FilterOperator; label: string }[] = [
+  { value: "equals",  label: "=" },
+  { value: "gt",      label: ">" },
+  { value: "lt",      label: "<" },
+  { value: "not_empty", label: "не пустое" },
+  { value: "is_empty",  label: "пустое" },
+];
+
+function operatorsFor(fieldType: string) {
+  if (fieldType === "number" || fieldType === "decimal") return OPERATORS_NUM;
+  if (fieldType === "boolean") return [{ value: "equals" as FilterOperator, label: "=" }, { value: "is_empty" as FilterOperator, label: "пустое" }];
+  return OPERATORS_TEXT;
+}
+
+function FilterPanel({
+  fields,
+  rules,
+  onChange,
+  onClose,
+}: {
+  fields: FieldRead[];
+  rules: FilterRule[];
+  onChange: (rules: FilterRule[]) => void;
+  onClose: () => void;
+}) {
+  function addRule() {
+    const first = fields[0];
+    if (!first) return;
+    onChange([...rules, { id: `f${Date.now()}`, fieldName: first.name, operator: "contains", value: "" }]);
+  }
+  function removeRule(id: string) { onChange(rules.filter((r) => r.id !== id)); }
+  function patchRule(id: string, patch: Partial<FilterRule>) {
+    onChange(rules.map((r) => r.id === id ? { ...r, ...patch } : r));
+  }
+
+  return (
+    <div className="border-b border-cardbg bg-[#F8FBFF] px-4 py-3 flex flex-col gap-2">
+      <div className="flex items-center gap-3 flex-wrap">
+        {rules.map((rule) => {
+          const field = fields.find((f) => f.name === rule.fieldName);
+          const ops = operatorsFor(field?.field_type ?? "text");
+          const needsValue = rule.operator !== "is_empty" && rule.operator !== "not_empty";
+          return (
+            <div key={rule.id} className="flex items-center gap-1.5 bg-white border border-cardbg rounded-[8px] px-2 py-1.5 shadow-sm">
+              {/* Field selector */}
+              <select
+                value={rule.fieldName}
+                onChange={(e) => patchRule(rule.id, { fieldName: e.target.value, operator: "contains", value: "" })}
+                className="text-[13px] text-primary bg-transparent outline-none cursor-pointer max-w-[120px]"
+              >
+                {fields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+              </select>
+              {/* Operator selector */}
+              <select
+                value={rule.operator}
+                onChange={(e) => patchRule(rule.id, { operator: e.target.value as FilterOperator })}
+                className="text-[13px] text-primary/70 bg-transparent outline-none cursor-pointer"
+              >
+                {ops.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+              </select>
+              {/* Value input */}
+              {needsValue && (
+                <input
+                  value={rule.value}
+                  onChange={(e) => patchRule(rule.id, { value: e.target.value })}
+                  placeholder="значение"
+                  className="text-[13px] text-primary border-b border-cardbg outline-none bg-transparent w-[100px] focus:border-cta placeholder-primary/30"
+                />
+              )}
+              {/* Remove */}
+              <button
+                onClick={() => removeRule(rule.id)}
+                className="text-primary/30 hover:text-red-400 transition-colors ml-1"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+                  <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          );
+        })}
+        <button
+          onClick={addRule}
+          className="flex items-center gap-1.5 text-[13px] text-cta hover:opacity-70 transition-opacity"
+        >
+          <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+          </svg>
+          Добавить фильтр
+        </button>
+        {rules.length > 0 && (
+          <button
+            onClick={() => onChange([])}
+            className="text-[13px] text-primary/40 hover:text-primary/70 transition-colors ml-2"
+          >
+            Очистить
+          </button>
+        )}
+        <button onClick={onClose} className="ml-auto text-primary/30 hover:text-primary/60 transition-colors">
+          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+            <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
   );
 }
 
