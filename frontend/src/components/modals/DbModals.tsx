@@ -193,7 +193,27 @@ function PrimaryBtn({ onClick, children }: { onClick?: () => void; children: Rea
   );
 }
 
-const COLUMN_TYPES = ["Число", "Текст", "Приложение", "Дата", "Изображение", "Список"];
+const COLUMN_TYPES = ["Текст", "Длинный текст", "Число", "Дробное", "Дата", "Дата и время", "Чекбокс", "Список", "Email", "Телефон", "URL", "Изображение", "JSON"];
+
+export const COLUMN_TYPE_TO_FIELD_TYPE: Record<string, string> = {
+  "Текст": "text",
+  "Длинный текст": "long_text",
+  "Число": "number",
+  "Дробное": "decimal",
+  "Дата": "date",
+  "Дата и время": "datetime",
+  "Чекбокс": "boolean",
+  "Список": "select",
+  "Email": "email",
+  "Телефон": "phone",
+  "URL": "url",
+  "Изображение": "image",
+  "JSON": "json",
+};
+
+export const FIELD_TYPE_TO_COLUMN_TYPE: Record<string, string> = Object.fromEntries(
+  Object.entries(COLUMN_TYPE_TO_FIELD_TYPE).map(([k, v]) => [v, k])
+);
 
 /* ─────────────────────────────────────────────────
    1. EditTableModal

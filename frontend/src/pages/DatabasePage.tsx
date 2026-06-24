@@ -5,9 +5,9 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities, useCreateEntity, useCreateField } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
-import type { FieldRead } from "@/shared/api/entities";
+import type { FieldRead, FieldType } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
-import { EditTableModal, EditColumnModal } from "@/components/modals/DbModals";
+import { EditTableModal, EditColumnModal, COLUMN_TYPE_TO_FIELD_TYPE } from "@/components/modals/DbModals";
 import { SortingModal } from "@/components/modals/ViewModals";
 import { CopyTableModal, MoveModal } from "@/components/modals/MiscModals";
 
@@ -442,11 +442,12 @@ export function DatabasePage() {
           columnType="Текст"
           onClose={() => setShowEditColumnModal(false)}
           onGoToData={() => setShowEditColumnModal(false)}
-          onDone={(name, _type) => {
+          onDone={(name, type) => {
             const displayName = name.trim() || "Новое поле";
+            const fieldType = (COLUMN_TYPE_TO_FIELD_TYPE[type] ?? "text") as FieldType;
             createFieldMutation.mutate({
               entityId: entity.id,
-              body: { name: slugify(displayName), display_name: displayName, field_type: "text" },
+              body: { name: slugify(displayName), display_name: displayName, field_type: fieldType },
             });
             setShowEditColumnModal(false);
           }}
