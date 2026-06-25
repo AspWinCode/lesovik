@@ -182,6 +182,7 @@ function PageView({ page, appId, entities, accent, onNavigate }: {
 }) {
   const design = (page.layout?.design as DesignConfig | undefined) ?? {};
   const entityId = page.layout?.entity_id as string | undefined;
+  const viewType = (page.layout?.view_type as string) ?? "";
   const entity = entities.find((e) => e.id === entityId) ?? null;
   const blocks = (page.blocks ?? []) as unknown as PageBlock[];
 
@@ -193,27 +194,40 @@ function PageView({ page, appId, entities, accent, onNavigate }: {
   const records = recordsQuery.data?.items ?? [];
   const cols = (entity?.fields ?? []).filter((f) => !f.is_system);
 
+  const hasDataView = !!viewType && viewType !== "form";
+
   return (
     <div>
       {(design.show_header ?? true) && (
         <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>{page.title}</h1>
       )}
-      {blocks.length === 0 && <Centered>На этой странице ещё нет блоков.</Centered>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {blocks.map((b) => (
-          <Block
-            key={b.id}
-            block={b}
-            entity={entity}
-            cols={cols}
-            records={records}
-            accent={accent}
-            appId={appId}
-            onNavigate={onNavigate}
-            onRecordCreated={() => recordsQuery.refetch()}
-          />
-        ))}
-      </div>
+      {hasDataView && (
+        <DataView
+          viewType={viewType}
+          entity={entity}
+          cols={cols}
+          records={records}
+          accent={accent}
+        />
+      )}
+      {blocks.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: hasDataView ? 16 : 0 }}>
+          {blocks.map((b) => (
+            <Block
+              key={b.id}
+              block={b}
+              entity={entity}
+              cols={cols}
+              records={records}
+              accent={accent}
+              appId={appId}
+              onNavigate={onNavigate}
+              onRecordCreated={() => recordsQuery.refetch()}
+            />
+          ))}
+        </div>
+      )}
+      {!hasDataView && blocks.length === 0 && <Centered>На этой странице ещё нет блоков.</Centered>}
     </div>
   );
 }
@@ -462,6 +476,192 @@ function FormBlock({ block, entity, cols, appId, accent, onSuccess }: {
             {status === "submitting" ? "Сохранение…" : "Сохранить"}
           </button>
         </form>
+      )}
+    </section>
+  );
+}
+
+function DataView({ viewType, entity, cols, records, accent }: {
+  viewType: string;
+  entity: EntityRead | null;
+  cols: FieldRead[];
+  records: RecordRead[];
+  accent: string;
+}) {
+  const title = entity?.display_name ?? "Таблица";
+  const noEntity = (
+    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 20, background: "#fff", color: "#8898AA", fontSize: 14 }}>
+      База данных не выбрана.
+    </section>
+  );
+
+  if (!entity) return noEntity;
+
+  if (viewType === "table") {
+    return (
+      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between" }}>
+          <span>{title}</span>
+          <span style={{ color: "#8898AA", fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #CBE3FF" }}>
+                {cols.slice(0, 6).map((f) => (
+                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: "#5b6b86", whiteSpace: "nowrap" }}>{f.display_name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rec) => (
+                <tr key={rec.id} style={{ borderBottom: "1px solid #F1F6FF" }}>
+                  {cols.slice(0, 6).map((f) => (
+                    <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
+                  ))}
+                </tr>
+              ))}
+              {records.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: 14, color: "#8898AA" }}>Нет записей</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  }
+
+  if (viewType === "kanban" || viewType === "deck") {
+    const groupField = cols.find((f) => f.field_type === "select");
+    const groups: { label: string; items: RecordRead[] }[] = groupField
+      ? (() => {
+          const choices = (groupField.field_options?.choices as { value: string; label: string }[]) ?? [];
+          const result = choices.map((c) => ({
+            label: c.label,
+            items: records.filter((r) => r.payload[groupField.name] === c.value),
+          }));
+          const ungrouped = records.filter((r) => !r.payload[groupField.name]);
+          if (ungrouped.length > 0) result.push({ label: "Без категории", items: ungrouped });
+          return result;
+        })()
+      : [{ label: title, items: records }];
+
+    const nameField = cols[0];
+    return (
+      <section style={{ background: "#fff", border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>{title}</div>
+        <div style={{ display: "flex", gap: 12, overflowX: "auto", padding: 12 }}>
+          {groups.map((g) => (
+            <div key={g.label} style={{ minWidth: 180, flex: "0 0 180px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#5b6b86", padding: "4px 0" }}>
+                {g.label} <span style={{ color: "#8898AA", fontWeight: 400 }}>({g.items.length})</span>
+              </div>
+              {g.items.map((rec) => (
+                <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 8, padding: "10px 12px", fontSize: 13, border: "1px solid #CBE3FF" }}>
+                  {nameField ? String(rec.payload[nameField.name] ?? "—") : rec.id.slice(0, 8)}
+                </div>
+              ))}
+              {g.items.length === 0 && (
+                <div style={{ color: "#8898AA", fontSize: 12, textAlign: "center", padding: 8 }}>Пусто</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (viewType === "calendar") {
+    const dateField = cols.find((f) => f.field_type === "date");
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = (new Date(year, month, 1).getDay() + 6) % 7; // Mon=0
+    const dayMap: Record<number, RecordRead[]> = {};
+    if (dateField) {
+      records.forEach((r) => {
+        const d = r.payload[dateField.name];
+        if (d) {
+          const day = new Date(String(d)).getDate();
+          if (!dayMap[day]) dayMap[day] = [];
+          dayMap[day].push(r);
+        }
+      });
+    }
+    const monthName = now.toLocaleString("ru-RU", { month: "long", year: "numeric" });
+    const cells: (number | null)[] = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+    while (cells.length % 7 !== 0) cells.push(null);
+    return (
+      <section style={{ background: "#fff", border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>
+          {title} — {monthName}
+        </div>
+        <div style={{ padding: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+            {["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map((d) => (
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: "#8898AA", padding: "4px 0" }}>{d}</div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+            {cells.map((day, i) => (
+              <div key={i} style={{
+                minHeight: 40, borderRadius: 6, padding: "4px 6px", fontSize: 12,
+                background: day === now.getDate() ? accent + "22" : "#F1F6FF",
+                border: day === now.getDate() ? `1px solid ${accent}` : "1px solid transparent",
+                color: day ? "#00205F" : "transparent",
+              }}>
+                <div style={{ fontWeight: 600 }}>{day ?? ""}</div>
+                {day && dayMap[day]?.slice(0, 2).map((r) => (
+                  <div key={r.id} style={{ background: accent, color: "#fff", borderRadius: 3, padding: "1px 4px", fontSize: 10, marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                    {cols[0] ? String(r.payload[cols[0].name] ?? "•") : "•"}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (viewType === "gallery") {
+    const imgField = cols.find((f) => f.field_type === "file" || f.field_type === "url");
+    const nameField = cols[0];
+    return (
+      <section style={{ background: "#fff", border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>{title}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 12, padding: 12 }}>
+          {records.length === 0 && <div style={{ color: "#8898AA", fontSize: 13 }}>Нет записей</div>}
+          {records.map((rec) => (
+            <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 8, overflow: "hidden", border: "1px solid #CBE3FF" }}>
+              <div style={{ height: 80, background: accent + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>
+                {imgField && rec.payload[imgField.name] ? "🖼" : "📄"}
+              </div>
+              <div style={{ padding: "6px 8px", fontSize: 12, fontWeight: 500, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                {nameField ? String(rec.payload[nameField.name] ?? "—") : "—"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  // Fallback for gantt/map/detail and others — show as table
+  return (
+    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 12, background: "#fff", color: "#5b6b86", fontSize: 13 }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>{title} <span style={{ fontWeight: 400, color: "#8898AA" }}>({viewType})</span></div>
+      {records.length === 0 ? (
+        <div style={{ color: "#8898AA" }}>Нет записей</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {records.slice(0, 10).map((rec) => (
+            <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 6, padding: "6px 10px" }}>
+              {cols[0] ? String(rec.payload[cols[0].name] ?? rec.id.slice(0, 8)) : rec.id.slice(0, 8)}
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
