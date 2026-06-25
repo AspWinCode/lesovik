@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated } from "@/shared/auth/tokens";
@@ -648,19 +648,286 @@ function DataView({ viewType, entity, cols, records, accent }: {
     );
   }
 
-  // Fallback for gantt/map/detail and others — show as table
+  if (viewType === "detail") {
+    return <DetailView title={title} cols={cols} records={records} accent={accent} />;
+  }
+
+  if (viewType === "gantt") {
+    return <GanttView title={title} cols={cols} records={records} accent={accent} />;
+  }
+
+  if (viewType === "map") {
+    return <MapView title={title} cols={cols} records={records} accent={accent} />;
+  }
+
+  // Unknown view type — basic list
   return (
     <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 12, background: "#fff", color: "#5b6b86", fontSize: 13 }}>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>{title} <span style={{ fontWeight: 400, color: "#8898AA" }}>({viewType})</span></div>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>{title}</div>
       {records.length === 0 ? (
         <div style={{ color: "#8898AA" }}>Нет записей</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {records.slice(0, 10).map((rec) => (
             <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 6, padding: "6px 10px" }}>
-              {cols[0] ? String(rec.payload[cols[0].name] ?? rec.id.slice(0, 8)) : rec.id.slice(0, 8)}
+              {cols[0] ? String(rec.payload[cols[0].name] ?? "—") : rec.id.slice(0, 8)}
             </div>
           ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── Detail view: expanded cards for each record ── */
+function DetailView({ title, cols, records, accent }: {
+  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string;
+}) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const rec = records[activeIdx];
+
+  return (
+    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+      <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{title}</span>
+        {records.length > 1 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button
+              onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
+              disabled={activeIdx === 0}
+              style={{ border: "none", background: "none", cursor: activeIdx === 0 ? "default" : "pointer", opacity: activeIdx === 0 ? 0.3 : 1, fontSize: 16, color: accent, padding: "0 4px" }}
+            >‹</button>
+            <span style={{ fontSize: 12, color: "#8898AA" }}>{activeIdx + 1} / {records.length}</span>
+            <button
+              onClick={() => setActiveIdx((i) => Math.min(records.length - 1, i + 1))}
+              disabled={activeIdx === records.length - 1}
+              style={{ border: "none", background: "none", cursor: activeIdx === records.length - 1 ? "default" : "pointer", opacity: activeIdx === records.length - 1 ? 0.3 : 1, fontSize: 16, color: accent, padding: "0 4px" }}
+            >›</button>
+          </div>
+        )}
+      </div>
+      {!rec ? (
+        <div style={{ padding: 20, color: "#8898AA", fontSize: 14 }}>Нет записей</div>
+      ) : (
+        <div style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 20px" }}>
+          {cols.map((f) => (
+            <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#8898AA", textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</span>
+              <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>{formatCell(rec.payload[f.name], f)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── Gantt view: horizontal timeline bars ── */
+function GanttView({ title, cols, records, accent }: {
+  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string;
+}) {
+  const dateFields = cols.filter((f) => f.field_type === "date");
+  const startField = dateFields[0];
+  const endField = dateFields[1] ?? dateFields[0];
+  const nameField = cols.find((f) => f.field_type !== "date") ?? cols[0];
+
+  const now = new Date();
+  const viewStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const viewEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  const totalDays = Math.round((viewEnd.getTime() - viewStart.getTime()) / 86400000);
+
+  function dayOffset(d: Date) {
+    return Math.max(0, Math.round((d.getTime() - viewStart.getTime()) / 86400000));
+  }
+
+  const monthHeaders: { label: string; days: number }[] = [];
+  let cur = new Date(viewStart);
+  while (cur <= viewEnd) {
+    const daysInMon = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate();
+    const clippedDays = Math.min(daysInMon - cur.getDate() + 1, totalDays - dayOffset(cur));
+    monthHeaders.push({ label: cur.toLocaleString("ru-RU", { month: "long", year: "numeric" }), days: clippedDays });
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+
+  return (
+    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+      <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>{title}</div>
+      {!startField ? (
+        <div style={{ padding: 16, color: "#8898AA", fontSize: 13 }}>Добавьте поля типа «Дата» для отображения диаграммы Ганта.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 600, padding: "0 0 12px 0" }}>
+            {/* Month header */}
+            <div style={{ display: "flex", borderBottom: "1px solid #CBE3FF" }}>
+              <div style={{ width: 140, flexShrink: 0, padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "#5b6b86", borderRight: "1px solid #CBE3FF" }}>Название</div>
+              <div style={{ flex: 1, position: "relative" }}>
+                <div style={{ display: "flex" }}>
+                  {monthHeaders.map((m) => (
+                    <div key={m.label} style={{ flex: m.days, padding: "6px 8px", fontSize: 11, fontWeight: 600, color: "#5b6b86", borderRight: "1px solid #CBE3FF", whiteSpace: "nowrap", overflow: "hidden" }}>
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* Rows */}
+            {records.length === 0 && (
+              <div style={{ padding: "12px 12px", color: "#8898AA", fontSize: 13 }}>Нет записей</div>
+            )}
+            {records.map((rec) => {
+              const rawStart = rec.payload[startField.name];
+              const rawEnd = endField ? rec.payload[endField.name] : rawStart;
+              const start = rawStart ? new Date(String(rawStart)) : null;
+              const end = rawEnd ? new Date(String(rawEnd)) : start;
+              const label = nameField ? String(rec.payload[nameField.name] ?? "—") : "—";
+              const left = start ? (dayOffset(start) / totalDays) * 100 : 0;
+              const width = (start && end)
+                ? (Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1) / totalDays) * 100
+                : 2;
+
+              return (
+                <div key={rec.id} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #F1F6FF", minHeight: 36 }}>
+                  <div style={{ width: 140, flexShrink: 0, padding: "0 12px", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", borderRight: "1px solid #CBE3FF", color: "#00205F" }}>
+                    {label}
+                  </div>
+                  <div style={{ flex: 1, position: "relative", height: 36, background: "#F8FBFF" }}>
+                    {/* Today line */}
+                    <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(dayOffset(now) / totalDays) * 100}%`, width: 1, background: "#F59E0B", zIndex: 2 }} />
+                    {start ? (
+                      <div style={{
+                        position: "absolute", top: 8, height: 20,
+                        left: `${Math.min(99, left)}%`,
+                        width: `${Math.min(100 - left, width)}%`,
+                        background: accent, borderRadius: 4, opacity: 0.85,
+                        display: "flex", alignItems: "center", paddingLeft: 6,
+                        fontSize: 11, color: "#fff", whiteSpace: "nowrap", overflow: "hidden",
+                      }}>
+                        {start.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
+                        {end && end !== start ? ` – ${end.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}` : ""}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 11, color: "#8898AA", paddingLeft: 8, lineHeight: "36px" }}>нет даты</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── Map view: Leaflet via CDN ── */
+function MapView({ title, cols, records }: {
+  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<unknown>(null);
+
+  const latField = cols.find((f) => ["lat","latitude","широта"].includes(f.name.toLowerCase()));
+  const lngField = cols.find((f) => ["lng","lon","longitude","долгота"].includes(f.name.toLowerCase()));
+  const addrField = cols.find((f) => ["address","addr","адрес"].includes(f.name.toLowerCase()));
+  const nameField = cols.find((f) => f.field_type !== "date" && f.field_type !== "number") ?? cols[0];
+
+  const points: { lat: number; lng: number; label: string }[] = [];
+  if (latField && lngField) {
+    records.forEach((r) => {
+      const lat = parseFloat(String(r.payload[latField.name] ?? ""));
+      const lng = parseFloat(String(r.payload[lngField.name] ?? ""));
+      if (!isNaN(lat) && !isNaN(lng)) {
+        points.push({ lat, lng, label: nameField ? String(r.payload[nameField.name] ?? "—") : "—" });
+      }
+    });
+  }
+
+  const center = points.length > 0
+    ? { lat: points.reduce((s, p) => s + p.lat, 0) / points.length, lng: points.reduce((s, p) => s + p.lng, 0) / points.length }
+    : { lat: 55.75, lng: 37.62 };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function initMap() {
+      if (cancelled || !mapRef.current) return;
+      const L = (window as unknown as Record<string, unknown>).L as {
+        map: (el: HTMLElement, opts?: unknown) => unknown;
+        tileLayer: (url: string, opts?: unknown) => { addTo: (m: unknown) => unknown };
+        marker: (pos: [number, number]) => { addTo: (m: unknown) => unknown; bindPopup: (s: string) => unknown };
+      };
+      if (!L) return;
+
+      if (mapInstanceRef.current) {
+        (mapInstanceRef.current as { remove: () => void }).remove();
+        mapInstanceRef.current = null;
+      }
+
+      const map = L.map(mapRef.current, { zoomControl: true });
+      mapInstanceRef.current = map;
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+        maxZoom: 19,
+      }).addTo(map);
+
+      if (points.length > 0) {
+        points.forEach((p) => {
+          const m = L.marker([p.lat, p.lng]);
+          m.addTo(map);
+          m.bindPopup(p.label);
+        });
+        (map as { setView: (center: [number, number], zoom: number) => void }).setView([center.lat, center.lng], points.length === 1 ? 13 : 10);
+      } else {
+        (map as { setView: (center: [number, number], zoom: number) => void }).setView([center.lat, center.lng], 10);
+      }
+    }
+
+    function loadLeaflet() {
+      if ((window as unknown as Record<string, unknown>).L) { initMap(); return; }
+      if (!document.getElementById("leaflet-css")) {
+        const link = document.createElement("link");
+        link.id = "leaflet-css";
+        link.rel = "stylesheet";
+        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        document.head.appendChild(link);
+      }
+      if (!document.getElementById("leaflet-js")) {
+        const script = document.createElement("script");
+        script.id = "leaflet-js";
+        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        script.onload = () => { if (!cancelled) initMap(); };
+        document.body.appendChild(script);
+      } else {
+        setTimeout(initMap, 100);
+      }
+    }
+
+    loadLeaflet();
+    return () => { cancelled = true; };
+  }, [records.length, latField?.name, lngField?.name]);
+
+  const hasCoords = !!(latField && lngField);
+
+  return (
+    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+      <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between" }}>
+        <span>{title}</span>
+        {points.length > 0 && <span style={{ fontSize: 12, color: "#8898AA", fontWeight: 400 }}>{points.length} точек</span>}
+      </div>
+      {!hasCoords ? (
+        <div style={{ padding: 20, color: "#8898AA", fontSize: 13, lineHeight: 1.6 }}>
+          Добавьте поля с координатами (названия: <b>lat</b> / <b>lng</b> или <b>latitude</b> / <b>longitude</b>) для отображения на карте.
+          {addrField && <><br />Поле «{addrField.display_name}» найдено, но геокодирование не поддерживается без API ключа.</>}
+        </div>
+      ) : (
+        <div>
+          <div ref={mapRef} style={{ height: 300, width: "100%" }} />
+          {points.length === 0 && records.length > 0 && (
+            <div style={{ padding: "8px 14px", fontSize: 12, color: "#8898AA" }}>
+              Записей: {records.length}, но координаты не заполнены.
+            </div>
+          )}
         </div>
       )}
     </section>
