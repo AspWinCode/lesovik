@@ -337,6 +337,7 @@ export function MainPage() {
 
       <PreviewPanel
         projectName={selected?.name ?? "Fitness App"}
+        appId={effectiveSelected}
         onOpen={effectiveSelected ? () => navigate(`/views?app=${effectiveSelected}`) : undefined}
       />
 

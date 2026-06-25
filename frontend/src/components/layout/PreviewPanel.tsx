@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { TabSwitcher } from "@/components/ui/TabSwitcher";
+import { buildRuntimeUrl } from "@/shared/lib/appLinks";
 
 interface PreviewPanelProps {
   projectName?: string;
-  previewImageUrl?: string;
+  appId?: string | null;
   onOpen?: () => void;
 }
 
-export function PreviewPanel({ projectName = "Fitness App", previewImageUrl, onOpen }: PreviewPanelProps) {
+export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: PreviewPanelProps) {
   const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
 
   const tabs = [
@@ -34,6 +35,13 @@ export function PreviewPanel({ projectName = "Fitness App", previewImageUrl, onO
     },
   ];
 
+  const isMobile = device === "mobile";
+  const frameW = isMobile ? 380 : 560;
+  const frameH = isMobile ? 800 : 500;
+  const outerR = isMobile ? 60 : 20;
+
+  const runtimeUrl = appId ? buildRuntimeUrl(appId, window.location.origin) : null;
+
   return (
     <div
       className="absolute top-[70px] right-0 bg-mainbg flex flex-col items-center gap-[40px]"
@@ -52,25 +60,37 @@ export function PreviewPanel({ projectName = "Fitness App", previewImageUrl, onO
         className="w-[348px]"
       />
 
-      {/* Preview image */}
+      {/* Preview frame */}
       <div
-        className="bg-cardbg overflow-hidden shrink-0"
+        className="bg-cardbg overflow-hidden shrink-0 relative"
         style={{
-          width: 380,
-          height: 800,
-          borderRadius: 60,
+          width: frameW,
+          height: frameH,
+          borderRadius: outerR,
+          transition: "width 0.25s, height 0.25s, border-radius 0.25s",
         }}
       >
-        {previewImageUrl ? (
-          <img src={previewImageUrl} alt="Превью" className="w-full h-full object-cover" />
+        {runtimeUrl ? (
+          <iframe
+            key={`${appId}-${device}`}
+            src={runtimeUrl}
+            title={projectName}
+            style={{
+              width: isMobile ? "100%" : "100%",
+              height: "100%",
+              border: "none",
+              display: "block",
+            }}
+            sandbox="allow-scripts allow-same-origin allow-forms"
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-primary/40 text-sm">
-            Превью недоступно
+            Выберите приложение
           </div>
         )}
       </div>
 
-      {/* Open app button — disabled when the host screen provides no target. */}
+      {/* Open app button */}
       <button
         onClick={onOpen}
         disabled={!onOpen}
