@@ -648,11 +648,11 @@ function DataView({ viewType, entity, cols, records, accent }: {
     );
   }
 
-  if (viewType === "detail") {
+  if (viewType === "detail" || viewType === "details" || viewType === "card") {
     return <DetailView title={title} cols={cols} records={records} accent={accent} />;
   }
 
-  if (viewType === "gantt") {
+  if (viewType === "gantt" || viewType === "chart") {
     return <GanttView title={title} cols={cols} records={records} accent={accent} />;
   }
 
