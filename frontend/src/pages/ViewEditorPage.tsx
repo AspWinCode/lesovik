@@ -218,6 +218,14 @@ export function ViewEditorPage() {
     },
   ];
 
+  // Warning: any page has no blocks, OR a data-view page has no entity_id set
+  const hasWarning = pages.some((p) => {
+    const blks = (p.blocks ?? []) as unknown[];
+    const lay = (p.layout ?? {}) as Record<string, unknown>;
+    const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
+    return blks.length === 0 || (isDataView && !lay.entity_id);
+  });
+
   function _postRefetch() {
     iframeRef.current?.contentWindow?.postMessage({ type: "RT_REFETCH" }, window.location.origin);
   }
@@ -344,6 +352,7 @@ export function ViewEditorPage() {
         onSelect={setActiveView}
         onAddView={handleAddPage}
         onDeleteView={handleDeletePage}
+        hasWarning={hasWarning}
       />
 
       {/* ── Top tab bar ── */}

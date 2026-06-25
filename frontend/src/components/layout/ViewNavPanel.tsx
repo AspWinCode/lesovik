@@ -19,6 +19,7 @@ interface ViewNavPanelProps {
   onSelect: (id: string) => void;
   onAddView?: (sectionId: string) => void;
   onDeleteView?: (viewId: string) => void;
+  hasWarning?: boolean;
 }
 
 export function ViewNavPanel({
@@ -28,6 +29,7 @@ export function ViewNavPanel({
   onSelect,
   onAddView,
   onDeleteView,
+  hasWarning = false,
 }: ViewNavPanelProps) {
   const [systemOpen, setSystemOpen] = useState(false);
 
@@ -40,9 +42,11 @@ export function ViewNavPanel({
       <div className="flex items-center justify-between px-[15px] pt-[15px] h-[45px]">
         <h2 className="text-nav font-bold text-primary">{title}</h2>
         <div className="flex items-center gap-5">
-          <span aria-label="Есть предупреждения" title="Есть предупреждения" className="w-[22px] h-5">
-            <WarningIcon />
-          </span>
+          {hasWarning && (
+            <span aria-label="Есть предупреждения" title="Есть предупреждения" className="w-[22px] h-5">
+              <WarningIcon />
+            </span>
+          )}
           <button aria-label="Поиск" disabled title="В разработке" className="w-5 h-5 opacity-40 cursor-not-allowed">
             <SearchIcon />
           </button>
