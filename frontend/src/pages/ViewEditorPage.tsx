@@ -226,8 +226,14 @@ export function ViewEditorPage() {
     return blks.length === 0 || (isDataView && !lay.entity_id);
   });
 
-  function _postRefetch() {
-    iframeRef.current?.contentWindow?.postMessage({ type: "RT_REFETCH" }, window.location.origin);
+  function _postRefetch(updatedLayout?: Record<string, unknown>) {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const origin = window.location.origin;
+    if (activeView && updatedLayout) {
+      win.postMessage({ type: "RT_PAGE_LAYOUT", pageId: activeView, layout: updatedLayout }, origin);
+    }
+    win.postMessage({ type: "RT_REFETCH" }, origin);
   }
 
   // Merge a partial into page.layout and persist to backend.
@@ -237,7 +243,7 @@ export function ViewEditorPage() {
     if (!activeView || !appId) return;
     updatePageMutation.mutate(
       { pageId: activeView, body: { layout: next } },
-      { onSuccess: _postRefetch },
+      { onSuccess: () => { _postRefetch(next); } },
     );
   }
 
@@ -245,7 +251,7 @@ export function ViewEditorPage() {
     if (!activeView || !appId) return;
     updatePageMutation.mutate(
       { pageId: activeView, body: { title: name } },
-      { onSuccess: _postRefetch },
+      { onSuccess: () => _postRefetch() },
     );
   }
 
@@ -264,7 +270,7 @@ export function ViewEditorPage() {
     if (!activeView || !appId) return;
     updatePageMutation.mutate(
       { pageId: activeView, body: { blocks: newBlocks as unknown as Record<string, unknown>[] } },
-      { onSuccess: _postRefetch },
+      { onSuccess: () => _postRefetch() },
     );
   }
 
@@ -307,7 +313,7 @@ export function ViewEditorPage() {
   function handleDeletePage(pageId: string) {
     if (!appId) return;
     if (!window.confirm("Удалить страницу?")) return;
-    deletePageMutation.mutate(pageId, { onSuccess: _postRefetch });
+    deletePageMutation.mutate(pageId, { onSuccess: () => _postRefetch() });
     if (activeView === pageId) {
       const next = pages.find((p) => p.id !== pageId);
       setActiveView(next?.id ?? "");
@@ -342,7 +348,7 @@ export function ViewEditorPage() {
       <Navbar
         onSave={activeView && appId ? () => updatePageMutation.mutate(
           { pageId: activeView, body: { title: name, layout, blocks: blocks as unknown as Record<string, unknown>[] } },
-          { onSuccess: _postRefetch },
+          { onSuccess: () => _postRefetch() },
         ) : undefined}
       />
       <IconRail active={railModule} onChange={setRailModule} />

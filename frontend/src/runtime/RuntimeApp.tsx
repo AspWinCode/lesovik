@@ -38,6 +38,15 @@ function RuntimeShell() {
       if (e.data.type === "RT_NAVIGATE" && e.data.pageId) {
         setActivePageId(e.data.pageId as string);
       }
+      // Direct layout patch — updates page in query cache immediately without a round-trip
+      if (e.data.type === "RT_PAGE_LAYOUT" && e.data.pageId && e.data.layout) {
+        queryClient.setQueriesData<PageRead[]>(
+          { queryKey: ["rt-pages"] },
+          (old) => old?.map((p) =>
+            p.id === e.data.pageId ? { ...p, layout: e.data.layout as Record<string, unknown> } : p
+          )
+        );
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
