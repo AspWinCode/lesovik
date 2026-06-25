@@ -470,6 +470,7 @@ export function ViewEditorPage() {
               <BlockCanvas
                 blocks={blocks}
                 fields={userFields}
+                pages={pages}
                 onBlocksChange={handleBlocksChange}
                 onBlockChange={handleUpdateBlock}
                 onBlockConfigChange={handleUpdateBlockConfig}
@@ -1842,12 +1843,14 @@ const BLOCK_ICONS: Record<string, React.ReactNode> = {
 function SortableBlockRow({
   block,
   fields,
+  pages,
   onChange,
   onConfigChange,
   onDelete,
 }: {
   block: PageBlock;
   fields: FieldRead[];
+  pages: import("@/shared/api/views").PageRead[];
   onChange: (patch: Partial<PageBlock>) => void;
   onConfigChange: (patch: Record<string, unknown>) => void;
   onDelete: () => void;
@@ -1889,7 +1892,7 @@ function SortableBlockRow({
           <TrashIcon />
         </button>
       </div>
-      <BlockInlineSettings block={block} fields={fields} onConfigChange={onConfigChange} />
+      <BlockInlineSettings block={block} fields={fields} pages={pages} onConfigChange={onConfigChange} />
     </div>
   );
 }
@@ -1897,10 +1900,12 @@ function SortableBlockRow({
 function BlockInlineSettings({
   block,
   fields,
+  pages,
   onConfigChange,
 }: {
   block: PageBlock;
   fields: FieldRead[];
+  pages: import("@/shared/api/views").PageRead[];
   onConfigChange: (patch: Record<string, unknown>) => void;
 }) {
   if (block.type === "divider" || block.type === "table" || block.type === "form") return null;
@@ -2030,17 +2035,58 @@ function BlockInlineSettings({
       )}
       {block.type === "button" && (
         <>
-          <ConfigInput
-            label="Ссылка"
-            value={(block.config.href as string) ?? ""}
-            onChange={(href) => onConfigChange({ href })}
-            placeholder="https://..."
+          <ConfigSegmented
+            label="Действие"
+            value={(block.config.actionType as string) ?? "url"}
+            options={[
+              { value: "url",   label: "Ссылка" },
+              { value: "page",  label: "Страница" },
+              { value: "block", label: "Блок" },
+            ]}
+            onChange={(actionType) => onConfigChange({ actionType })}
           />
+          {(block.config.actionType === "url" || !block.config.actionType) && (
+            <ConfigInput
+              label="URL"
+              value={(block.config.href as string) ?? ""}
+              onChange={(href) => onConfigChange({ href })}
+              placeholder="https://..."
+            />
+          )}
+          {block.config.actionType === "page" && (
+            <ConfigSelect
+              label="Страница"
+              value={(block.config.targetPageId as string) ?? ""}
+              options={[
+                { value: "", label: "— выберите —" },
+                ...pages.map((p) => ({ value: p.id, label: p.title })),
+              ]}
+              onChange={(targetPageId) => onConfigChange({ targetPageId })}
+            />
+          )}
+          {block.config.actionType === "block" && (
+            <ConfigInput
+              label="ID блока"
+              value={(block.config.targetBlockId as string) ?? ""}
+              onChange={(targetBlockId) => onConfigChange({ targetBlockId })}
+              placeholder="block-id или #anchor"
+            />
+          )}
           <ConfigSelect
             label="Размер текста"
             value={(block.config.fontSize as string) ?? "15"}
             options={["12","13","14","15","16","18","20"].map((s) => ({ value: s, label: s + "px" }))}
             onChange={(fontSize) => onConfigChange({ fontSize })}
+          />
+          <ConfigSegmented
+            label="Скругление"
+            value={(block.config.radius as string) ?? "rounded"}
+            options={[
+              { value: "sharp",   label: "Острые" },
+              { value: "rounded", label: "Обычное" },
+              { value: "pill",    label: "Капсула" },
+            ]}
+            onChange={(radius) => onConfigChange({ radius })}
           />
           <ConfigSegmented
             label="Ширина"
@@ -2176,6 +2222,7 @@ function ConfigSegmented({
 function BlockCanvas({
   blocks,
   fields,
+  pages,
   onBlocksChange,
   onBlockChange,
   onBlockConfigChange,
@@ -2183,6 +2230,7 @@ function BlockCanvas({
 }: {
   blocks: PageBlock[];
   fields: FieldRead[];
+  pages: import("@/shared/api/views").PageRead[];
   onBlocksChange: (b: PageBlock[]) => void;
   onBlockChange: (id: string, patch: Partial<PageBlock>) => void;
   onBlockConfigChange: (id: string, patch: Record<string, unknown>) => void;
@@ -2210,6 +2258,7 @@ function BlockCanvas({
               key={block.id}
               block={block}
               fields={fields}
+              pages={pages}
               onChange={(patch) => onBlockChange(block.id, patch)}
               onConfigChange={(patch) => onBlockConfigChange(block.id, patch)}
               onDelete={() => onBlocksChange(blocks.filter((b) => b.id !== block.id))}

@@ -168,7 +168,7 @@ function RuntimeShell() {
           {!activePage ? (
             <Centered>В приложении пока нет страниц.</Centered>
           ) : (
-            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} />
+            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} pages={navPages} onNavigate={setActivePageId} />
           )}
         </main>
       </div>
@@ -176,8 +176,9 @@ function RuntimeShell() {
   );
 }
 
-function PageView({ page, appId, entities, accent }: {
+function PageView({ page, appId, entities, accent, onNavigate }: {
   page: PageRead; appId: string; entities: EntityRead[]; accent: string;
+  pages: PageRead[]; onNavigate: (id: string) => void;
 }) {
   const design = (page.layout?.design as DesignConfig | undefined) ?? {};
   const entityId = page.layout?.entity_id as string | undefined;
@@ -208,6 +209,7 @@ function PageView({ page, appId, entities, accent }: {
             records={records}
             accent={accent}
             appId={appId}
+            onNavigate={onNavigate}
             onRecordCreated={() => recordsQuery.refetch()}
           />
         ))}
@@ -216,13 +218,14 @@ function PageView({ page, appId, entities, accent }: {
   );
 }
 
-function Block({ block, entity, cols, records, accent, appId, onRecordCreated }: {
+function Block({ block, entity, cols, records, accent, appId, onNavigate, onRecordCreated }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
   records: RecordRead[];
   accent: string;
   appId: string;
+  onNavigate: (id: string) => void;
   onRecordCreated: () => void;
 }) {
   if (block.type === "divider") {
@@ -281,13 +284,38 @@ function Block({ block, entity, cols, records, accent, appId, onRecordCreated }:
   }
 
   if (block.type === "button") {
-    const href = (block.config?.href as string) ?? "";
+    const cfg = block.config ?? {};
+    const actionType = (cfg.actionType as string) ?? "url";
+    const href = (cfg.href as string) ?? "";
+    const targetPageId = (cfg.targetPageId as string) ?? "";
+    const targetBlockId = (cfg.targetBlockId as string) ?? "";
+    const fontSize = Number((cfg.fontSize as string) ?? 15);
+    const radiusVal = (cfg.radius as string) ?? "rounded";
+    const widthVal = (cfg.width as string) ?? "full";
+    const radiusMap: Record<string, number> = { sharp: 4, rounded: 8, pill: 9999 };
+    const widthMap: Record<string, string> = { full: "100%", half: "50%", third: "33.333%", auto: "auto" };
+
     const style: React.CSSProperties = {
-      alignSelf: "flex-start", background: accent, color: "#fff", border: "none",
-      borderRadius: 8, padding: "10px 20px", fontSize: 15, fontWeight: 500,
+      background: accent, color: "#fff", border: "none",
+      borderRadius: radiusMap[radiusVal] ?? 8,
+      padding: "10px 20px", fontSize, fontWeight: 500,
       cursor: "pointer", textDecoration: "none", display: "inline-block",
+      width: widthMap[widthVal] ?? "100%", textAlign: "center",
+      boxSizing: "border-box",
     };
-    if (href) {
+
+    function handleClick() {
+      if (actionType === "page" && targetPageId) {
+        onNavigate(targetPageId);
+      } else if (actionType === "block" && targetBlockId) {
+        const el = document.getElementById(targetBlockId) ?? document.querySelector(`[data-block="${targetBlockId}"]`);
+        el?.scrollIntoView({ behavior: "smooth" });
+      } else {
+        alert("Действие кнопки не настроено");
+      }
+    }
+
+    if (actionType === "url" && href) {
       return (
         <a href={href} target="_blank" rel="noopener noreferrer" style={style}>
           {block.title ?? "Кнопка"}
@@ -295,7 +323,7 @@ function Block({ block, entity, cols, records, accent, appId, onRecordCreated }:
       );
     }
     return (
-      <button style={style} onClick={() => alert("Действие кнопки не настроено")}>
+      <button style={style} onClick={handleClick}>
         {block.title ?? "Кнопка"}
       </button>
     );
