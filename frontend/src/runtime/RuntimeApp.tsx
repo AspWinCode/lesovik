@@ -17,6 +17,9 @@ interface PageBlock {
 interface DesignConfig {
   accent?: string;
   show_header?: boolean;
+  theme?: "light" | "dark";
+  density?: "compact" | "normal" | "spacious";
+  font_family?: string;
 }
 
 function RuntimeShell() {
@@ -120,12 +123,29 @@ function RuntimeShell() {
   }
 
   const activePage = navPages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
-  const accent = (activePage?.layout?.design as DesignConfig | undefined)?.accent ?? "#35A7FF";
+  const design = (activePage?.layout?.design as DesignConfig | undefined) ?? {};
+  const accent = design.accent ?? "#35A7FF";
+  const theme = design.theme ?? "light";
+  const density = design.density ?? "normal";
+  const fontFamily = design.font_family ?? "Inter, sans-serif";
   const entities = entitiesQuery.data ?? [];
   const narrow = viewportW < 520;
 
+  const dark = theme === "dark";
+  const colors = {
+    bg:        dark ? "#0F1117" : "#F1F6FF",
+    surface:   dark ? "#1C1F2B" : "#ffffff",
+    border:    dark ? "#2D3144" : "#CBE3FF",
+    text:      dark ? "#E8EAF0" : "#00205F",
+    textMuted: dark ? "#8891AA" : "#8898AA",
+    navActive: dark ? "#2D3560" : "#CBE3FF",
+    navHover:  dark ? "#1C1F2B" : "transparent",
+  };
+  const densityPad = density === "compact" ? "8px 10px" : density === "spacious" ? "16px 20px" : "12px 16px";
+  const blockGap   = density === "compact" ? 8 : density === "spacious" ? 24 : 16;
+
   return (
-    <div style={{ minHeight: "100vh", background: "#F1F6FF", color: "#00205F", fontFamily: "Inter, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily, transition: "background 0.2s, color 0.2s" }}>
       {/* App bar */}
       <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", padding: "0 20px", fontWeight: 600, fontSize: 18, flexShrink: 0 }}>
         {app.name}
@@ -133,7 +153,7 @@ function RuntimeShell() {
 
       {/* Horizontal tab nav on narrow screens */}
       {navPages.length > 1 && narrow && (
-        <nav style={{ display: "flex", overflowX: "auto", gap: 4, padding: "8px 12px", background: "#fff", borderBottom: "1px solid #CBE3FF" }}>
+        <nav style={{ display: "flex", overflowX: "auto", gap: 4, padding: "8px 12px", background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
           {navPages.map((p) => (
             <button
               key={p.id}
@@ -141,8 +161,8 @@ function RuntimeShell() {
               style={{
                 flexShrink: 0, padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer",
                 fontSize: 13, whiteSpace: "nowrap",
-                background: p.id === activePage?.id ? accent : "#F1F6FF",
-                color: p.id === activePage?.id ? "#fff" : "#00205F",
+                background: p.id === activePage?.id ? accent : colors.bg,
+                color: p.id === activePage?.id ? "#fff" : colors.text,
                 fontWeight: p.id === activePage?.id ? 600 : 400,
               }}
             >
@@ -152,18 +172,19 @@ function RuntimeShell() {
         </nav>
       )}
 
-      <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", padding: narrow ? "12px 12px" : 16, gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", padding: narrow ? densityPad : densityPad, gap: 16 }}>
         {/* Sidebar nav on wide screens */}
         {navPages.length > 1 && !narrow && (
-          <nav style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+          <nav style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2, background: colors.surface, borderRadius: 10, padding: 8, border: `1px solid ${colors.border}` }}>
             {navPages.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setActivePageId(p.id)}
                 style={{
-                  textAlign: "left", padding: "10px 14px", borderRadius: 8, border: "none", cursor: "pointer",
-                  fontSize: 15, background: p.id === activePage?.id ? "#CBE3FF" : "transparent",
-                  color: p.id === activePage?.id ? accent : "#00205F", fontWeight: p.id === activePage?.id ? 600 : 400,
+                  textAlign: "left", padding: "9px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                  fontSize: 14, background: p.id === activePage?.id ? colors.navActive : colors.navHover,
+                  color: p.id === activePage?.id ? accent : colors.text,
+                  fontWeight: p.id === activePage?.id ? 600 : 400,
                 }}
               >
                 {p.title}
@@ -177,7 +198,7 @@ function RuntimeShell() {
           {!activePage ? (
             <Centered>В приложении пока нет страниц.</Centered>
           ) : (
-            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} pages={navPages} onNavigate={setActivePageId} />
+            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} colors={colors} blockGap={blockGap} pages={navPages} onNavigate={setActivePageId} />
           )}
         </main>
       </div>
@@ -185,8 +206,14 @@ function RuntimeShell() {
   );
 }
 
-function PageView({ page, appId, entities, accent, onNavigate }: {
+type AppColors = {
+  bg: string; surface: string; border: string;
+  text: string; textMuted: string; navActive: string; navHover: string;
+};
+
+function PageView({ page, appId, entities, accent, colors, blockGap, onNavigate }: {
   page: PageRead; appId: string; entities: EntityRead[]; accent: string;
+  colors: AppColors; blockGap: number;
   pages: PageRead[]; onNavigate: (id: string) => void;
 }) {
   const design = (page.layout?.design as DesignConfig | undefined) ?? {};
@@ -208,7 +235,7 @@ function PageView({ page, appId, entities, accent, onNavigate }: {
   return (
     <div>
       {(design.show_header ?? true) && (
-        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>{page.title}</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: blockGap, color: colors.text }}>{page.title}</h1>
       )}
       {hasDataView && (
         <DataView
@@ -217,10 +244,11 @@ function PageView({ page, appId, entities, accent, onNavigate }: {
           cols={cols}
           records={records}
           accent={accent}
+          colors={colors}
         />
       )}
       {blocks.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: hasDataView ? 16 : 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: blockGap, marginTop: hasDataView ? blockGap : 0 }}>
           {blocks.map((b) => (
             <Block
               key={b.id}
@@ -229,6 +257,7 @@ function PageView({ page, appId, entities, accent, onNavigate }: {
               cols={cols}
               records={records}
               accent={accent}
+              colors={colors}
               appId={appId}
               onNavigate={onNavigate}
               onRecordCreated={() => recordsQuery.refetch()}
@@ -241,24 +270,25 @@ function PageView({ page, appId, entities, accent, onNavigate }: {
   );
 }
 
-function Block({ block, entity, cols, records, accent, appId, onNavigate, onRecordCreated }: {
+function Block({ block, entity, cols, records, accent, colors, appId, onNavigate, onRecordCreated }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
   records: RecordRead[];
   accent: string;
+  colors: AppColors;
   appId: string;
   onNavigate: (id: string) => void;
   onRecordCreated: () => void;
 }) {
   if (block.type === "divider") {
-    return <hr style={{ border: "none", borderTop: "1px solid #CBE3FF", margin: "4px 0" }} />;
+    return <hr style={{ border: "none", borderTop: `1px solid ${colors.border}`, margin: "4px 0" }} />;
   }
 
   if (block.type === "rich_text") {
     const text = (block.config?.text as string) ?? block.title ?? "";
     return (
-      <div style={{ background: "#F1F6FF", borderRadius: 10, padding: 16, fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+      <div style={{ background: colors.bg, borderRadius: 10, padding: 16, fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-wrap", color: colors.text, border: `1px solid ${colors.border}` }}>
         {text}
       </div>
     );
@@ -266,8 +296,8 @@ function Block({ block, entity, cols, records, accent, appId, onNavigate, onReco
 
   if (block.type === "metric") {
     return (
-      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-        <span style={{ fontSize: 13, color: "#8898AA" }}>{block.title ?? "Метрика"}</span>
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: 13, color: colors.textMuted }}>{block.title ?? "Метрика"}</span>
         <span style={{ fontSize: 40, fontWeight: 700, color: accent }}>{(block.config?.value as string) ?? "—"}</span>
       </section>
     );
@@ -278,10 +308,10 @@ function Block({ block, entity, cols, records, accent, appId, onNavigate, onReco
     const trend = (block.config?.trend as string) ?? "+0%";
     const positive = !trend.trim().startsWith("-");
     return (
-      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <span style={{ fontSize: 13, color: "#8898AA" }}>{block.title ?? "KPI"}</span>
-          <span style={{ fontSize: 32, fontWeight: 700, color: "#00205F" }}>{value}</span>
+          <span style={{ fontSize: 13, color: colors.textMuted }}>{block.title ?? "KPI"}</span>
+          <span style={{ fontSize: 32, fontWeight: 700, color: colors.text }}>{value}</span>
         </div>
         <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: positive ? "#DCFCE7" : "#FEE2E2", color: positive ? "#15803D" : "#B91C1C" }}>
           {trend}
@@ -293,14 +323,14 @@ function Block({ block, entity, cols, records, accent, appId, onNavigate, onReco
   if (block.type === "iframe") {
     const src = (block.config?.src as string) ?? "";
     return (
-      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
-        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 14, color: "#5b6b86" }}>
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 14, color: colors.textMuted }}>
           {block.title ?? "Фрейм"}
         </div>
         {src ? (
           <iframe src={src} style={{ width: "100%", height: 320, border: 0 }} title={block.title ?? "iframe"} />
         ) : (
-          <div style={{ padding: 20, color: "#8898AA", fontSize: 13 }}>URL не задан</div>
+          <div style={{ padding: 20, color: colors.textMuted, fontSize: 13 }}>URL не задан</div>
         )}
       </section>
     );
@@ -367,33 +397,33 @@ function Block({ block, entity, cols, records, accent, appId, onNavigate, onReco
 
   // table (default)
   return (
-    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
-      <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between" }}>
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", color: colors.text }}>
         <span>{block.title ?? entity?.display_name ?? "Таблица"}</span>
-        <span style={{ color: "#8898AA", fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
+        <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
       </div>
       {cols.length === 0 ? (
-        <p style={{ padding: 14, color: "#8898AA", fontSize: 14 }}>Таблица не выбрана.</p>
+        <p style={{ padding: 14, color: colors.textMuted, fontSize: 14 }}>Таблица не выбрана.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid #CBE3FF" }}>
+              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
                 {cols.slice(0, 6).map((f) => (
-                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: "#5b6b86", whiteSpace: "nowrap" }}>{f.display_name}</th>
+                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {records.map((rec) => (
-                <tr key={rec.id} style={{ borderBottom: "1px solid #F1F6FF" }}>
+                <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                   {cols.slice(0, 6).map((f) => (
                     <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
                   ))}
                 </tr>
               ))}
               {records.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 14, color: "#8898AA" }}>Нет записей</td></tr>
+                <tr><td colSpan={6} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
               )}
             </tbody>
           </table>
@@ -490,16 +520,17 @@ function FormBlock({ block, entity, cols, appId, accent, onSuccess }: {
   );
 }
 
-function DataView({ viewType, entity, cols, records, accent }: {
+function DataView({ viewType, entity, cols, records, accent, colors }: {
   viewType: string;
   entity: EntityRead | null;
   cols: FieldRead[];
   records: RecordRead[];
   accent: string;
+  colors: AppColors;
 }) {
   const title = entity?.display_name ?? "Таблица";
   const noEntity = (
-    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 20, background: "#fff", color: "#8898AA", fontSize: 14 }}>
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
       База данных не выбрана.
     </section>
   );
@@ -508,30 +539,30 @@ function DataView({ viewType, entity, cols, records, accent }: {
 
   if (viewType === "table") {
     return (
-      <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
-        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between" }}>
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", color: colors.text }}>
           <span>{title}</span>
-          <span style={{ color: "#8898AA", fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
+          <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid #CBE3FF" }}>
+              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
                 {cols.slice(0, 6).map((f) => (
-                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: "#5b6b86", whiteSpace: "nowrap" }}>{f.display_name}</th>
+                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {records.map((rec) => (
-                <tr key={rec.id} style={{ borderBottom: "1px solid #F1F6FF" }}>
+                <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                   {cols.slice(0, 6).map((f) => (
                     <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
                   ))}
                 </tr>
               ))}
               {records.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 14, color: "#8898AA" }}>Нет записей</td></tr>
+                <tr><td colSpan={6} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
               )}
             </tbody>
           </table>
@@ -557,21 +588,21 @@ function DataView({ viewType, entity, cols, records, accent }: {
 
     const nameField = cols[0];
     return (
-      <section style={{ background: "#fff", border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>{title}</div>
+      <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>{title}</div>
         <div style={{ display: "flex", gap: 12, overflowX: "auto", padding: 12 }}>
           {groups.map((g) => (
             <div key={g.label} style={{ minWidth: 180, flex: "0 0 180px", display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#5b6b86", padding: "4px 0" }}>
-                {g.label} <span style={{ color: "#8898AA", fontWeight: 400 }}>({g.items.length})</span>
+              <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, padding: "4px 0" }}>
+                {g.label} <span style={{ fontWeight: 400 }}>({g.items.length})</span>
               </div>
               {g.items.map((rec) => (
-                <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 8, padding: "10px 12px", fontSize: 13, border: "1px solid #CBE3FF" }}>
+                <div key={rec.id} style={{ background: colors.bg, borderRadius: 8, padding: "10px 12px", fontSize: 13, border: `1px solid ${colors.border}`, color: colors.text }}>
                   {nameField ? String(rec.payload[nameField.name] ?? "—") : rec.id.slice(0, 8)}
                 </div>
               ))}
               {g.items.length === 0 && (
-                <div style={{ color: "#8898AA", fontSize: 12, textAlign: "center", padding: 8 }}>Пусто</div>
+                <div style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", padding: 8 }}>Пусто</div>
               )}
             </div>
           ))}
@@ -586,7 +617,7 @@ function DataView({ viewType, entity, cols, records, accent }: {
     const year = now.getFullYear();
     const month = now.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstDay = (new Date(year, month, 1).getDay() + 6) % 7; // Mon=0
+    const firstDay = (new Date(year, month, 1).getDay() + 6) % 7;
     const dayMap: Record<number, RecordRead[]> = {};
     if (dateField) {
       records.forEach((r) => {
@@ -602,23 +633,23 @@ function DataView({ viewType, entity, cols, records, accent }: {
     const cells: (number | null)[] = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
     while (cells.length % 7 !== 0) cells.push(null);
     return (
-      <section style={{ background: "#fff", border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>
+      <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>
           {title} — {monthName}
         </div>
         <div style={{ padding: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
             {["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map((d) => (
-              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: "#8898AA", padding: "4px 0" }}>{d}</div>
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: colors.textMuted, padding: "4px 0" }}>{d}</div>
             ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
             {cells.map((day, i) => (
               <div key={i} style={{
                 minHeight: 40, borderRadius: 6, padding: "4px 6px", fontSize: 12,
-                background: day === now.getDate() ? accent + "22" : "#F1F6FF",
-                border: day === now.getDate() ? `1px solid ${accent}` : "1px solid transparent",
-                color: day ? "#00205F" : "transparent",
+                background: day === now.getDate() ? accent + "22" : colors.bg,
+                border: day === now.getDate() ? `1px solid ${accent}` : `1px solid ${colors.border}`,
+                color: day ? colors.text : "transparent",
               }}>
                 <div style={{ fontWeight: 600 }}>{day ?? ""}</div>
                 {day && dayMap[day]?.slice(0, 2).map((r) => (
