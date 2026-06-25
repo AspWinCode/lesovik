@@ -1,16 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+﻿import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  NewStepModal, EventSourcesModal,
-  RunTaskModal, WaitModal, DataActionModal, BranchModal, CallProcessModal, ReturnValueModal,
-} from "@/components/modals/BotModals";
-import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { EventSourcesModal } from "@/components/modals/BotModals";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
@@ -26,11 +16,9 @@ import {
   useCreateRule,
   useSteps,
   useAddStep,
-  useUpdateStep,
   useDeleteStep,
-  useReorderSteps,
 } from "@/shared/hooks/useRules";
-import type { Rule, ProcessStep } from "@/shared/api/rules";
+import type { Rule } from "@/shared/api/rules";
 import { useEntities } from "@/shared/hooks/useEntities";
 
 const BOT_TABS = ["Бот", "События", "Процесс", "Правила"];
@@ -257,18 +245,12 @@ export function BotPage() {
             />
           )}
           {botTab === "Процесс" && (
-            <>
-              <ProcessStepsEditor rule={activeRule} appId={appId} />
-              <div className="px-[40px] pt-[10px] pb-[4px]">
-                <span className="text-[13px] text-primary/40">Визуальная схема (демонстрация)</span>
-              </div>
-              <ProcessGraph
-                rule={activeRule}
-                appId={appId}
-                selectedNode={selectedProcessNode}
-                onSelectNode={setSelectedProcessNode}
-              />
-            </>
+            <ProcessGraph
+              rule={activeRule}
+              appId={appId}
+              selectedNode={selectedProcessNode}
+              onSelectNode={setSelectedProcessNode}
+            />
           )}
         </div>
       </div>
@@ -1122,253 +1104,42 @@ function defaultsFor(type: string): Record<string, unknown> {
   return cfg;
 }
 
-function ProcessStepsEditor({ rule, appId }: { rule: Rule | null; appId: string | undefined }) {
-  if (!rule || !appId) {
-    return (
-      <div className="px-[40px] py-[30px] text-primary/60 text-[16px]">
-        Выберите событие из списка, чтобы настроить шаги процесса.
-      </div>
+/* ── Step type → icon/label helpers ── */
+function stepIcon(type: string): ReactNode {
+  switch (type) {
+    case "send_notification": return <SendIcon />;
+    case "call_webhook":      return <LinkIcon />;
+    case "set_field":         return <StatusIcon />;
+    case "create_record":     return <FileDocIcon />;
+    case "update_record":     return <ShuffleIcon />;
+    case "delete_record":     return (
+      <svg viewBox="0 0 30 30" fill="none" className="w-full h-full">
+        <path d="M5 9H25M10 9V7H20V9M9 9L10 24H20L21 9" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     );
+    case "stop": return (
+      <svg viewBox="0 0 30 30" fill="none" className="w-full h-full">
+        <rect x="7" y="7" width="16" height="16" rx="2" stroke="#00205F" strokeWidth="1.8" />
+      </svg>
+    );
+    default: return <GearIcon />;
   }
-  return <StepsEditorInner appId={appId} ruleId={rule.id} />;
 }
 
-type ConfigModal =
-  | { kind: "run_task"; stepId?: string; config?: Record<string, unknown> }
-  | { kind: "wait"; stepId?: string; config?: Record<string, unknown> }
-  | { kind: "data_action"; stepId?: string; config?: Record<string, unknown> }
-  | { kind: "branch"; stepId?: string; config?: Record<string, unknown> }
-  | { kind: "call"; stepId?: string; config?: Record<string, unknown> }
-  | { kind: "set_value"; stepId?: string; config?: Record<string, unknown> };
-
-function StepsEditorInner({ appId, ruleId }: { appId: string; ruleId: string }) {
-  const { data: steps = [], isLoading } = useSteps(appId, ruleId);
-  const addStep = useAddStep(appId, ruleId);
-  const delStep = useDeleteStep(appId, ruleId);
-  const reorder = useReorderSteps(appId, ruleId);
-  const [addOpen, setAddOpen] = useState(false);
-  const [showNewStepModal, setShowNewStepModal] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [localSteps, setLocalSteps] = useState(steps);
-  const [configModal, setConfigModal] = useState<ConfigModal | null>(null);
-
-  useEffect(() => { setLocalSteps(steps); }, [steps]);
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIdx = localSteps.findIndex((s) => s.id === active.id);
-    const newIdx = localSteps.findIndex((s) => s.id === over.id);
-    const reordered = arrayMove(localSteps, oldIdx, newIdx);
-    setLocalSteps(reordered);
-    reorder.mutate(reordered.map((s) => s.id));
-  }
-
+/* Arrow connector between nodes */
+function FlowArrow() {
   return (
-    <div className="px-[40px] pt-[20px] pb-[10px] flex flex-col gap-[12px]">
-      <div className="flex flex-col gap-[2px]">
-        <h2 className="text-[20px] font-bold text-primary">Шаги процесса</h2>
-        <p className="text-[13px] text-primary/60">
-          Действия выполняются по порядку при срабатывании события. Перетащите шаг за ручку ⠿ для изменения порядка.
-        </p>
-      </div>
-
-      {isLoading && <span className="text-[14px] text-primary/50">Загрузка…</span>}
-      {!isLoading && steps.length === 0 && (
-        <span className="text-[14px] text-primary/40">Шагов пока нет — добавьте первый.</span>
-      )}
-
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={localSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-          <div className="flex flex-col gap-[8px]">
-            {localSteps.map((s, i) => (
-              <StepRow
-                key={s.id}
-                appId={appId}
-                ruleId={ruleId}
-                step={s}
-                index={i}
-                expanded={expanded === s.id}
-                onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
-                onDelete={() => delStep.mutate(s.id)}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      <div className="flex items-center gap-[8px]">
-        <button
-          onClick={() => setShowNewStepModal(true)}
-          className="flex items-center gap-2 h-[38px] px-5 bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active transition-colors"
-        >
-          + Добавить шаг
-        </button>
-        <div className="relative">
-          <button
-            onClick={() => setAddOpen((v) => !v)}
-            className="flex items-center gap-2 h-[38px] px-3 border-2 border-cta text-cta text-[14px] font-medium rounded-btn hover:bg-cta/10 transition-colors"
-            title="Быстрое добавление"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><path d="M2 4 L6 8 L10 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-          {addOpen && (
-            <div className="absolute left-0 top-[42px] z-30 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] p-[5px] flex flex-col min-w-[230px]">
-              {STEP_TYPES.map((t) => (
-                <button
-                  key={t.type}
-                  onClick={() => { addStep.mutate({ type: t.type, config: defaultsFor(t.type) }); setAddOpen(false); }}
-                  className="text-left px-4 py-2 rounded-[8px] text-[14px] text-primary hover:bg-mainbg transition-colors"
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {showNewStepModal && (
-        <NewStepModal
-          onClose={() => setShowNewStepModal(false)}
-          onAdd={(type) => {
-            setShowNewStepModal(false);
-            if (type === "run_task") { setConfigModal({ kind: "run_task" }); return; }
-            if (type === "wait") { setConfigModal({ kind: "wait" }); return; }
-            if (type === "data_action") { setConfigModal({ kind: "data_action" }); return; }
-            if (type === "branch") { setConfigModal({ kind: "branch" }); return; }
-            if (type === "call") { setConfigModal({ kind: "call" }); return; }
-            if (type === "set_value") { setConfigModal({ kind: "set_value" }); return; }
-            const stepType = STEP_TYPES.find((t) => t.type === type) ? type
-              : type === "add_row" ? "create_record"
-              : type === "delete_row" ? "delete_record"
-              : type === "notify" ? "send_notification"
-              : type;
-            addStep.mutate({ type: stepType, config: defaultsFor(stepType) });
-          }}
-        />
-      )}
-
-      {configModal?.kind === "run_task" && (
-        <RunTaskModal
-          initialData={configModal.config as { process?: string; inputData?: string; sync?: boolean } | undefined}
-          onClose={() => setConfigModal(null)}
-          onConfirm={() => setConfigModal(null)}
-        />
-      )}
-      {configModal?.kind === "wait" && (
-        <WaitModal
-          initialData={configModal.config as { amount?: number; unit?: string } | undefined}
-          onClose={() => setConfigModal(null)}
-          onConfirm={() => setConfigModal(null)}
-        />
-      )}
-      {configModal?.kind === "data_action" && (
-        <DataActionModal
-          initialData={configModal.config as { table?: string; operation?: string; condition?: string; values?: string } | undefined}
-          onClose={() => setConfigModal(null)}
-          onConfirm={() => setConfigModal(null)}
-        />
-      )}
-      {configModal?.kind === "branch" && (
-        <BranchModal
-          initialData={configModal.config as { conditions?: Array<{ field: string; operator: string; value: string }> } | undefined}
-          onClose={() => setConfigModal(null)}
-          onConfirm={() => setConfigModal(null)}
-        />
-      )}
-      {configModal?.kind === "call" && (
-        <CallProcessModal
-          initialData={configModal.config as { process?: string; wait?: boolean; passData?: boolean } | undefined}
-          onClose={() => setConfigModal(null)}
-          onConfirm={() => setConfigModal(null)}
-        />
-      )}
-      {configModal?.kind === "set_value" && (
-        <ReturnValueModal
-          initialData={configModal.config as { value?: string; type?: string } | undefined}
-          onClose={() => setConfigModal(null)}
-          onConfirm={() => setConfigModal(null)}
-        />
-      )}
-    </div>
+    <svg viewBox="0 0 24 32" className="w-6 h-8" fill="none">
+      <path d="M12 0V24" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" />
+      <path d="M6 18L12 24L18 18" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-function StepRow({ appId, ruleId, step, index, expanded, onToggle, onDelete }: {
-  appId: string; ruleId: string; step: ProcessStep; index: number;
-  expanded: boolean; onToggle: () => void; onDelete: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: step.id });
-
-  const spec = STEP_TYPES.find((t) => t.type === step.type);
-  const updateStep = useUpdateStep(appId, ruleId);
-  const seed = () => {
-    const f: Record<string, string> = {};
-    spec?.fields.forEach((fl) => { f[fl.k] = String(step.config[fl.k] ?? fl.def ?? ""); });
-    return f;
-  };
-  const [form, setForm] = useState<Record<string, string>>(seed);
-  useEffect(() => { setForm(seed()); }, [step.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function save() {
-    updateStep.mutate({ stepId: step.id, body: { config: { ...form } } });
-  }
-
+/* Dashed "add here" arrow at bottom */
+function FlowArrowDashed() {
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.45 : 1 }}
-      className="bg-white rounded-[10px] border border-cardbg"
-    >
-      <div className="flex items-center gap-[12px] h-[48px] px-4">
-        <button
-          {...attributes} {...listeners}
-          className="w-5 h-5 shrink-0 cursor-grab active:cursor-grabbing text-primary/30 hover:text-primary/60 touch-none"
-          title="Перетащить"
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-full h-full">
-            <circle cx="5" cy="4" r="1.2"/><circle cx="11" cy="4" r="1.2"/>
-            <circle cx="5" cy="8" r="1.2"/><circle cx="11" cy="8" r="1.2"/>
-            <circle cx="5" cy="12" r="1.2"/><circle cx="11" cy="12" r="1.2"/>
-          </svg>
-        </button>
-        <span className="w-5 text-[13px] text-primary/40 font-medium shrink-0">{index + 1}</span>
-        <span className="flex-1 text-[15px] font-medium text-primary">{STEP_LABEL[step.type] ?? step.type}</span>
-        {spec && spec.fields.length > 0 && (
-          <button onClick={onToggle} className="text-[13px] text-cta hover:underline">{expanded ? "Свернуть" : "Настроить"}</button>
-        )}
-        <button onClick={onDelete} title="Удалить шаг" className="w-7 h-7 rounded hover:bg-red-50 text-mistake">✕</button>
-      </div>
-      {expanded && spec && spec.fields.length > 0 && (
-        <div className="px-4 pb-4 flex flex-col gap-[10px]">
-          {spec.fields.map((fl) => (
-            <label key={fl.k} className="flex flex-col gap-[4px] text-[13px] text-primary/70">
-              {fl.label}
-              {fl.textarea ? (
-                <textarea
-                  value={form[fl.k] ?? ""}
-                  onChange={(e) => setForm((p) => ({ ...p, [fl.k]: e.target.value }))}
-                  onBlur={save}
-                  rows={2}
-                  className="bg-mainbg rounded-btn px-3 py-2 text-[14px] text-primary outline-none resize-none"
-                />
-              ) : (
-                <input
-                  value={form[fl.k] ?? ""}
-                  onChange={(e) => setForm((p) => ({ ...p, [fl.k]: e.target.value }))}
-                  onBlur={save}
-                  className="bg-mainbg rounded-btn h-[38px] px-3 text-[14px] text-primary outline-none"
-                />
-              )}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
+    <div className="w-px h-10 border-l-2 border-dashed border-cta mt-1" />
   );
 }
 
@@ -1384,6 +1155,12 @@ function ProcessGraph({
   onSelectNode: (id: string | null) => void;
 }) {
   const { data: entities = [] } = useEntities(appId);
+  const ruleId = rule?.id ?? "";
+  const { data: steps = [], isLoading } = useSteps(appId, ruleId);
+  const addStepMutation = useAddStep(appId ?? "", ruleId);
+  const delStepMutation = useDeleteStep(appId ?? "", ruleId);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+
   const entityName = entities.find((e) => e.id === rule?.entity_id)?.display_name
     ?? entities[0]?.display_name
     ?? "Таблица";
@@ -1399,17 +1176,22 @@ function ProcessGraph({
   const eventLabel = triggerLabel(rule.trigger?.event ?? "");
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col h-full overflow-y-auto">
+      {/* Header */}
       <div className="flex items-center justify-between px-[40px] h-[60px] shrink-0">
         <h1 className="text-[20px] font-semibold text-primary">{rule.name}</h1>
         <div className="flex items-center gap-[7px]">
           <span className="w-6 h-6"><LinkIcon /></span>
-          <span className="text-[20px] font-semibold text-cta">1</span>
+          <span className="text-[20px] font-semibold text-cta">{steps.length}</span>
           <span className="w-3 h-3"><Chevron /></span>
         </div>
       </div>
+
+      {/* Graph */}
       <div className="flex flex-col items-center pt-[10px] pb-[40px]">
-        <span className="text-[12px] text-primary self-center -ml-[40px] mb-[5px]">Таблица</span>
+
+        {/* Table node */}
+        <span className="text-[12px] text-primary mb-[5px]">Таблица</span>
         <div className="w-[287px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-5 flex items-center justify-between">
           <span className="flex items-center gap-[10px]">
             <span className="w-[30px] h-[30px]"><FileDocIcon /></span>
@@ -1417,57 +1199,79 @@ function ProcessGraph({
           </span>
           <span className="w-3 h-3"><Chevron /></span>
         </div>
-        <span className="text-[12px] text-primary text-center mt-[5px]">К какой таблице применить процесс?</span>
-        <span className="w-[43px] h-[43px] my-[5px]"><AddDashedIcon /></span>
+        <span className="text-[12px] text-primary/60 mt-[5px] mb-[2px]">К какой таблице применить процесс?</span>
+
+        <FlowArrow />
+
+        {/* Trigger node */}
         <ProcCard
           icon={<ShuffleIcon />}
           title={`Запуск ${eventLabel}`}
           selected={selectedNode === "trigger"}
           onClick={() => onSelectNode(selectedNode === "trigger" ? null : "trigger")}
         />
-        <svg viewBox="0 0 520 70" className="w-[520px] h-[70px]" fill="none">
-          <path d="M260 0 L260 20 M260 20 L120 20 L120 50 M260 20 L400 20 L400 50" stroke="#35A7FF" strokeWidth="2" />
-          <path d="M114 44 L120 50 L126 44 M394 44 L400 50 L406 44" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="150" y="16" fill="#35A7FF" fontSize="14" fontWeight="700">Да</text>
-          <text x="350" y="16" fill="#35A7FF" fontSize="14" fontWeight="700">Нет</text>
-        </svg>
-        <div className="flex gap-[78px] items-start">
-          <div className="flex flex-col items-center gap-[15px]">
-            {selectedNode === "send_telegram" ? (
-              <ProcCardCondition
-                icon={<SendIcon />}
-                title="Send_telegram"
-                w={357}
-                onClick={() => onSelectNode(null)}
-              />
-            ) : (
+
+        {/* Step nodes */}
+        {isLoading && (
+          <>
+            <FlowArrow />
+            <span className="text-[14px] text-primary/40 py-4">Загрузка шагов…</span>
+          </>
+        )}
+        {steps.map((step) => (
+          <div key={step.id} className="flex flex-col items-center">
+            <FlowArrow />
+            <div className="relative group">
               <ProcCard
-                icon={<SendIcon />}
-                title="Send_telegram"
-                w={357}
-                selected={false}
-                onClick={() => onSelectNode("send_telegram")}
+                icon={stepIcon(step.type)}
+                title={STEP_LABEL[step.type] ?? step.type}
+                selected={selectedNode === step.id}
+                onClick={() => onSelectNode(selectedNode === step.id ? null : step.id)}
               />
-            )}
-            <span className="w-[43px] h-[43px]"><AddDashedIcon /></span>
+              {/* Delete button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); delStepMutation.mutate(step.id); }}
+                className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 flex items-center justify-center text-red-400"
+                title="Удалить шаг"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3">
+                  <path d="M3 3L13 13M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col items-center gap-[15px]">
-            <ProcCard
-              icon={<StatusIcon />}
-              title={`Установить статус\n"Отправлен"`}
-              w={356}
-              selected={selectedNode === "set_status"}
-              onClick={() => onSelectNode(selectedNode === "set_status" ? null : "set_status")}
-            />
-            <span className="w-[43px] h-[43px]"><AddDashedIcon /></span>
-          </div>
+        ))}
+
+        {/* Add step button */}
+        <FlowArrowDashed />
+        <div className="relative">
+          <button
+            onClick={() => setAddMenuOpen((v) => !v)}
+            className="w-[43px] h-[43px] rounded-full border-2 border-dashed border-cta flex items-center justify-center text-cta hover:bg-cta/10 transition-colors"
+            title="Добавить шаг"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-5 h-5">
+              <path d="M8 2V14M2 8H14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+          {addMenuOpen && (
+            <div className="absolute left-[52px] top-0 z-30 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] p-[5px] flex flex-col min-w-[230px]">
+              {STEP_TYPES.map((t) => (
+                <button
+                  key={t.type}
+                  onClick={() => {
+                    addStepMutation.mutate({ type: t.type, config: defaultsFor(t.type) });
+                    setAddMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-[7px] hover:bg-selected text-[14px] text-primary text-left transition-colors"
+                >
+                  <span className="w-5 h-5 shrink-0">{stepIcon(t.type)}</span>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        <svg viewBox="0 0 520 70" className="w-[520px] h-[70px]" fill="none">
-          <path d="M120 0 L120 30 L260 30 L260 55 M400 0 L400 30 L260 30" stroke="#35A7FF" strokeWidth="2" />
-          <path d="M254 49 L260 55 L266 49" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <ProcCard icon={<SendIcon />} title={`Установить статус\n"Отправлен"`} />
-        <div className="w-px h-[40px] border-l-2 border-dashed border-cta mt-[5px]" />
       </div>
     </div>
   );
@@ -1501,45 +1305,6 @@ function ProcCard({
   );
 }
 
-function ProcCardCondition({
-  icon, title, w = 356, onClick,
-}: {
-  icon: ReactNode; title: string; w?: number; onClick?: () => void;
-}) {
-  return (
-    <div
-      onClick={onClick}
-      className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] ring-2 ring-cta p-[20px_30px_20px] flex flex-col items-end cursor-pointer"
-      style={{ width: w }}
-    >
-      <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mb-[10px]">
-        {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
-      </button>
-      <div className="w-full flex items-start justify-center gap-5 mb-[15px]">
-        <span className="w-[30px] h-[30px] mt-[2px] shrink-0">{icon}</span>
-        <span className="w-[209px] text-center text-[20px] font-medium text-primary">{title}</span>
-      </div>
-      {/* Condition branching row */}
-      <div className="w-full flex flex-col gap-[8px]">
-        <div className="flex items-center gap-[8px]">
-          <span className="px-3 py-1 rounded-[20px] text-[12px] font-semibold bg-primary text-white shrink-0">
-            Ответвление по условию
-          </span>
-        </div>
-        <div className="flex items-center gap-[8px] w-full">
-          <div className="flex-1 h-[36px] bg-mainbg rounded-btn px-4 flex items-center text-[14px] text-primary/50">
-            Условие
-          </div>
-          <span className="w-6 h-6 shrink-0 text-primary/40">
-            <svg viewBox="0 0 32 32" fill="none" className="w-full h-full">
-              <path d="M5 7 L27 7 L18 16 L18 26 L14 23 L14 16 Z" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
-            </svg>
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function Row({ label, desc, labelW = 250, children }: { label: string; desc?: string; labelW?: number; children: ReactNode }) {
   return (
