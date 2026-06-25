@@ -231,6 +231,7 @@ export function BotPage() {
           {botTab === "Бот" && (
             <BotFlow
               rule={activeRule}
+              appId={appId}
               selectedCard={selectedCard}
               onToggle={handleToggle}
               onSelectCard={setSelectedCard}
@@ -791,13 +792,20 @@ function SettingsRow({ label, desc, children }: { label: string; desc?: string; 
 
 /* ── Бот tab (center) ── */
 function BotFlow({
-  rule, selectedCard, onToggle, onSelectCard,
+  rule, appId, selectedCard, onToggle, onSelectCard,
 }: {
   rule: Rule | null;
+  appId: string | undefined;
   selectedCard: SelectedCard;
   onToggle: () => void;
   onSelectCard: (c: SelectedCard) => void;
 }) {
+  const ruleId = rule?.id ?? "";
+  const { data: steps = [] } = useSteps(appId, ruleId);
+  const addStepMutation = useAddStep(appId ?? "", ruleId);
+  const delStepMutation = useDeleteStep(appId ?? "", ruleId);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+
   if (!rule) {
     return (
       <div className="flex-1 flex items-center justify-center text-primary/60 text-[18px]">
@@ -862,41 +870,78 @@ function BotFlow({
         <p className="text-[18px] font-medium text-primary mb-[20px]">
           Запустите этот <span className="font-bold">ПРОЦЕСС</span>
         </p>
-        {/* Clickable step card */}
-        <div
-          onClick={() => onSelectCard(selectedCard === "step" ? null : "step")}
-          className={cn(
-            "w-[356px] bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] pt-5 pb-[30px] flex flex-col items-end cursor-pointer transition-all",
-            selectedCard === "step" && "ring-2 ring-cta",
-          )}
-        >
-          <button aria-label="Меню" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center mr-[30px] mb-[10px]">
-            {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
-          </button>
-          <div className="w-full px-[100px] mb-[10px]">
-            <div className="flex items-center justify-center h-[30px] rounded-[30px]">
-              <span className="text-[20px] font-medium text-primary text-center">New step</span>
-            </div>
-          </div>
-          <div className="relative w-full mb-[10px]">
-            <div className="absolute left-0 right-0 top-1/2 border-t-2 border-selected" />
-            <div className="flex justify-center">
-              <button onClick={(e) => e.stopPropagation()} className="relative flex items-center gap-[5px] px-[18px] py-[5px] bg-white border-2 border-cta rounded-[30px]">
-                <SortListIcon />
-                <span className="text-[16px] font-medium text-cta">Выполнить действие с данными</span>
+
+        {steps.length === 0 && (
+          <p className="text-[14px] text-primary/40 mb-[10px]">Шагов пока нет — добавьте первый.</p>
+        )}
+
+        {steps.map((step, idx) => (
+          <div key={step.id} className="flex flex-col items-start w-[356px]">
+            {idx > 0 && (
+              <div className="flex flex-col items-center w-full py-[6px]">
+                <div className="w-px h-[28px] bg-cta/30" />
+              </div>
+            )}
+            <div className="relative group w-full">
+              <div
+                onClick={() => onSelectCard(selectedCard === "step" ? null : "step")}
+                className={cn(
+                  "w-full bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] px-[30px] py-[18px] flex items-center gap-4 cursor-pointer transition-all",
+                  selectedCard === "step" && "ring-2 ring-cta",
+                )}
+              >
+                <span className="w-[28px] h-[28px] shrink-0">{stepIcon(step.type)}</span>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <span className="text-[16px] font-medium text-primary truncate">
+                    {STEP_LABEL[step.type] ?? step.type}
+                  </span>
+                  <span className="text-[12px] text-primary/50">Шаг {idx + 1}</span>
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); delStepMutation.mutate(step.id); }}
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 flex items-center justify-center text-red-400"
+                title="Удалить шаг"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3">
+                  <path d="M3 3L13 13M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
               </button>
             </div>
           </div>
-          <div className="w-full px-[30px]">
-            <button onClick={(e) => e.stopPropagation()} className="w-full flex items-center justify-between px-5 py-[7px] bg-selected rounded-[30px]">
-              <span className="text-[18px] text-primary">Пользовательская задача</span>
-              <span className="w-3 h-3 rotate-180"><Chevron /></span>
-            </button>
-          </div>
-        </div>
+        ))}
+
+        {/* Add step */}
         <div className="w-[356px] flex flex-col items-center pt-[10px]">
-          <div className="w-px h-[60px] border-l-2 border-dashed border-cta" />
-          <button aria-label="Добавить шаг" className="w-[43px] h-[43px] -mt-[2px]"><AddDashedIcon /></button>
+          <div className="w-px h-[40px] border-l-2 border-dashed border-cta" />
+          <div className="relative">
+            <button
+              onClick={() => setAddMenuOpen((v) => !v)}
+              className="w-[43px] h-[43px] -mt-[2px] rounded-full border-2 border-dashed border-cta flex items-center justify-center text-cta hover:bg-cta/10 transition-colors"
+              title="Добавить шаг"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="w-5 h-5">
+                <path d="M8 2V14M2 8H14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+            {addMenuOpen && (
+              <div className="absolute left-[52px] top-0 z-30 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] p-[5px] flex flex-col min-w-[230px]">
+                {STEP_TYPES.map((t) => (
+                  <button
+                    key={t.type}
+                    onClick={() => {
+                      addStepMutation.mutate({ type: t.type, config: defaultsFor(t.type) });
+                      setAddMenuOpen(false);
+                    }}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-[7px] hover:bg-selected text-[14px] text-primary text-left transition-colors"
+                  >
+                    <span className="w-5 h-5 shrink-0">{stepIcon(t.type)}</span>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1583,9 +1628,6 @@ function RobotIcon({ highlight }: { highlight?: boolean }) {
 function ShuffleIcon() {
   return <svg viewBox="0 0 30 30" fill="none" className="w-full h-full"><path d="M3 8 L8 8 L20 22 L27 22" stroke="#00205F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M3 22 L8 22 L13 16" stroke="#00205F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M17 11 L20 8 L27 8" stroke="#00205F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M24 5 L27 8 L24 11 M24 19 L27 22 L24 25" stroke="#00205F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
-function AddDashedIcon() {
-  return <svg viewBox="0 0 43 43" fill="none" className="w-full h-full"><circle cx="21.5" cy="21.5" r="19" stroke="#35A7FF" strokeWidth="1.8" strokeDasharray="4 4" /><line x1="21.5" y1="13" x2="21.5" y2="30" stroke="#35A7FF" strokeWidth="2.15" strokeLinecap="round" /><line x1="13" y1="21.5" x2="30" y2="21.5" stroke="#35A7FF" strokeWidth="2.15" strokeLinecap="round" /></svg>;
-}
 function LinkIcon() {
   return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><path d="M10 14 C11 15 13 15 14 14 L17 11 C18.5 9.5 18.5 7 17 5.5 C15.5 4 13 4 11.5 5.5 L10 7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><path d="M14 10 C13 9 11 9 10 10 L7 13 C5.5 14.5 5.5 17 7 18.5 C8.5 20 11 20 12.5 18.5 L14 17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /></svg>;
 }
@@ -1618,9 +1660,6 @@ function StatusIcon() {
 }
 function BookIcon() {
   return <svg viewBox="0 0 21 21" fill="none" className="w-full h-full"><path d="M10.5 4 C8.5 2.5 5 2.5 2.5 3.5 L2.5 17 C5 16 8.5 16 10.5 17.5 C12.5 16 16 16 18.5 17 L18.5 3.5 C16 2.5 12.5 2.5 10.5 4 Z" stroke="#00205F" strokeWidth="1.8" strokeLinejoin="round" /><line x1="10.5" y1="4" x2="10.5" y2="17.5" stroke="#00205F" strokeWidth="1.8" /></svg>;
-}
-function SortListIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><line x1="5" y1="7" x2="11" y2="7" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="12" x2="11" y2="12" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="17" x2="11" y2="17" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" /><rect x="14" y="5" width="5" height="5" rx="1" stroke="#35A7FF" strokeWidth="2" transform="rotate(90 16 8.5)" /><path d="M17 13 L17 19 L20 16" stroke="#35A7FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 function GearIcon() {
   return <svg viewBox="0 0 24 24" fill="none" className="w-full h-full"><circle cx="12" cy="12" r="3" stroke="#00205F" strokeWidth="1.8" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" /></svg>;
