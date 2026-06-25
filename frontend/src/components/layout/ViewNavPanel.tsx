@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 export interface NavView {
@@ -32,6 +32,26 @@ export function ViewNavPanel({
   hasWarning = false,
 }: ViewNavPanelProps) {
   const [systemOpen, setSystemOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  function toggleSearch() {
+    if (searchOpen) {
+      setSearchQuery("");
+      setSearchOpen(false);
+    } else {
+      setSearchOpen(true);
+      setTimeout(() => searchRef.current?.focus(), 50);
+    }
+  }
+
+  const query = searchQuery.toLowerCase();
+  const filteredSections = sections.map((s) => ({
+    ...s,
+    views: query ? s.views.filter((v) => v.label.toLowerCase().includes(query)) : s.views,
+  }));
 
   return (
     <aside
@@ -40,25 +60,80 @@ export function ViewNavPanel({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-[15px] pt-[15px] h-[45px]">
-        <h2 className="text-nav font-bold text-primary">{title}</h2>
-        <div className="flex items-center gap-5">
-          {hasWarning && (
+        {searchOpen ? (
+          <div className="flex-1 flex items-center gap-[8px] bg-white rounded-btn px-[10px] h-[32px] mr-[8px]">
+            <span className="w-4 h-4 shrink-0 opacity-40"><SearchIcon /></span>
+            <input
+              ref={searchRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск страниц…"
+              className="flex-1 text-[14px] text-primary bg-transparent outline-none placeholder-primary/30"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="text-primary/40 hover:text-primary/70 text-[16px] leading-none">×</button>
+            )}
+          </div>
+        ) : (
+          <h2 className="text-nav font-bold text-primary">{title}</h2>
+        )}
+        <div className="flex items-center gap-4 shrink-0">
+          {hasWarning && !searchOpen && (
             <span aria-label="Есть предупреждения" title="Есть предупреждения" className="w-[22px] h-5">
               <WarningIcon />
             </span>
           )}
-          <button aria-label="Поиск" disabled title="В разработке" className="w-5 h-5 opacity-40 cursor-not-allowed">
+          <button
+            aria-label="Поиск"
+            onClick={toggleSearch}
+            className={cn("w-5 h-5 transition-opacity hover:opacity-70", searchOpen && "opacity-70")}
+          >
             <SearchIcon />
           </button>
-          <button aria-label="Меню" disabled title="В разработке" className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center opacity-40 cursor-not-allowed">
-            {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
-          </button>
+          <div className="relative">
+            <button
+              aria-label="Меню"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="flex flex-col items-center gap-[2.67px] w-[5px] h-5 justify-center hover:opacity-70 transition-opacity"
+            >
+              {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full bg-primary" />)}
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-[26px] z-50 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] py-[5px] flex flex-col min-w-[200px]"
+                onMouseLeave={() => setMenuOpen(false)}
+              >
+                {onAddView && sections[0] && (
+                  <button
+                    onClick={() => { onAddView(sections[0].id); setMenuOpen(false); }}
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-selected text-[14px] text-primary text-left transition-colors"
+                  >
+                    + Новая страница
+                  </button>
+                )}
+                <button
+                  onClick={() => { setSearchOpen(true); setMenuOpen(false); setTimeout(() => searchRef.current?.focus(), 50); }}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-selected text-[14px] text-primary text-left transition-colors"
+                >
+                  Поиск страниц
+                </button>
+                <div className="h-px bg-cardbg mx-3 my-1" />
+                <button
+                  onClick={() => { setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-selected text-[14px] text-primary/50 text-left transition-colors cursor-not-allowed"
+                  disabled
+                >
+                  Сортировать A→Я
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Sections */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-[22px] pt-[10px]">
-        {sections.map((section, idx) => (
+        {filteredSections.map((section, idx) => (
           <div key={section.id} className="flex flex-col gap-[10px]">
             <div className="flex items-center justify-between px-[15px] h-[27px]">
               <span className={cn("text-[18px] leading-[150%] font-bold", idx === 0 ? "text-cta" : "text-primary")}>
@@ -74,7 +149,9 @@ export function ViewNavPanel({
             </div>
 
             {section.views.length === 0 && (
-              <p className="text-[13px] text-primary/40 px-[15px]">Нет страниц — нажмите +</p>
+              <p className="text-[13px] text-primary/40 px-[15px]">
+                {query ? "Нет совпадений" : "Нет страниц — нажмите +"}
+              </p>
             )}
 
             {section.views.map((view) => (
@@ -82,7 +159,7 @@ export function ViewNavPanel({
                 key={view.id}
                 label={view.label}
                 active={view.id === activeViewId}
-                onClick={() => onSelect(view.id)}
+                onClick={() => { onSelect(view.id); setSearchOpen(false); setSearchQuery(""); }}
                 onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
               />
             ))}
