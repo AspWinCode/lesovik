@@ -20,6 +20,10 @@ interface DesignConfig {
   theme?: "light" | "dark";
   density?: "compact" | "normal" | "spacious";
   font_family?: string;
+  heading_size?: "sm" | "md" | "lg";
+  text_size?: "12" | "14" | "16";
+  input_style?: "outline" | "filled" | "minimal";
+  label_position?: "top" | "inline";
 }
 
 function RuntimeShell() {
@@ -127,7 +131,11 @@ function RuntimeShell() {
   const accent = design.accent ?? "#35A7FF";
   const theme = design.theme ?? "light";
   const density = design.density ?? "normal";
-  const fontFamily = design.font_family ?? "Inter, sans-serif";
+  const fontFamily = design.font_family ? `${design.font_family}, sans-serif` : "Inter, sans-serif";
+  const headingSizePx = design.heading_size === "sm" ? 18 : design.heading_size === "lg" ? 28 : 22;
+  const textSizePx = Number(design.text_size ?? "14");
+  const inputStyle = design.input_style ?? "outline";
+  const labelPosition = design.label_position ?? "top";
   const entities = entitiesQuery.data ?? [];
   const narrow = viewportW < 520;
 
@@ -198,7 +206,7 @@ function RuntimeShell() {
           {!activePage ? (
             <Centered>В приложении пока нет страниц.</Centered>
           ) : (
-            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} colors={colors} blockGap={blockGap} pages={navPages} onNavigate={setActivePageId} />
+            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} colors={colors} blockGap={blockGap} headingSizePx={headingSizePx} textSizePx={textSizePx} inputStyle={inputStyle} labelPosition={labelPosition} pages={navPages} onNavigate={setActivePageId} />
           )}
         </main>
       </div>
@@ -211,9 +219,10 @@ type AppColors = {
   text: string; textMuted: string; navActive: string; navHover: string;
 };
 
-function PageView({ page, appId, entities, accent, colors, blockGap, onNavigate }: {
+function PageView({ page, appId, entities, accent, colors, blockGap, headingSizePx, textSizePx, inputStyle, labelPosition, onNavigate }: {
   page: PageRead; appId: string; entities: EntityRead[]; accent: string;
-  colors: AppColors; blockGap: number;
+  colors: AppColors; blockGap: number; headingSizePx: number; textSizePx: number;
+  inputStyle: string; labelPosition: string;
   pages: PageRead[]; onNavigate: (id: string) => void;
 }) {
   const design = (page.layout?.design as DesignConfig | undefined) ?? {};
@@ -233,9 +242,9 @@ function PageView({ page, appId, entities, accent, colors, blockGap, onNavigate 
   const hasDataView = !!viewType && viewType !== "form";
 
   return (
-    <div>
+    <div style={{ fontSize: textSizePx }}>
       {(design.show_header ?? true) && (
-        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: blockGap, color: colors.text }}>{page.title}</h1>
+        <h1 style={{ fontSize: headingSizePx, fontWeight: 700, marginBottom: blockGap, color: colors.text }}>{page.title}</h1>
       )}
       {hasDataView && (
         <DataView
@@ -258,6 +267,8 @@ function PageView({ page, appId, entities, accent, colors, blockGap, onNavigate 
               records={records}
               accent={accent}
               colors={colors}
+              inputStyle={inputStyle}
+              labelPosition={labelPosition}
               appId={appId}
               onNavigate={onNavigate}
               onRecordCreated={() => recordsQuery.refetch()}
@@ -270,13 +281,15 @@ function PageView({ page, appId, entities, accent, colors, blockGap, onNavigate 
   );
 }
 
-function Block({ block, entity, cols, records, accent, colors, appId, onNavigate, onRecordCreated }: {
+function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, onNavigate, onRecordCreated }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
   records: RecordRead[];
   accent: string;
   colors: AppColors;
+  inputStyle: string;
+  labelPosition: string;
   appId: string;
   onNavigate: (id: string) => void;
   onRecordCreated: () => void;
@@ -390,6 +403,9 @@ function Block({ block, entity, cols, records, accent, colors, appId, onNavigate
         cols={cols}
         appId={appId}
         accent={accent}
+        colors={colors}
+        inputStyle={inputStyle}
+        labelPosition={labelPosition}
         onSuccess={onRecordCreated}
       />
     );
@@ -433,12 +449,15 @@ function Block({ block, entity, cols, records, accent, colors, appId, onNavigate
   );
 }
 
-function FormBlock({ block, entity, cols, appId, accent, onSuccess }: {
+function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, labelPosition, onSuccess }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
   appId: string;
   accent: string;
+  colors: AppColors;
+  inputStyle: string;
+  labelPosition: string;
   onSuccess: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
@@ -465,16 +484,25 @@ function FormBlock({ block, entity, cols, appId, accent, onSuccess }: {
     }
   }
 
+  function inputStyleCss(): React.CSSProperties {
+    const base: React.CSSProperties = { height: 38, padding: "0 12px", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box", color: colors.text, background: "transparent" };
+    if (inputStyle === "filled") return { ...base, borderRadius: 8, border: "none", background: colors.bg };
+    if (inputStyle === "minimal") return { ...base, borderRadius: 0, border: "none", borderBottom: `2px solid ${colors.border}` };
+    return { ...base, borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.surface };
+  }
+
+  const inline = labelPosition === "inline";
+
   return (
-    <section style={{ border: "1px solid #CBE3FF", borderRadius: 10, padding: 16, background: "#fff" }}>
-      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{block.title ?? "Форма"}</h3>
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface }}>
+      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: colors.text }}>{block.title ?? "Форма"}</h3>
       {cols.length === 0 ? (
-        <p style={{ color: "#8898AA", fontSize: 14 }}>Таблица не выбрана.</p>
+        <p style={{ color: colors.textMuted, fontSize: 14 }}>Таблица не выбрана.</p>
       ) : (
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {cols.slice(0, 8).map((f) => (
-            <label key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#5b6b86" }}>
-              {f.display_name}{f.is_required && " *"}
+            <label key={f.id} style={{ display: "flex", flexDirection: inline ? "row" : "column", alignItems: inline ? "center" : "stretch", gap: inline ? 12 : 4, fontSize: 13, color: colors.textMuted }}>
+              <span style={{ flexShrink: 0, minWidth: inline ? 120 : undefined }}>{f.display_name}{f.is_required && " *"}</span>
               {f.field_type === "boolean" ? (
                 <input
                   type="checkbox"
@@ -487,9 +515,9 @@ function FormBlock({ block, entity, cols, appId, accent, onSuccess }: {
                   type={f.field_type === "number" ? "number" : f.field_type === "date" ? "date" : "text"}
                   value={values[f.name] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-                  placeholder={`Введите ${f.display_name.toLowerCase()}`}
+                  placeholder={labelPosition === "inline" ? "" : `Введите ${f.display_name.toLowerCase()}`}
                   required={f.is_required}
-                  style={{ height: 36, borderRadius: 8, border: "1px solid #CBE3FF", padding: "0 12px", background: "#F1F6FF", fontSize: 14, outline: "none" }}
+                  style={inputStyleCss()}
                 />
               )}
             </label>
