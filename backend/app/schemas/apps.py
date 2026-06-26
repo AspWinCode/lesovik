@@ -8,6 +8,8 @@ class AppMemberRead(BaseModel):
     user_id: uuid.UUID
     role: str
     granted_at: datetime
+    email: str | None = None
+    display_name: str | None = None
     model_config = {"from_attributes": True}
 
 

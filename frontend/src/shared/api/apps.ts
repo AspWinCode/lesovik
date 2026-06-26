@@ -66,3 +66,24 @@ export async function publishApp(appId: string): Promise<App> {
   const { data } = await apiClient.post<App>(`/apps/${appId}/publish`);
   return data;
 }
+
+export interface AppMember {
+  user_id: string;
+  role: string;
+  granted_at: string;
+  email: string | null;
+  display_name: string | null;
+}
+
+export async function listAppMembers(appId: string): Promise<AppMember[]> {
+  const { data } = await apiClient.get<AppMember[]>(`/apps/${appId}/members`);
+  return data;
+}
+
+export async function addAppMember(appId: string, userId: string, role: string): Promise<void> {
+  await apiClient.post(`/apps/${appId}/members`, { user_id: userId, role });
+}
+
+export async function removeAppMember(appId: string, userId: string): Promise<void> {
+  await apiClient.delete(`/apps/${appId}/members/${userId}`);
+}

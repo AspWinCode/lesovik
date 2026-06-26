@@ -8,7 +8,7 @@ from redis.asyncio import Redis
 from app.api.deps import AuthDep, DbDep
 from app.core.locks import EditLock, LockConflictError
 from app.core.redis import get_redis
-from app.schemas.apps import AppCreate, AppMemberAdd, AppRead, AppUpdate, LockInfo
+from app.schemas.apps import AppCreate, AppMemberAdd, AppMemberRead, AppRead, AppUpdate, LockInfo
 from app.schemas.common import CursorPage
 from app.services.apps import AppConflictError, AppNotFoundError, AppPermissionError, AppService
 
@@ -123,6 +123,20 @@ async def publish_app(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> Ap
 
 
 # ---- Members ----
+
+@router.get("/{app_id}/members", response_model=list[AppMemberRead])
+async def list_members(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> list[AppMemberRead]:
+    try:
+        return await AppService(db).list_members(
+            app_id,
+            actor_id=current_user.user_id,
+            is_admin=current_user.has_role("platform_admin"),
+        )
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+    except AppPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
 
 @router.post("/{app_id}/members", status_code=status.HTTP_204_NO_CONTENT)
 async def add_member(app_id: uuid.UUID, body: AppMemberAdd, current_user: AuthDep, db: DbDep) -> None:

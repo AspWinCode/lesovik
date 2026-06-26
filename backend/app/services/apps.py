@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.catalog import App, AppMember
 from app.models.identity import User
-from app.schemas.apps import AppCreate, AppMemberAdd, AppRead, AppUpdate
+from app.schemas.apps import AppCreate, AppMemberAdd, AppMemberRead, AppRead, AppUpdate
 from app.schemas.common import CursorPage
 
 logger = structlog.get_logger(__name__)
@@ -176,6 +176,32 @@ class AppService:
         await self._db.refresh(app, attribute_names=["updated_at"])
         logger.info("app_published", app_id=str(app_id))
         return AppRead.model_validate(app)
+
+    async def list_members(
+        self,
+        app_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        is_admin: bool,
+    ) -> list[AppMemberRead]:
+        await self._fetch_app(app_id)
+        if not is_admin:
+            await self._require_member(app_id, actor_id)
+        rows = await self._db.execute(
+            select(AppMember, User)
+            .join(User, User.id == AppMember.user_id)
+            .where(AppMember.app_id == app_id)
+            .order_by(AppMember.granted_at)
+        )
+        result = []
+        for member, user in rows.all():
+            result.append(AppMemberRead(
+                user_id=member.user_id,
+                role=member.role,
+                granted_at=member.granted_at,
+                email=user.email,
+                display_name=user.display_name,
+            ))
+        return result
 
     async def add_member(
         self,

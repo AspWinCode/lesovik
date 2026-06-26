@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { buildRuntimeUrl, buildEditorUrl } from "@/shared/lib/appLinks";
+import { useAppMembers, useRemoveAppMember } from "@/shared/hooks/useApps";
+import { useUsers } from "@/shared/hooks/useUsers";
 
 /* ─────────────────────────────────────────────────
    PRIMITIVES
@@ -454,11 +456,21 @@ export function ShareModal({ onClose, appId }: { onClose: () => void; appId?: st
    MODAL 4 — Roles / Share project
 ───────────────────────────────────────────────── */
 
-const MOCK_USERS = [
-  { initial: "R", email: "romchik9931@gmail.com", role: "Владелец", editable: false },
-  { initial: "C", email: "chikoinikit@gmail.com",  role: "Редактор",  editable: true },
-  { initial: "G", email: "gfifgfif31@gmail.com",   role: "Редактор",  editable: true },
-];
+const ROLE_LABELS: Record<string, string> = {
+  owner: "Владелец",
+  admin: "Администратор",
+  editor: "Редактор",
+  viewer: "Просмотр",
+};
+
+function initials(email: string, displayName?: string | null): string {
+  if (displayName) {
+    const parts = displayName.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 1).toUpperCase();
+}
 
 export function RolesModal({
   onClose,
@@ -470,6 +482,11 @@ export function RolesModal({
   appId?: string | null;
 }) {
   const [linkCopied, setLinkCopied] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const { data: members, isLoading } = useAppMembers(appId);
+  const { data: allUsers } = useUsers();
+  const removeMember = useRemoveAppMember(appId ?? "");
+
   function copyLink() {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     void navigator.clipboard?.writeText(buildRuntimeUrl(appId, origin)).then(() => {
@@ -477,17 +494,30 @@ export function RolesModal({
       setTimeout(() => setLinkCopied(false), 1500);
     });
   }
+
+  function handleInviteKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && inviteEmail.trim()) {
+      const user = allUsers?.items.find((u) => u.email === inviteEmail.trim());
+      if (user) {
+        // Could call addMember here — for now just clear input
+      }
+      setInviteEmail("");
+    }
+  }
+
   return (
     <Overlay onClose={onClose} alignTop topOffset={85}>
       <div style={{ width: 703 }} className="px-10 flex flex-col gap-5">
-        {/* Header section with border-bottom */}
+        {/* Header */}
         <div className="flex flex-col gap-[10px] border-b-2 border-white pb-[5px]">
           <div className="flex justify-between items-start pt-[30px]">
             <div>
               <p className="text-[20px] font-bold text-primary leading-[150%]">
                 Поделиться «{projectName}»
               </p>
-              <p className="text-meta text-primary/70">2 пользователя</p>
+              <p className="text-meta text-primary/70">
+                {isLoading ? "Загрузка…" : `${members?.length ?? 0} пользователей`}
+              </p>
             </div>
             <button className="mt-1 hover:opacity-70">
               <GearIcon />
@@ -497,6 +527,9 @@ export function RolesModal({
           {/* Email input */}
           <BlueField>
             <input
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              onKeyDown={handleInviteKey}
               placeholder="Добавить email или домен"
               className="w-full bg-transparent outline-none text-[18px] text-primary placeholder-primary/50"
             />
@@ -510,7 +543,6 @@ export function RolesModal({
             <button className="underline text-cta hover:opacity-80">Нет</button>
           </p>
           <div className="flex items-center gap-[15px]">
-            {/* Toggle pill */}
             <div className="relative w-[38px] h-[21px] bg-cardbg rounded-full cursor-pointer">
               <div className="absolute left-0 top-0 w-[21px] h-[21px] rounded-full bg-cardbg border border-white/60" />
             </div>
@@ -518,41 +550,69 @@ export function RolesModal({
           </div>
         </div>
 
-        {/* Users */}
-        <div className="flex flex-col gap-[10px]">
-          {MOCK_USERS.map((u) => (
-            <div key={u.email} className="flex justify-between items-center h-[34px]">
-              <div className="flex items-center gap-[15px]">
-                <div className="w-[34px] h-[34px] bg-cardbg rounded-full flex items-center justify-center
-                                text-[15px] font-medium text-cta shrink-0">
-                  {u.initial}
+        {/* Users list */}
+        <div className="flex flex-col gap-[10px] max-h-[260px] overflow-y-auto">
+          {isLoading && (
+            <p className="text-meta text-primary/50 text-center py-4">Загрузка…</p>
+          )}
+          {!isLoading && (members ?? []).length === 0 && (
+            <p className="text-meta text-primary/50 text-center py-4">Нет участников</p>
+          )}
+          {(members ?? []).map((m) => {
+            const label = ROLE_LABELS[m.role] ?? m.role;
+            const isOwner = m.role === "owner";
+            return (
+              <div key={m.user_id} className="flex justify-between items-center h-[34px]">
+                <div className="flex items-center gap-[15px]">
+                  <div className="w-[34px] h-[34px] bg-cardbg rounded-full flex items-center justify-center
+                                  text-[15px] font-medium text-cta shrink-0">
+                    {initials(m.email ?? "?", m.display_name)}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-meta text-primary leading-tight">
+                      {m.display_name || m.email}
+                    </span>
+                    {m.display_name && (
+                      <span className="text-[12px] text-primary/50 leading-tight">{m.email}</span>
+                    )}
+                  </div>
                 </div>
-                <span className="text-meta text-primary">{u.email}</span>
+                <div className="flex items-center gap-[10px]">
+                  {isOwner ? (
+                    <span className="text-[14px] italic text-primary">{label}</span>
+                  ) : (
+                    <>
+                      <span className="text-[14px] text-primary">{label}</span>
+                      <span className="text-primary text-[10px]">▾</span>
+                      <button
+                        onClick={() => removeMember.mutate(m.user_id)}
+                        title="Удалить"
+                        className="text-primary/30 hover:text-red-400 transition-colors ml-1"
+                      >
+                        <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5">
+                          <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-[10px] w-[90px] justify-center">
-                {u.editable ? (
-                  <>
-                    <span className="text-[14px] text-primary">{u.role}</span>
-                    <span className="text-primary text-[10px]">▾</span>
-                  </>
-                ) : (
-                  <span className="text-[14px] italic text-primary">{u.role}</span>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Bottom buttons */}
         <div className="flex justify-between items-center py-[30px]">
           <div className="flex gap-5">
-            <button onClick={copyLink} title={linkCopied ? "Скопировано" : "Скопировать ссылку"} className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
-                               border-2 border-cta rounded-btn text-cta text-meta hover:bg-cta/10 transition-colors">
+            <button onClick={copyLink} title={linkCopied ? "Скопировано" : "Скопировать ссылку"}
+              className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
+                         border-2 border-cta rounded-btn text-cta text-meta hover:bg-cta/10 transition-colors">
               <span className="w-[25px] h-[25px]"><LinkIcon /></span>
               <span>{linkCopied ? "Скопировано" : "Ссылка"}</span>
             </button>
-            <button disabled title="В разработке" className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
-                               border-2 border-cta/40 rounded-btn text-cta/40 text-meta cursor-not-allowed">
+            <button disabled title="В разработке"
+              className="flex items-center gap-[10px] px-5 py-[3px] h-[34px]
+                         border-2 border-cta/40 rounded-btn text-cta/40 text-meta cursor-not-allowed">
               <span className="w-[21px] h-[25px]"><CopyIcon /></span>
               <span>Копировать пользователя</span>
             </button>
