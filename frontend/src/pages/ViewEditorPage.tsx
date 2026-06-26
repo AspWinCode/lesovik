@@ -687,7 +687,7 @@ export function ViewEditorPage() {
                       value={(layout.page_style as string) ?? "Карточки"}
                       onChange={(v) => patchLayout({ page_style: v })}
                     />
-                    <CardStyleConfig />
+                    <CardStyleConfig pageStyle={(layout.page_style as string) ?? "Карточки"} />
                   </div>
                 </FieldRow>
               ) : (
@@ -1289,16 +1289,59 @@ function PageStyleSegmented({ value, onChange }: { value: string; onChange: (v: 
   );
 }
 
-function CardStyleConfig() {
-  const ROWS = [
-    { id: "icon",     label: "Иконка",       value: "Отправить CMS" },
-    { id: "title",    label: "Заголовок",    value: "Заголовок" },
-    { id: "subtitle", label: "Подзаголовок", value: "Отправить CMS" },
-    { id: "image",    label: "Изображение",  value: "Отправить" },
-  ];
-  return (
-    <div className="flex items-start gap-[40px]">
-      {/* Card preview */}
+function CardStyleConfig({ pageStyle }: { pageStyle: string }) {
+  const ROWS_BY_STYLE: Record<string, { id: string; label: string; value: string }[]> = {
+    "Карточки": [
+      { id: "icon",     label: "Иконка",       value: "Отправить CMS" },
+      { id: "title",    label: "Заголовок",    value: "Заголовок" },
+      { id: "subtitle", label: "Подзаголовок", value: "Отправить CMS" },
+      { id: "image",    label: "Изображение",  value: "Отправить" },
+    ],
+    "Полная": [
+      { id: "title",    label: "Заголовок",    value: "Заголовок" },
+      { id: "subtitle", label: "Подзаголовок", value: "Отправить CMS" },
+    ],
+    "Список": [
+      { id: "icon",     label: "Иконка",       value: "Отправить CMS" },
+      { id: "title",    label: "Заголовок",    value: "Заголовок" },
+      { id: "subtitle", label: "Подзаголовок", value: "Отправить CMS" },
+    ],
+    "Сетка": [
+      { id: "icon",     label: "Иконка",       value: "Отправить CMS" },
+      { id: "title",    label: "Заголовок",    value: "Заголовок" },
+      { id: "image",    label: "Изображение",  value: "Отправить" },
+    ],
+  };
+  const rows = ROWS_BY_STYLE[pageStyle] ?? ROWS_BY_STYLE["Карточки"];
+
+  const preview =
+    pageStyle === "Список" ? (
+      /* Список: горизонтальная строка */
+      <div className="w-[290px] flex items-center gap-[12px] bg-white px-[14px] py-[12px] shrink-0">
+        <span className="w-[44px] h-[44px] rounded-full bg-cardbg shrink-0" />
+        <div className="flex flex-col">
+          <span className="text-[16px] font-medium text-primary leading-snug">Заголовок</span>
+          <span className="text-[12px] text-primary/60 leading-snug">Подзаголовок</span>
+        </div>
+      </div>
+    ) : pageStyle === "Сетка" ? (
+      /* Сетка: квадратная карточка */
+      <div className="w-[140px] flex flex-col bg-white shrink-0">
+        <div className="w-full h-[100px] bg-cardbg" />
+        <div className="flex items-center gap-[8px] p-[8px]">
+          <span className="w-[28px] h-[28px] rounded-full bg-cardbg/60 shrink-0" />
+          <span className="text-[13px] font-medium text-primary leading-snug">Заголовок</span>
+        </div>
+      </div>
+    ) : pageStyle === "Полная" ? (
+      /* Полная: широкая карточка без аватара */
+      <div className="w-[290px] flex flex-col bg-white shrink-0 p-[16px] gap-[8px]">
+        <span className="text-[20px] font-semibold text-primary">Заголовок</span>
+        <span className="text-[14px] text-primary/60">Подзаголовок</span>
+        <div className="w-full h-[80px] bg-cardbg rounded mt-[4px]" />
+      </div>
+    ) : (
+      /* Карточки (default) */
       <div className="w-[290px] flex flex-col justify-end bg-white shrink-0">
         <div className="flex items-center p-[10px] h-[76px]">
           <span className="w-[56px] h-[56px] rounded-full bg-cardbg shrink-0" />
@@ -1309,10 +1352,15 @@ function CardStyleConfig() {
         </div>
         <div className="w-full h-[149px] bg-cardbg" />
       </div>
+    );
+
+  return (
+    <div className="flex items-start gap-[40px]">
+      {preview}
 
       {/* Config rows */}
       <div className="flex flex-col gap-[20px] w-[431px]">
-        {ROWS.map((r) => (
+        {rows.map((r) => (
           <div key={r.id} className="flex items-center gap-[10px]">
             <div className="flex items-center justify-between gap-[31px] flex-1 h-[41px] pl-5 bg-white rounded-btn">
               <span className="text-[18px] text-primary whitespace-nowrap">{r.label}</span>
