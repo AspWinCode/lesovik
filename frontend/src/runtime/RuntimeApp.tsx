@@ -239,6 +239,7 @@ function PageView({ page, appId, entities, accent, colors, blockGap, headingSize
   const records = recordsQuery.data?.items ?? [];
   const hiddenColumns = (page.layout?.hidden_columns as string[] | undefined) ?? [];
   const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "auto";
+  const columnWidth = (page.layout?.column_width as string) ?? "Средняя";
   const allCols = (entity?.fields ?? []).filter((f) => !f.is_system);
   const cols = colOrderMode === "manual"
     ? allCols.filter((f) => !hiddenColumns.includes(f.name))
@@ -259,6 +260,7 @@ function PageView({ page, appId, entities, accent, colors, blockGap, headingSize
           records={records}
           accent={accent}
           colors={colors}
+          columnWidth={columnWidth}
         />
       )}
       {blocks.length > 0 && (
@@ -430,7 +432,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
-                {cols.slice(0, 6).map((f) => (
+                {cols.map((f) => (
                   <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
                 ))}
               </tr>
@@ -438,13 +440,13 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
             <tbody>
               {records.map((rec) => (
                 <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  {cols.slice(0, 6).map((f) => (
+                  {cols.map((f) => (
                     <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
                   ))}
                 </tr>
               ))}
               {records.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
+                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
               )}
             </tbody>
           </table>
@@ -553,14 +555,17 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   );
 }
 
-function DataView({ viewType, entity, cols, records, accent, colors }: {
+function DataView({ viewType, entity, cols, records, accent, colors, columnWidth }: {
   viewType: string;
   entity: EntityRead | null;
   cols: FieldRead[];
   records: RecordRead[];
   accent: string;
   colors: AppColors;
+  columnWidth?: string;
 }) {
+  const colPadding = columnWidth === "Узкая" ? "5px 8px" : columnWidth === "Широкая" ? "10px 20px" : "8px 12px";
+  const colMinWidth = columnWidth === "Узкая" ? 60 : columnWidth === "Широкая" ? 160 : 100;
   const title = entity?.display_name ?? "Таблица";
   const noEntity = (
     <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
@@ -581,21 +586,21 @@ function DataView({ viewType, entity, cols, records, accent, colors }: {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
-                {cols.slice(0, 6).map((f) => (
-                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
+                {cols.map((f) => (
+                  <th key={f.id} style={{ textAlign: "left", padding: colPadding, fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap", minWidth: colMinWidth }}>{f.display_name}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {records.map((rec) => (
                 <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  {cols.slice(0, 6).map((f) => (
-                    <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
+                  {cols.map((f) => (
+                    <td key={f.id} style={{ padding: colPadding, whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
                   ))}
                 </tr>
               ))}
               {records.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
+                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
               )}
             </tbody>
           </table>
