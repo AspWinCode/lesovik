@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { buildRuntimeUrl, buildEditorUrl } from "@/shared/lib/appLinks";
-import { useAppMembers, useRemoveAppMember } from "@/shared/hooks/useApps";
+import { useAppMembers, useAddAppMember, useRemoveAppMember } from "@/shared/hooks/useApps";
 import { useUsers } from "@/shared/hooks/useUsers";
 
 /* ─────────────────────────────────────────────────
@@ -483,26 +483,55 @@ export function RolesModal({
 }) {
   const [linkCopied, setLinkCopied] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteError, setInviteError] = useState("");
+  const [extraOpen, setExtraOpen] = useState(false);
   const { data: members, isLoading } = useAppMembers(appId);
   const { data: allUsers } = useUsers();
   const removeMember = useRemoveAppMember(appId ?? "");
+  const addMember = useAddAppMember(appId ?? "");
 
   function copyLink() {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    void navigator.clipboard?.writeText(buildRuntimeUrl(appId, origin)).then(() => {
+    const url = buildRuntimeUrl(appId, origin);
+    // Fallback for HTTP (clipboard API requires HTTPS)
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(url).then(() => {
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 1500);
+      });
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 1500);
-    });
+    }
   }
 
   function handleInviteKey(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && inviteEmail.trim()) {
-      const user = allUsers?.items.find((u) => u.email === inviteEmail.trim());
-      if (user) {
-        // Could call addMember here — for now just clear input
-      }
-      setInviteEmail("");
+    if (e.key !== "Enter") return;
+    const email = inviteEmail.trim();
+    if (!email) return;
+    const user = allUsers?.items.find((u) => u.email === email);
+    if (!user) {
+      setInviteError("Пользователь с таким email не найден");
+      return;
     }
+    const already = (members ?? []).some((m) => m.user_id === user.id);
+    if (already) {
+      setInviteError("Пользователь уже добавлен");
+      return;
+    }
+    addMember.mutate(
+      { userId: user.id, role: "editor" },
+      { onSuccess: () => { setInviteEmail(""); setInviteError(""); } },
+    );
   }
 
   return (
@@ -528,12 +557,15 @@ export function RolesModal({
           <BlueField>
             <input
               value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
+              onChange={(e) => { setInviteEmail(e.target.value); setInviteError(""); }}
               onKeyDown={handleInviteKey}
-              placeholder="Добавить email или домен"
+              placeholder="Добавить email или домен (Enter для добавления)"
               className="w-full bg-transparent outline-none text-[18px] text-primary placeholder-primary/50"
             />
           </BlueField>
+          {inviteError && (
+            <p className="text-[13px] text-red-400 -mt-2 pl-1">{inviteError}</p>
+          )}
         </div>
 
         {/* Auth toggle */}
@@ -542,12 +574,26 @@ export function RolesModal({
             Поставщик услуг аутентификации для доступа к приложению:{" "}
             <button className="underline text-cta hover:opacity-80">Нет</button>
           </p>
-          <div className="flex items-center gap-[15px]">
-            <div className="relative w-[38px] h-[21px] bg-cardbg rounded-full cursor-pointer">
-              <div className="absolute left-0 top-0 w-[21px] h-[21px] rounded-full bg-cardbg border border-white/60" />
+          <button
+            onClick={() => setExtraOpen((v) => !v)}
+            className="flex items-center gap-[15px] w-fit"
+          >
+            <div className={cn(
+              "relative w-[38px] h-[21px] rounded-full transition-colors duration-200",
+              extraOpen ? "bg-cta" : "bg-cardbg",
+            )}>
+              <div className={cn(
+                "absolute top-0 w-[21px] h-[21px] rounded-full bg-white border border-white/60 shadow transition-all duration-200",
+                extraOpen ? "left-[17px]" : "left-0",
+              )} />
             </div>
             <span className="text-meta text-primary">Дополнительно</span>
-          </div>
+          </button>
+          {extraOpen && (
+            <div className="rounded-lg bg-cardbg/60 px-4 py-3 text-[14px] text-primary/70">
+              Расширенные настройки доступа в разработке
+            </div>
+          )}
         </div>
 
         {/* Users list */}
