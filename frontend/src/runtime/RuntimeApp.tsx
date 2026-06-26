@@ -82,6 +82,7 @@ function RuntimeShell() {
   });
 
   const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [activeRecordId, setActiveRecordId] = useState<string | null>(null);
   const [viewportW, setViewportW] = useState(window.innerWidth);
   useEffect(() => {
     const onResize = () => setViewportW(window.innerWidth);
@@ -90,19 +91,33 @@ function RuntimeShell() {
   }, []);
 
   // Preselect page from URL param or first page
-  const pages = pagesQuery.data ?? [];
-  const navPages = preview ? pages : (pages.filter((p) => p.is_published).length > 0
-    ? pages.filter((p) => p.is_published)
-    : pages);
+  const allPages = pagesQuery.data ?? [];
+  const publishedPages = allPages.filter((p) => p.is_published);
+  const visiblePages = preview
+    ? allPages
+    : (publishedPages.length > 0 ? publishedPages : allPages);
+  // Nav sidebar shows only non-system pages
+  const navPages = visiblePages.filter((p) => !p.layout?.is_system);
+
+  function navigateToDetail(entityId: string, recordId: string) {
+    const detailPage = allPages.find(
+      (p) => p.layout?.is_system && p.layout?.system_type === "detail" && p.layout?.entity_id === entityId,
+    );
+    if (detailPage) {
+      setActiveRecordId(recordId);
+      setActivePageId(detailPage.id);
+    }
+  }
 
   useEffect(() => {
-    if (navPages.length === 0) return;
-    if (pageParam && navPages.find((p) => p.id === pageParam)) {
+    const candidates = navPages.length > 0 ? navPages : visiblePages;
+    if (candidates.length === 0) return;
+    if (pageParam && visiblePages.find((p) => p.id === pageParam)) {
       setActivePageId(pageParam);
-    } else if (!activePageId || !navPages.find((p) => p.id === activePageId)) {
-      setActivePageId(navPages[0].id);
+    } else if (!activePageId || !visiblePages.find((p) => p.id === activePageId)) {
+      setActivePageId(candidates[0].id);
     }
-  }, [navPages.map((p) => p.id).join(","), pageParam]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visiblePages.map((p) => p.id).join(","), pageParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!authed) {
     return (
@@ -126,7 +141,7 @@ function RuntimeShell() {
     return <Centered>Приложение не найдено. Откройте его из конструктора.</Centered>;
   }
 
-  const activePage = navPages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
+  const activePage = visiblePages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
   const design = (activePage?.layout?.design as DesignConfig | undefined) ?? {};
   const accent = design.accent ?? "#35A7FF";
   const theme = design.theme ?? "light";
@@ -206,7 +221,32 @@ function RuntimeShell() {
           {!activePage ? (
             <Centered>В приложении пока нет страниц.</Centered>
           ) : (
-            <PageView page={activePage} appId={app.id} entities={entities} accent={accent} colors={colors} blockGap={blockGap} headingSizePx={headingSizePx} textSizePx={textSizePx} inputStyle={inputStyle} labelPosition={labelPosition} pages={navPages} onNavigate={setActivePageId} />
+            <>
+              {activePage.layout?.is_system && (
+                <button
+                  onClick={() => { setActiveRecordId(null); setActivePageId(navPages[0]?.id ?? null); }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, background: "none", border: "none", cursor: "pointer", color: accent, fontSize: 14, fontWeight: 500, padding: 0 }}
+                >
+                  ← Назад
+                </button>
+              )}
+              <PageView
+                page={activePage}
+                appId={app.id}
+                entities={entities}
+                accent={accent}
+                colors={colors}
+                blockGap={blockGap}
+                headingSizePx={headingSizePx}
+                textSizePx={textSizePx}
+                inputStyle={inputStyle}
+                labelPosition={labelPosition}
+                pages={navPages}
+                onNavigate={setActivePageId}
+                onRowClick={navigateToDetail}
+                activeRecordId={activeRecordId}
+              />
+            </>
           )}
         </main>
       </div>
@@ -219,11 +259,13 @@ type AppColors = {
   text: string; textMuted: string; navActive: string; navHover: string;
 };
 
-function PageView({ page, appId, entities, accent, colors, blockGap, headingSizePx, textSizePx, inputStyle, labelPosition, onNavigate }: {
+function PageView({ page, appId, entities, accent, colors, blockGap, headingSizePx, textSizePx, inputStyle, labelPosition, onNavigate, onRowClick, activeRecordId }: {
   page: PageRead; appId: string; entities: EntityRead[]; accent: string;
   colors: AppColors; blockGap: number; headingSizePx: number; textSizePx: number;
   inputStyle: string; labelPosition: string;
   pages: PageRead[]; onNavigate: (id: string) => void;
+  onRowClick?: (entityId: string, recordId: string) => void;
+  activeRecordId?: string | null;
 }) {
   const design = (page.layout?.design as DesignConfig | undefined) ?? {};
   const entityId = page.layout?.entity_id as string | undefined;
@@ -261,6 +303,8 @@ function PageView({ page, appId, entities, accent, colors, blockGap, headingSize
           accent={accent}
           colors={colors}
           columnWidth={columnWidth}
+          onRowClick={onRowClick}
+          activeRecordId={activeRecordId}
         />
       )}
       {blocks.length > 0 && (
@@ -555,7 +599,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   );
 }
 
-function DataView({ viewType, entity, cols, records, accent, colors, columnWidth }: {
+function DataView({ viewType, entity, cols, records, accent, colors, columnWidth, onRowClick, activeRecordId }: {
   viewType: string;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -563,9 +607,12 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   accent: string;
   colors: AppColors;
   columnWidth?: string;
+  onRowClick?: (entityId: string, recordId: string) => void;
+  activeRecordId?: string | null;
 }) {
   const colPadding = columnWidth === "Узкая" ? "5px 8px" : columnWidth === "Широкая" ? "10px 20px" : "8px 12px";
   const colMinWidth = columnWidth === "Узкая" ? 60 : columnWidth === "Широкая" ? 160 : 100;
+  const canDrill = !!onRowClick && !!entity;
   const title = entity?.display_name ?? "Таблица";
   const noEntity = (
     <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
@@ -593,10 +640,21 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
             </thead>
             <tbody>
               {records.map((rec) => (
-                <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <tr
+                  key={rec.id}
+                  onClick={canDrill ? () => onRowClick!(entity!.id, rec.id) : undefined}
+                  style={{
+                    borderBottom: `1px solid ${colors.border}`,
+                    cursor: canDrill ? "pointer" : "default",
+                    background: rec.id === activeRecordId ? colors.navActive : undefined,
+                  }}
+                  onMouseEnter={(e) => { if (canDrill) (e.currentTarget as HTMLTableRowElement).style.background = colors.border; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = rec.id === activeRecordId ? colors.navActive : ""; }}
+                >
                   {cols.map((f) => (
                     <td key={f.id} style={{ padding: colPadding, whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
                   ))}
+                  {canDrill && <td style={{ padding: colPadding, color: colors.textMuted, width: 24 }}>›</td>}
                 </tr>
               ))}
               {records.length === 0 && (
@@ -727,7 +785,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   }
 
   if (viewType === "detail" || viewType === "details" || viewType === "card") {
-    return <DetailView title={title} cols={cols} records={records} accent={accent} />;
+    return <DetailView title={title} cols={cols} records={records} accent={accent} initialRecordId={activeRecordId} />;
   }
 
   if (viewType === "gantt" || viewType === "chart") {
@@ -758,10 +816,17 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
 }
 
 /* ── Detail view: expanded cards for each record ── */
-function DetailView({ title, cols, records, accent }: {
-  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string;
+function DetailView({ title, cols, records, accent, initialRecordId }: {
+  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string; initialRecordId?: string | null;
 }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const startIdx = initialRecordId ? Math.max(0, records.findIndex((r) => r.id === initialRecordId)) : 0;
+  const [activeIdx, setActiveIdx] = useState(startIdx);
+  useEffect(() => {
+    if (initialRecordId) {
+      const idx = records.findIndex((r) => r.id === initialRecordId);
+      if (idx >= 0) setActiveIdx(idx);
+    }
+  }, [initialRecordId, records.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const rec = records[activeIdx];
 
   return (

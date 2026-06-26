@@ -8,7 +8,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
-import { ViewNavPanel, type NavSection } from "@/components/layout/ViewNavPanel";
+import { ViewNavPanel, type NavSection, type SystemNavGroup } from "@/components/layout/ViewNavPanel";
 import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
@@ -185,10 +185,11 @@ export function ViewEditorPage() {
 
   const activePage = pages.find((p) => p.id === activeView) ?? null;
 
-  // Set initial active view when pages load
+  // Set initial active view when pages load (prefer user pages)
   useEffect(() => {
     if (pages.length > 0 && !activeView) {
-      setActiveView(pages[0].id);
+      const first = pages.find((p) => !p.layout?.is_system) ?? pages[0];
+      setActiveView(first.id);
     }
   }, [pages, activeView]);
 
@@ -210,13 +211,30 @@ export function ViewEditorPage() {
     setLayout(activePage.layout ?? {});
   }, [activeView]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const userPages   = pages.filter((p) => !p.layout?.is_system);
+  const systemPages = pages.filter((p) =>  p.layout?.is_system);
+
   const navSections: NavSection[] = [
     {
       id: "main",
       title: "Навигация",
-      views: pages.map((p) => ({ id: p.id, label: p.title })),
+      views: userPages.map((p) => ({ id: p.id, label: p.title })),
     },
   ];
+
+  // Group system pages by entity
+  const systemGroups: SystemNavGroup[] = entities
+    .map((entity) => {
+      const views = systemPages
+        .filter((p) => p.layout?.entity_id === entity.id)
+        .map((p) => ({
+          id: p.id,
+          label: p.title,
+          systemType: (p.layout?.system_type as "detail" | "form") ?? undefined,
+        }));
+      return { entityId: entity.id, entityName: entity.display_name, views };
+    })
+    .filter((g) => g.views.length > 0);
 
   // Warning: any page has no blocks, OR a data-view page has no entity_id set
   const hasWarning = pages.some((p) => {
@@ -236,14 +254,47 @@ export function ViewEditorPage() {
     win.postMessage({ type: "RT_REFETCH" }, origin);
   }
 
+  async function ensureSystemPages(entityId: string) {
+    const entity = entities.find((e) => e.id === entityId);
+    if (!entity || !appId) return;
+    const hasDetail = pages.some(
+      (p) => p.layout?.is_system && p.layout?.entity_id === entityId && p.layout?.system_type === "detail",
+    );
+    const hasForm = pages.some(
+      (p) => p.layout?.is_system && p.layout?.entity_id === entityId && p.layout?.system_type === "form",
+    );
+    const base = entity.display_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "entity";
+    if (!hasDetail) {
+      await createPageMutation.mutateAsync({
+        slug: `${base}-detail-sys-${Date.now().toString(36)}`,
+        title: `${entity.display_name}_Detail`,
+        layout: { is_system: true, system_type: "detail", entity_id: entityId, view_type: "detail" },
+      });
+    }
+    if (!hasForm) {
+      await createPageMutation.mutateAsync({
+        slug: `${base}-form-sys-${Date.now().toString(36)}`,
+        title: `${entity.display_name}_Form`,
+        layout: { is_system: true, system_type: "form", entity_id: entityId, view_type: "form" },
+      });
+    }
+    if (!hasDetail || !hasForm) _postRefetch();
+  }
+
   // Merge a partial into page.layout and persist to backend.
   function patchLayout(partial: Record<string, unknown>) {
     const next = { ...layoutRef.current, ...partial };
     setLayout(next);
     if (!activeView || !appId) return;
+    const prevEntityId = layoutRef.current?.entity_id as string | undefined;
     updatePageMutation.mutate(
       { pageId: activeView, body: { layout: next } },
-      { onSuccess: () => { _postRefetch(next); } },
+      { onSuccess: () => {
+        _postRefetch(next);
+        if (partial.entity_id && partial.entity_id !== prevEntityId) {
+          void ensureSystemPages(partial.entity_id as string);
+        }
+      }},
     );
   }
 
@@ -357,8 +408,12 @@ export function ViewEditorPage() {
         activeViewId={activeView}
         onSelect={setActiveView}
         onAddView={handleAddPage}
-        onDeleteView={handleDeletePage}
+        onDeleteView={(id) => {
+          const page = pages.find((p) => p.id === id);
+          if (!page?.layout?.is_system) handleDeletePage(id);
+        }}
         hasWarning={hasWarning}
+        systemGroups={systemGroups}
       />
 
       {/* ── Top tab bar ── */}

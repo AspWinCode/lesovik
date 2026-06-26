@@ -4,11 +4,18 @@ import { cn } from "@/lib/cn";
 export interface NavView {
   id: string;
   label: string;
+  systemType?: "detail" | "form";
 }
 
 export interface NavSection {
   id: string;
   title: string;
+  views: NavView[];
+}
+
+export interface SystemNavGroup {
+  entityId: string;
+  entityName: string;
   views: NavView[];
 }
 
@@ -20,6 +27,7 @@ interface ViewNavPanelProps {
   onAddView?: (sectionId: string) => void;
   onDeleteView?: (viewId: string) => void;
   hasWarning?: boolean;
+  systemGroups?: SystemNavGroup[];
 }
 
 export function ViewNavPanel({
@@ -30,6 +38,7 @@ export function ViewNavPanel({
   onAddView,
   onDeleteView,
   hasWarning = false,
+  systemGroups = [],
 }: ViewNavPanelProps) {
   const [systemOpen, setSystemOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -168,7 +177,7 @@ export function ViewNavPanel({
       </div>
 
       {/* System views (bottom) */}
-      <div className="border-t-2 border-white flex flex-col items-center py-[15px] gap-[15px]">
+      <div className="border-t-2 border-white flex flex-col py-[15px] gap-[10px]">
         <button
           onClick={() => setSystemOpen((v) => !v)}
           className="flex items-center justify-center gap-[10px] px-[15px] pb-[3px]"
@@ -179,8 +188,28 @@ export function ViewNavPanel({
           </span>
         </button>
         {systemOpen && (
-          <div className="w-full flex flex-col gap-[10px]">
-            <NavPill label="Аналитика_Detail" active={activeViewId === "analytics-detail"} onClick={() => onSelect("analytics-detail")} />
+          <div className="w-full flex flex-col gap-[15px]">
+            {systemGroups.length === 0 && (
+              <p className="text-[13px] text-primary/40 px-[15px]">
+                Выберите таблицу на странице — появятся Detail и Form
+              </p>
+            )}
+            {systemGroups.map((group) => (
+              <div key={group.entityId} className="flex flex-col gap-[6px]">
+                <span className="text-[13px] font-semibold text-primary/50 px-[15px] uppercase tracking-wide">
+                  {group.entityName}
+                </span>
+                {group.views.map((view) => (
+                  <NavPill
+                    key={view.id}
+                    label={view.label}
+                    active={view.id === activeViewId}
+                    onClick={() => onSelect(view.id)}
+                    systemType={view.systemType}
+                  />
+                ))}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -193,11 +222,13 @@ function NavPill({
   active,
   onClick,
   onDelete,
+  systemType,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   onDelete?: () => void;
+  systemType?: "detail" | "form";
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -214,7 +245,9 @@ function NavPill({
           active ? "bg-selected" : "hover:bg-cardbg/50"
         )}
       >
-        <span className="w-6 h-6 shrink-0"><DbPillIcon highlight={active} /></span>
+        <span className="w-6 h-6 shrink-0">
+          {systemType === "detail" ? <DetailIcon highlight={active} /> : systemType === "form" ? <FormIcon highlight={active} /> : <DbPillIcon highlight={active} />}
+        </span>
         <span className={cn("text-[18px] leading-[150%] font-medium truncate flex-1", active ? "text-cta" : "text-primary")}>
           {label}
         </span>
@@ -286,6 +319,30 @@ function TrashSmIcon() {
       <path d="M4 6 L16 6" stroke="#EF4444" strokeWidth="1.6" strokeLinecap="round" />
       <path d="M7 6 L7 4 L13 4 L13 6" stroke="#EF4444" strokeWidth="1.6" />
       <path d="M5.5 6 L6 17 L14 17 L14.5 6" stroke="#EF4444" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DetailIcon({ highlight }: { highlight?: boolean }) {
+  const c = highlight ? "#35A7FF" : "#00205F";
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="3" y="3" width="18" height="18" rx="3" stroke={c} strokeWidth="2" />
+      <line x1="7" y1="8" x2="17" y2="8" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="7" y1="12" x2="17" y2="12" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="7" y1="16" x2="13" y2="16" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FormIcon({ highlight }: { highlight?: boolean }) {
+  const c = highlight ? "#35A7FF" : "#00205F";
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="3" y="3" width="18" height="18" rx="3" stroke={c} strokeWidth="2" />
+      <line x1="7" y1="8" x2="17" y2="8" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="7" y="11" width="10" height="3" rx="1.5" stroke={c} strokeWidth="1.5" />
+      <line x1="7" y1="17" x2="12" y2="17" stroke={c} strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
