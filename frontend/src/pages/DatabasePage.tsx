@@ -65,6 +65,7 @@ export function DatabasePage() {
   const [showRelationsModal, setShowRelationsModal] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterRules, setFilterRules] = useState<FilterRule[]>([]);
+  const [showViewDropdown, setShowViewDropdown] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -233,27 +234,63 @@ export function DatabasePage() {
           <ToolButton icon={<HistoryIcon />} />
         </div>
         <div className="h-5 w-px bg-cardbg" />
-        <DropdownButton label={viewMode === "grid" ? "Сетка" : "Таблица"} />
-        <div className="h-5 w-px bg-cardbg" />
-        <div className="flex items-center gap-1 bg-mainbg rounded-[6px] p-[3px]">
+        {/* View mode dropdown */}
+        <div className="relative">
           <button
-            onClick={() => setViewMode("grid")}
-            className={cn(
-              "px-3 py-1 text-[13px] rounded-[4px] transition-colors",
-              viewMode === "grid" ? "bg-white text-primary shadow-sm" : "text-primary/60 hover:text-primary"
-            )}
+            onClick={() => setShowViewDropdown((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] text-primary hover:bg-mainbg transition-colors cursor-pointer"
           >
-            Сетка
-          </button>
-          <button
-            onClick={() => setViewMode("table")}
-            className={cn(
-              "px-3 py-1 text-[13px] rounded-[4px] transition-colors",
-              viewMode === "table" ? "bg-white text-primary shadow-sm" : "text-primary/60 hover:text-primary"
+            {viewMode === "grid" ? (
+              <svg viewBox="0 0 16 16" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/>
+                <rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <rect x="2" y="2" width="12" height="3" rx="1"/><rect x="2" y="7" width="12" height="3" rx="1"/>
+                <rect x="2" y="12" width="12" height="2" rx="1"/>
+              </svg>
             )}
-          >
-            Таблица
+            {viewMode === "grid" ? "Сетка" : "Таблица"}
+            <svg viewBox="0 0 12 12" className="w-3 h-3 text-primary/40" fill="currentColor">
+              <path d="M2 4l4 4 4-4H2z" />
+            </svg>
           </button>
+          {showViewDropdown && (
+            <div
+              className="absolute left-0 top-full mt-1 bg-white rounded-[10px] shadow-lg border border-cardbg z-20 min-w-[150px] py-1"
+              onMouseLeave={() => setShowViewDropdown(false)}
+            >
+              {(["grid", "table"] as ViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => { setViewMode(mode); setShowViewDropdown(false); }}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-4 py-2 text-[13px] hover:bg-mainbg transition-colors text-left",
+                    viewMode === mode ? "text-cta font-semibold" : "text-primary"
+                  )}
+                >
+                  {mode === "grid" ? (
+                    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6">
+                      <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/>
+                      <rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6">
+                      <rect x="2" y="2" width="12" height="3" rx="1"/><rect x="2" y="7" width="12" height="3" rx="1"/>
+                      <rect x="2" y="12" width="12" height="2" rx="1"/>
+                    </svg>
+                  )}
+                  {mode === "grid" ? "Сетка" : "Таблица"}
+                  {viewMode === mode && (
+                    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 ml-auto text-cta" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 8l3.5 3.5L13 4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="h-5 w-px bg-cardbg" />
         <DropdownButton
