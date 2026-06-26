@@ -237,7 +237,12 @@ function PageView({ page, appId, entities, accent, colors, blockGap, headingSize
     enabled: !!entity,
   });
   const records = recordsQuery.data?.items ?? [];
-  const cols = (entity?.fields ?? []).filter((f) => !f.is_system);
+  const hiddenColumns = (page.layout?.hidden_columns as string[] | undefined) ?? [];
+  const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "auto";
+  const allCols = (entity?.fields ?? []).filter((f) => !f.is_system);
+  const cols = colOrderMode === "manual"
+    ? allCols.filter((f) => !hiddenColumns.includes(f.name))
+    : allCols;
 
   const hasDataView = !!viewType && viewType !== "form";
 
