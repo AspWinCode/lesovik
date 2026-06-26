@@ -56,7 +56,11 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
           <NavIconButton label="Повторить" icon={<RedoIcon />} onClick={onRedo} disabled={!onRedo} />
         </div>
         <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" onClick={() => navigate("/")} />
-        <NavIconButton label="Добавить пользователя" icon={<GroupAddIcon />} onClick={onGroupAddClick} />
+        <NavIconButton
+          label="Добавить пользователя"
+          icon={<GroupAddIcon />}
+          onClick={onGroupAddClick ?? (() => navigate("/admin"))}
+        />
         <HelpDropdown />
         <SupportDropdown />
         <NavIconButton label="Сменить тему" icon={<MoonIcon />} onClick={toggleTheme} />
@@ -322,13 +326,11 @@ function CloseIcon() {
 
 function GroupAddIcon() {
   return (
-    <svg viewBox="0 0 30 28" className={iconCls}>
-      {/* Person */}
-      <circle cx="10" cy="8" r="5" stroke="#00205F" strokeWidth="2"/>
-      <path d="M1 27 C1 20 5 17 10 17 C15 17 19 20 19 27" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
-      {/* Plus sign — clearly to the right, not overlapping */}
-      <line x1="24" y1="4" x2="24" y2="16" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
-      <line x1="18" y1="10" x2="30" y2="10" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+    <svg viewBox="0 0 28 28" className={iconCls}>
+      <circle cx="9" cy="8" r="5" strokeWidth="2"/>
+      <path d="M1 26 C1 19 4 16 9 16 C14 16 17 19 17 26" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="23" y1="4" x2="23" y2="16" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="17" y1="10" x2="29" y2="10" strokeWidth="2" strokeLinecap="round"/>
     </svg>
   );
 }
