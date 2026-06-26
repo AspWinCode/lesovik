@@ -149,6 +149,7 @@ export function ViewEditorPage() {
   const [showViewsModal, setShowViewsModal] = useState(false);
   const [showActionModal, setShowActionModal] = useState(false);
 
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [name, setName] = useState("");
   const [entityDdOpen, setEntityDdOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(true);
@@ -412,24 +413,26 @@ export function ViewEditorPage() {
           { onSuccess: () => _postRefetch() },
         ) : undefined}
       />
-      <IconRail active={railModule} onChange={setRailModule} />
-      <ViewNavPanel
-        sections={navSections}
-        activeViewId={activeView}
-        onSelect={setActiveView}
-        onAddView={handleAddPage}
-        onDeleteView={(id) => {
-          const page = pages.find((p) => p.id === id);
-          if (!page?.layout?.is_system) handleDeletePage(id);
-        }}
-        hasWarning={hasWarning}
-        systemGroups={systemGroups}
-      />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
+      {!navCollapsed && (
+        <ViewNavPanel
+          sections={navSections}
+          activeViewId={activeView}
+          onSelect={setActiveView}
+          onAddView={handleAddPage}
+          onDeleteView={(id) => {
+            const page = pages.find((p) => p.id === id);
+            if (!page?.layout?.is_system) handleDeletePage(id);
+          }}
+          hasWarning={hasWarning}
+          systemGroups={systemGroups}
+        />
+      )}
 
       {/* ── Top tab bar ── */}
       <div
         className="absolute bg-mainbg rounded-[5px]"
-        style={{ left: 380, top: 70, width: 945, height: 55 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1235 : 945, height: 55, transition: "left 0.2s, width 0.2s" }}
       >
         <div className="absolute left-[40px] top-0 h-[55px] flex items-center gap-[30px] py-[10px]">
           {EDITOR_TABS.map((t) => (
@@ -484,7 +487,7 @@ export function ViewEditorPage() {
       {/* ── Editor scroll panel ── */}
       <div
         className="absolute bg-mainbg rounded-[5px] overflow-y-auto"
-        style={{ left: 380, top: 130, width: 945, height: 945 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 130, width: navCollapsed ? 1235 : 945, height: 945, transition: "left 0.2s, width 0.2s" }}
       >
         {pages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-[20px]">

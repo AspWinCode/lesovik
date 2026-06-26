@@ -17,6 +17,7 @@ interface IconRailProps {
   onChange: (m: RailModule) => void;
   onCollapse?: () => void;
   onSettings?: () => void;
+  collapsed?: boolean;
 }
 
 const items: { id: RailModule; label: string; icon: React.ReactNode }[] = [
@@ -47,7 +48,7 @@ const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   docs: "/learning",      // обучение / документация
 };
 
-export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailProps) {
+export function IconRail({ active, onChange, onCollapse, onSettings, collapsed }: IconRailProps) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
@@ -100,11 +101,11 @@ export function IconRail({ active, onChange, onCollapse, onSettings }: IconRailP
         </button>
         <button
           onClick={onCollapse}
-          aria-label="Свернуть панель"
-          title="Свернуть панель"
+          aria-label={collapsed ? "Развернуть панель" : "Свернуть панель"}
+          title={collapsed ? "Развернуть панель" : "Свернуть панель"}
           className="w-[25px] h-[28px] flex items-center justify-center hover:opacity-70 transition-opacity"
         >
-          <CollapseIcon />
+          <CollapseIcon collapsed={collapsed} />
         </button>
       </div>
     </aside>
@@ -217,8 +218,13 @@ function SettingsIcon() {
   );
 }
 
-function CollapseIcon() {
-  return (
+function CollapseIcon({ collapsed }: { collapsed?: boolean }) {
+  return collapsed ? (
+    <svg viewBox="0 0 25 25" fill="none" className="w-[25px] h-[25px]">
+      <path d="M11 7 L16 12.5 L11 18" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6 7 L11 12.5 L6 18" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : (
     <svg viewBox="0 0 25 25" fill="none" className="w-[25px] h-[25px]">
       <path d="M14 7 L9 12.5 L14 18" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M19 7 L14 12.5 L19 18" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
