@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, type PageRead } from "@/shared/api/views";
-import { listEntities, type EntityRead, type FieldRead } from "@/shared/api/entities";
+import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
 import { listRecords, createRecord, type RecordRead } from "@/shared/api/records";
 
 interface PageBlock {
@@ -81,6 +81,12 @@ function RuntimeShell() {
     enabled: authed && !!resolvedAppId,
   });
 
+  const relationsQuery = useQuery({
+    queryKey: ["rt-relations", resolvedAppId],
+    queryFn: () => listRelations(resolvedAppId!),
+    enabled: authed && !!resolvedAppId,
+  });
+
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [activeRecordId, setActiveRecordId] = useState<string | null>(null);
   const [viewportW, setViewportW] = useState(window.innerWidth);
@@ -151,7 +157,8 @@ function RuntimeShell() {
   const textSizePx = Number(design.text_size ?? "14");
   const inputStyle = design.input_style ?? "outline";
   const labelPosition = design.label_position ?? "top";
-  const entities = entitiesQuery.data ?? [];
+  const entities  = entitiesQuery.data  ?? [];
+  const relations = relationsQuery.data ?? [];
   const narrow = viewportW < 520;
 
   const dark = theme === "dark";
@@ -234,6 +241,8 @@ function RuntimeShell() {
                 page={activePage}
                 appId={app.id}
                 entities={entities}
+                relations={relations}
+                allPages={allPages}
                 accent={accent}
                 colors={colors}
                 blockGap={blockGap}
@@ -259,8 +268,8 @@ type AppColors = {
   text: string; textMuted: string; navActive: string; navHover: string;
 };
 
-function PageView({ page, appId, entities, accent, colors, blockGap, headingSizePx, textSizePx, inputStyle, labelPosition, onNavigate, onRowClick, activeRecordId }: {
-  page: PageRead; appId: string; entities: EntityRead[]; accent: string;
+function PageView({ page, appId, entities, relations, allPages, accent, colors, blockGap, headingSizePx, textSizePx, inputStyle, labelPosition, onNavigate, onRowClick, activeRecordId }: {
+  page: PageRead; appId: string; entities: EntityRead[]; relations: RelationRead[]; allPages: PageRead[]; accent: string;
   colors: AppColors; blockGap: number; headingSizePx: number; textSizePx: number;
   inputStyle: string; labelPosition: string;
   pages: PageRead[]; onNavigate: (id: string) => void;
@@ -328,7 +337,114 @@ function PageView({ page, appId, entities, accent, colors, blockGap, headingSize
         </div>
       )}
       {!hasDataView && blocks.length === 0 && <Centered>На этой странице ещё нет блоков.</Centered>}
+
+      {/* Inline sections: child entities related to current entity (shown on _Detail pages) */}
+      {page.layout?.system_type === "detail" && entity && activeRecordId && (
+        <InlineSections
+          appId={appId}
+          parentEntityId={entity.id}
+          parentRecordId={activeRecordId}
+          relations={relations}
+          entities={entities}
+          allPages={allPages}
+          accent={accent}
+          colors={colors}
+          blockGap={blockGap}
+        />
+      )}
     </div>
+  );
+}
+
+/* ── Inline sections shown inside _Detail for related child entities ── */
+function InlineSections({ appId, parentEntityId, parentRecordId, relations, entities, allPages, accent, colors, blockGap }: {
+  appId: string; parentEntityId: string; parentRecordId: string;
+  relations: RelationRead[]; entities: EntityRead[]; allPages: PageRead[];
+  accent: string; colors: AppColors; blockGap: number;
+}) {
+  // Find entities that reference parentEntity (child side of one-to-many)
+  const childRelations = relations.filter(
+    (r) => r.to_entity_id === parentEntityId && r.relation_type === "one_to_many",
+  );
+
+  if (childRelations.length === 0) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: blockGap, marginTop: blockGap }}>
+      {childRelations.map((rel) => {
+        const childEntity = entities.find((e) => e.id === rel.from_entity_id);
+        if (!childEntity) return null;
+        const inlinePage = allPages.find(
+          (p) => p.layout?.is_system && p.layout?.system_type === "inline" && p.layout?.entity_id === childEntity.id,
+        );
+        return (
+          <InlineBlock
+            key={rel.id}
+            appId={appId}
+            entity={childEntity}
+            relation={rel}
+            parentRecordId={parentRecordId}
+            inlineTitle={inlinePage?.title ?? `${childEntity.display_name}_Inline`}
+            accent={accent}
+            colors={colors}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, accent, colors }: {
+  appId: string; entity: EntityRead; relation: RelationRead; parentRecordId: string;
+  inlineTitle: string; accent: string; colors: AppColors;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, entity.id],
+    queryFn: () => listRecords(appId, entity.id, { limit: 50 }),
+    enabled: true,
+  });
+  const allRecords = recordsQuery.data?.items ?? [];
+  // Filter child records by FK field that references the parent record
+  const fkName = relation.from_field_name;
+  const records = fkName
+    ? allRecords.filter((r) => String(r.payload[fkName]) === parentRecordId)
+    : allRecords;
+
+  const cols = (entity.fields ?? []).filter((f) => !f.is_system);
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "8px 14px", background: colors.bg, fontWeight: 600, fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center", color: colors.text }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 11, background: accent, color: "#fff", borderRadius: 4, padding: "1px 6px", fontWeight: 500 }}>Inline</span>
+          {inlineTitle}
+        </span>
+        <span style={{ color: colors.textMuted, fontSize: 12, fontWeight: 400 }}>{records.length} записей</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+              {cols.map((f) => (
+                <th key={f.id} style={{ textAlign: "left", padding: "6px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((rec) => (
+              <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                {cols.map((f) => (
+                  <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>{String(rec.payload[f.name] ?? "—")}</td>
+                ))}
+              </tr>
+            ))}
+            {records.length === 0 && (
+              <tr><td colSpan={cols.length || 1} style={{ padding: 12, color: colors.textMuted }}>Нет связанных записей</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

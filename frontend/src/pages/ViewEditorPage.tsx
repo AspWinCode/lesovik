@@ -263,6 +263,9 @@ export function ViewEditorPage() {
     const hasForm = pages.some(
       (p) => p.layout?.is_system && p.layout?.entity_id === entityId && p.layout?.system_type === "form",
     );
+    const hasInline = pages.some(
+      (p) => p.layout?.is_system && p.layout?.entity_id === entityId && p.layout?.system_type === "inline",
+    );
     const base = entity.display_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "entity";
     if (!hasDetail) {
       await createPageMutation.mutateAsync({
@@ -278,7 +281,14 @@ export function ViewEditorPage() {
         layout: { is_system: true, system_type: "form", entity_id: entityId, view_type: "form" },
       });
     }
-    if (!hasDetail || !hasForm) _postRefetch();
+    if (!hasInline) {
+      await createPageMutation.mutateAsync({
+        slug: `${base}-inline-sys-${Date.now().toString(36)}`,
+        title: `${entity.display_name}_Inline`,
+        layout: { is_system: true, system_type: "inline", entity_id: entityId, view_type: "table" },
+      });
+    }
+    if (!hasDetail || !hasForm || !hasInline) _postRefetch();
   }
 
   // Merge a partial into page.layout and persist to backend.

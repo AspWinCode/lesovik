@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 export interface NavView {
   id: string;
   label: string;
-  systemType?: "detail" | "form";
+  systemType?: "detail" | "form" | "inline";
 }
 
 export interface NavSection {
@@ -228,7 +228,7 @@ function NavPill({
   active: boolean;
   onClick: () => void;
   onDelete?: () => void;
-  systemType?: "detail" | "form";
+  systemType?: "detail" | "form" | "inline";
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -246,7 +246,7 @@ function NavPill({
         )}
       >
         <span className="w-6 h-6 shrink-0">
-          {systemType === "detail" ? <DetailIcon highlight={active} /> : systemType === "form" ? <FormIcon highlight={active} /> : <DbPillIcon highlight={active} />}
+          {systemType === "detail" ? <DetailIcon highlight={active} /> : systemType === "form" ? <FormIcon highlight={active} /> : systemType === "inline" ? <InlineIcon highlight={active} /> : <DbPillIcon highlight={active} />}
         </span>
         <span className={cn("text-[18px] leading-[150%] font-medium truncate flex-1", active ? "text-cta" : "text-primary")}>
           {label}
@@ -343,6 +343,17 @@ function FormIcon({ highlight }: { highlight?: boolean }) {
       <line x1="7" y1="8" x2="17" y2="8" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
       <rect x="7" y="11" width="10" height="3" rx="1.5" stroke={c} strokeWidth="1.5" />
       <line x1="7" y1="17" x2="12" y2="17" stroke={c} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function InlineIcon({ highlight }: { highlight?: boolean }) {
+  const c = highlight ? "#35A7FF" : "#00205F";
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="3" y="3" width="18" height="7" rx="2" stroke={c} strokeWidth="2" />
+      <rect x="3" y="14" width="18" height="7" rx="2" stroke={c} strokeWidth="1.5" strokeDasharray="3 2" />
+      <line x1="7" y1="6.5" x2="17" y2="6.5" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
