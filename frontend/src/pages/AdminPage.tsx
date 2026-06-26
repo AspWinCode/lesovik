@@ -5,6 +5,7 @@ import { useUsers, useDeactivateUser, useUpdateUser, useInviteUser, useRoles } f
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
 import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
+import { useHealth } from "@/shared/hooks/useHealth";
 import { useAuthStore } from "@/shared/auth/store";
 
 /* ── Types ── */
@@ -54,19 +55,16 @@ function AdminSidebar({
 
 /* ── Dashboard (Главная) ── */
 function StatRow({
-  label,
   active,
   inDev,
   total,
 }: {
-  label: string;
   active: number;
   inDev: number;
   total: number;
 }) {
   return (
     <div className="flex justify-between items-center w-full">
-      <span className="text-info text-primary w-[117px]">{label}</span>
       <span className="text-info text-primary text-center w-[75px]">{active}</span>
       <span className="text-info text-primary text-center w-[120px]">{inDev}</span>
       <span className="text-info text-[#35A7FF] text-center w-[52px]">{total}</span>
@@ -74,34 +72,61 @@ function StatRow({
   );
 }
 
-function ProgressBar({
+function ServiceStatusRow({
   label,
-  value,
-  maxLabel,
+  status,
+  latencyMs,
 }: {
   label: string;
-  value: number;
-  maxLabel: string;
+  status?: string;
+  latencyMs?: number;
 }) {
+  const ok = status === "ok";
   return (
-    <div className="flex items-center gap-[39px] w-[571px]">
-      <span className="text-info text-primary w-[50px] shrink-0">{label}</span>
-      <div className="flex items-center gap-5">
-        <div className="w-[345px] h-6 bg-cardbg rounded-[30px] overflow-hidden">
-          <div
-            className="h-full bg-cta rounded-[30px]"
-            style={{ width: `${value}%` }}
-          />
-        </div>
-        <span className="text-info text-cta w-[120px]">{maxLabel}</span>
-      </div>
+    <div className="flex items-center gap-4">
+      <div className={cn("w-3 h-3 rounded-full shrink-0", ok ? "bg-[#20BE4F]" : status == null ? "bg-cardbg" : "bg-[#C22A2A]")} />
+      <span className="text-info text-primary w-[120px]">{label}</span>
+      <span className={cn("text-info font-semibold", ok ? "text-[#20BE4F]" : status == null ? "text-primary/30" : "text-[#C22A2A]")}>
+        {status == null ? "—" : ok ? "Активен" : "Недоступен"}
+      </span>
+      {latencyMs != null && (
+        <span className="text-info text-primary/40 ml-auto">{latencyMs} мс</span>
+      )}
     </div>
   );
+}
+
+function computePieSlices(data: { value: number; color: string }[]) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return [{ path: `M 100 100 m -80 0 a 80 80 0 1 0 160 0 a 80 80 0 1 0 -160 0`, color: "#E5E7EB" }];
+  const slices: { path: string; color: string }[] = [];
+  let current = 0;
+  const cx = 100, cy = 100, r = 80;
+  function toXY(angle: number) {
+    const rad = (angle - 90) * (Math.PI / 180);
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+  for (const d of data) {
+    if (d.value === 0) continue;
+    const sweep = (d.value / total) * 360;
+    const start = toXY(current);
+    const end = toXY(current + sweep - 0.01);
+    const large = sweep > 180 ? 1 : 0;
+    slices.push({
+      path: `M ${cx} ${cy} L ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)} Z`,
+      color: d.color,
+    });
+    current += sweep;
+  }
+  return slices;
 }
 
 function AdminDashboard() {
   const { data: appsData } = useApps();
   const { data: usersData } = useUsers();
+  const { data: orgsData } = useOrgs();
+  const { data: healthData } = useHealth();
+  const { data: allLogs } = useAuditLogs({ limit: 500 });
 
   const totalApps = appsData?.total ?? 0;
   const activeApps = appsData?.items.filter((a) => a.is_published).length ?? 0;
@@ -109,6 +134,39 @@ function AdminDashboard() {
 
   const totalUsers = usersData?.total ?? 0;
   const activeUsers = usersData?.items.filter((u) => u.is_active).length ?? 0;
+
+  // Tariff distribution
+  const orgs = orgsData ?? [];
+  const planData = [
+    { value: orgs.filter((o) => o.plan === "trial").length,    color: "#35A7FF", label: "Бесплатный" },
+    { value: orgs.filter((o) => o.plan === "pro").length,      color: "#20BE4F", label: "Про план" },
+    { value: orgs.filter((o) => o.plan === "business").length, color: "#FFA600", label: "Бизнес план" },
+  ];
+  const pieSlices = computePieSlices(planData);
+
+  // New users per day (last 7 days)
+  const today = new Date();
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const newUserLogs = (allLogs ?? []).filter((l) => l.action === "user_created");
+  const newUsersByDay = last7Days.map((day) =>
+    newUserLogs.filter((l) => l.created_at.slice(0, 10) === day).length
+  );
+  const maxNewUsers = Math.max(...newUsersByDay, 1);
+
+  // Warnings from real data
+  const dbOk = healthData?.database.status === "ok";
+  const redisOk = healthData?.redis.status === "ok";
+  const securityErrors = (allLogs ?? []).filter((l) => l.level === "error").length;
+  const warnings = [
+    { label: "ошибки БД",              count: healthData == null ? "—" : dbOk ? 0 : 1 },
+    { label: "ошибки Redis",           count: healthData == null ? "—" : redisOk ? 0 : 1 },
+    { label: "инциденты безопасности", count: securityErrors },
+    { label: "интеграции недоступны",  count: healthData == null ? "—" : (!dbOk || !redisOk) ? 1 : 0 },
+  ];
 
   return (
     <div className="flex flex-col gap-[70px] h-full">
@@ -128,35 +186,40 @@ function AdminDashboard() {
         <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[30px_20px] flex flex-col gap-[30px] w-[544px]">
           <h2 className="text-card-h font-semibold text-primary">Приложения и пользователи</h2>
           <div className="flex gap-[50px] items-end">
-            {/* Legend column */}
             <div className="flex flex-col gap-[25px]">
-              <div className="flex flex-col gap-[25px]">
-                <span className="text-info text-primary">Пользователи</span>
-                <span className="text-info text-primary">Приложения</span>
-              </div>
+              <span className="text-info text-primary">Пользователи</span>
+              <span className="text-info text-primary">Приложения</span>
             </div>
-            {/* Stats */}
             <div className="flex-1 flex flex-col gap-[25px]">
               <div className="flex justify-between text-info">
                 <span className="text-[#20BE4F] w-[75px]">Активно</span>
                 <span className="text-[#FFA600] w-[120px]">В разработке</span>
                 <span className="text-cta w-[52px]">Всего</span>
               </div>
-              <StatRow label="" active={activeUsers} inDev={totalUsers - activeUsers} total={totalUsers} />
-              <StatRow label="" active={activeApps} inDev={devApps} total={totalApps} />
+              <StatRow active={activeUsers} inDev={totalUsers - activeUsers} total={totalUsers} />
+              <StatRow active={activeApps} inDev={devApps} total={totalApps} />
             </div>
           </div>
         </div>
 
         {/* Card 2: System Health */}
         <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[30px_20px] flex flex-col gap-[30px] w-[611px]">
-          <h2 className="text-card-h font-semibold text-primary">Панель системного здоровья</h2>
+          <h2 className="text-card-h font-semibold text-primary">Статус сервисов</h2>
           <div className="flex flex-col gap-5">
-            <ProgressBar label="vCPU"   value={30} maxLabel="30%" />
-            <ProgressBar label="RAM"    value={30} maxLabel="30%" />
-            <ProgressBar label="API"    value={23} maxLabel="2,340/10,000" />
-            <ProgressBar label="GPU"    value={30} maxLabel="30%" />
-            <ProgressBar label="Память" value={25} maxLabel="2,5 Гб / 10 Гб" />
+            <ServiceStatusRow
+              label="База данных"
+              status={healthData?.database.status}
+              latencyMs={healthData?.database.latency_ms}
+            />
+            <ServiceStatusRow
+              label="Redis"
+              status={healthData?.redis.status}
+              latencyMs={healthData?.redis.latency_ms}
+            />
+            <ServiceStatusRow
+              label="API"
+              status={healthData != null ? "ok" : undefined}
+            />
           </div>
         </div>
 
@@ -165,15 +228,21 @@ function AdminDashboard() {
           <h2 className="text-card-h font-semibold text-[#FFA600]">Предупреждения</h2>
           <div className="flex gap-[30px]">
             <div className="flex flex-col gap-[10px] flex-1">
-              {["ошибки сборок", "ошибки БД", "инциденты безопасности", "интеграции недоступны"].map(
-                (w) => (
-                  <span key={w} className="text-info text-primary">{w}</span>
-                )
-              )}
+              {warnings.map((w) => (
+                <span key={w.label} className="text-info text-primary">{w.label}</span>
+              ))}
             </div>
-            <div className="flex flex-col gap-[5px]">
-              {[5, 1, 0, 0].map((n, i) => (
-                <span key={i} className="text-info text-primary w-[12px]">{n}</span>
+            <div className="flex flex-col gap-[10px]">
+              {warnings.map((w, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    "text-info w-[20px] text-center",
+                    typeof w.count === "number" && w.count > 0 ? "text-[#FFA600] font-semibold" : "text-primary"
+                  )}
+                >
+                  {w.count}
+                </span>
               ))}
             </div>
           </div>
@@ -183,25 +252,23 @@ function AdminDashboard() {
         <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[30px_0_30px_0] flex flex-col gap-0 w-[544px]">
           <h2 className="text-card-h font-semibold text-primary px-5 mb-5">Распределение по тарифам</h2>
           <div className="flex items-center justify-between px-5">
-            {/* Pie chart placeholder */}
             <div className="relative w-[200px] h-[200px] shrink-0">
               <svg viewBox="0 0 200 200" className="w-full h-full">
-                <circle cx="100" cy="100" r="80" fill="#35A7FF" />
-                <path d="M100 100 L100 20 A80 80 0 0 1 169 140 Z" fill="#20BE4F" />
-                <path d="M100 100 L169 140 A80 80 0 0 1 31 140 Z" fill="#FFA600" />
+                {pieSlices.map((s, i) => (
+                  <path key={i} d={s.path} fill={s.color} />
+                ))}
                 <circle cx="100" cy="100" r="40" fill="white" />
+                <text x="100" y="104" textAnchor="middle" fontSize="13" fill="#00205F" fontWeight="600">
+                  {orgs.length}
+                </text>
               </svg>
             </div>
-            {/* Legend */}
-            <div className="flex flex-col gap-[30px]">
-              {[
-                { color: "#35A7FF", label: "Бесплатный" },
-                { color: "#20BE4F", label: "Про план" },
-                { color: "#FFA600", label: "Бизнес план" },
-              ].map((t) => (
-                <div key={t.label} className="flex items-center gap-6">
-                  <div className="w-[42px] h-[25px] rounded-sm shrink-0" style={{ background: t.color }} />
+            <div className="flex flex-col gap-[20px]">
+              {planData.map((t) => (
+                <div key={t.label} className="flex items-center gap-3">
+                  <div className="w-[30px] h-[18px] rounded-sm shrink-0" style={{ background: t.color }} />
                   <span className="text-info text-primary">{t.label}</span>
+                  <span className="text-info text-primary/50 ml-auto">{t.value}</span>
                 </div>
               ))}
             </div>
@@ -212,20 +279,20 @@ function AdminDashboard() {
         <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] p-[30px_0_30px_0] flex flex-col gap-5 w-[625px]">
           <h2 className="text-card-h font-semibold text-primary px-5">Новые пользователи (чел./день)</h2>
           <div className="flex items-start px-5">
-            {/* Y-axis */}
-            <div className="flex flex-col gap-[15px] w-[75px] shrink-0">
-              {[50, 40, 30, 20, 10, 0].map((v) => (
-                <span key={v} className="text-info text-primary text-center">{v}</span>
+            <div className="flex flex-col justify-between h-[193px] w-[30px] shrink-0 pb-1">
+              {[maxNewUsers, Math.round(maxNewUsers * 0.5), 0].map((v) => (
+                <span key={v} className="text-info text-primary text-right text-[12px]">{v}</span>
               ))}
             </div>
-            {/* Bar chart placeholder */}
-            <div className="flex-1 flex items-end justify-around h-[193px] border-b-2 border-l-2 border-cta px-2">
-              {[35, 20, 45, 30, 50, 25, 40].map((h, i) => (
-                <div
-                  key={i}
-                  className="w-[40px] bg-cta rounded-t-sm"
-                  style={{ height: `${(h / 50) * 100}%` }}
-                />
+            <div className="flex-1 flex items-end justify-around h-[193px] border-b-2 border-l-2 border-cta px-2 ml-2">
+              {newUsersByDay.map((h, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <div
+                    className="w-[40px] bg-cta rounded-t-sm transition-all"
+                    style={{ height: `${(h / maxNewUsers) * 170}px` }}
+                  />
+                  <span className="text-[10px] text-primary/40">{last7Days[i].slice(5)}</span>
+                </div>
               ))}
             </div>
           </div>
