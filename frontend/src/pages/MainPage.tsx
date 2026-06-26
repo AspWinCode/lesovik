@@ -15,6 +15,9 @@ import {
   RolesModal,
 } from "@/components/modals/Modals";
 import { useApps, useCreateApp, useUpdateApp, useDeleteApp } from "@/shared/hooks/useApps";
+import { useEntities } from "@/shared/hooks/useEntities";
+import { usePages } from "@/shared/hooks/useViews";
+import { useRules } from "@/shared/hooks/useRules";
 import { useAuthStore } from "@/shared/auth/store";
 import type { App } from "@/shared/api/apps";
 
@@ -47,20 +50,6 @@ function slugify(name: string): string {
   return `${safe}-${Date.now().toString(36)}`;
 }
 
-/* ── Mock data for the (not-yet-wired) Databases tab and info cards ── */
-const INFO_CARDS_APPS: InfoCardData[] = [
-  { id: "data",       content: "11 таблиц\n243 строки данных",  label: "Данные" },
-  { id: "interface",  content: "Выполнены 3/7 стр",              label: "Интерфейс" },
-  { id: "security",   content: "Защита подключена",              label: "Безопасность" },
-  { id: "automation", content: "",                                label: "Автоматизация" },
-];
-
-const INFO_CARDS_DB: InfoCardData[] = [
-  { id: "t1", content: "11 таблиц\n243 строки данных",  label: "Таблица 1" },
-  { id: "t2", content: "Выполнены 3/7 стр",              label: "Таблица 2" },
-  { id: "t3", content: "Защита подключена",              label: "Таблица 3" },
-  { id: "t4", content: "",                                label: "Таблица 4" },
-];
 
 const TOP_TABS = [
   {
@@ -85,6 +74,22 @@ const TOP_TABS = [
     ),
   },
 ];
+
+function pluralTable(n: number) {
+  const r = n % 10;
+  if (n % 100 >= 11 && n % 100 <= 14) return "таблиц";
+  if (r === 1) return "таблица";
+  if (r >= 2 && r <= 4) return "таблицы";
+  return "таблиц";
+}
+
+function pluralField(n: number) {
+  const r = n % 10;
+  if (n % 100 >= 11 && n % 100 <= 14) return "полей";
+  if (r === 1) return "поле";
+  if (r >= 2 && r <= 4) return "поля";
+  return "полей";
+}
 
 export function MainPage() {
   const [sidebarTab, setSidebarTab]    = useState<SidebarTab>("all");
@@ -146,12 +151,58 @@ export function MainPage() {
   }
 
   const isApps = topTab === "apps";
-  const infoCards = isApps ? INFO_CARDS_APPS : INFO_CARDS_DB;
   const infoTitle = isApps ? "Информация о проекте" : "Информация о базе данных";
 
   // Selection defaults to the first app once loaded.
   const effectiveSelected = selectedProject ?? projects[0]?.id ?? null;
   const selected = projects.find((p) => p.id === effectiveSelected);
+
+  const { data: entitiesData } = useEntities(effectiveSelected ?? undefined);
+  const { data: pagesData }    = usePages(effectiveSelected ?? undefined);
+  const { data: rulesData }    = useRules(effectiveSelected ?? undefined);
+
+  const entities       = entitiesData ?? [];
+  const pages          = pagesData    ?? [];
+  const rules          = rulesData    ?? [];
+  const publishedPages = pages.filter((p) => p.is_published).length;
+  const activeRules    = rules.filter((r) => r.is_active).length;
+  const totalFields    = entities.reduce((sum, e) => sum + (e.fields?.length ?? 0), 0);
+
+  const infoCards: InfoCardData[] = isApps
+    ? [
+        {
+          id: "data",
+          label: "Данные",
+          content: entities.length
+            ? `${entities.length} ${pluralTable(entities.length)}${totalFields ? `\n${totalFields} ${pluralField(totalFields)}` : ""}`
+            : "Нет таблиц",
+        },
+        {
+          id: "interface",
+          label: "Интерфейс",
+          content: pages.length
+            ? `Опубликовано ${publishedPages}/${pages.length} стр`
+            : "Нет страниц",
+        },
+        {
+          id: "security",
+          label: "Безопасность",
+          content: "Защита подключена",
+        },
+        {
+          id: "automation",
+          label: "Автоматизация",
+          content: rules.length
+            ? `${activeRules} активных из ${rules.length} правил`
+            : "Нет правил",
+        },
+      ]
+    : [
+        { id: "t1", label: "Данные",        content: entities.length ? `${entities.length} ${pluralTable(entities.length)}` : "Нет таблиц" },
+        { id: "t2", label: "Интерфейс",     content: pages.length    ? `${pages.length} страниц` : "Нет страниц" },
+        { id: "t3", label: "Безопасность",  content: "Защита подключена" },
+        { id: "t4", label: "Автоматизация", content: rules.length    ? `${rules.length} правил` : "Нет правил" },
+      ];
 
   async function handleCreateApp(name: string) {
     await createApp.mutateAsync({ name, slug: slugify(name) });
