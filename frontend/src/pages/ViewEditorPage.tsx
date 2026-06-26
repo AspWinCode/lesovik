@@ -1833,12 +1833,12 @@ function IframePreview({
     )},
   ];
 
-  // Per Figma design: phone screen 380×800 centered in 580px panel (100px margins each side).
-  // Desktop: 1280px app scaled down to fit the same 380px wide slot.
+  // Mobile: 380×800 phone frame. Desktop: 540×500 widescreen frame, 1280px content scaled down.
   const cfg = device === "mobile"
-    ? { frameW: 380, iframeW: 390, iframeH: Math.ceil(800 * 390 / 380) }
-    : { frameW: 380, iframeW: 1280, iframeH: Math.ceil(800 * 1280 / 380) };
+    ? { frameW: 380, frameH: 800, iframeW: 390,  borderR: 40 }
+    : { frameW: 540, frameH: 500, iframeW: 1280, borderR: 14 };
   const scale = cfg.frameW / cfg.iframeW;
+  const iframeH = Math.ceil(cfg.frameH / scale);
 
   const src = appId
     ? `/app/?app=${appId}&preview=true&page=${activePageId}`
@@ -1859,7 +1859,12 @@ function IframePreview({
       {/* Device frame */}
       <div
         className="shrink-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden relative"
-        style={{ width: cfg.frameW, height: 800, borderRadius: device === "mobile" ? 40 : 14 }}
+        style={{
+          width: cfg.frameW,
+          height: cfg.frameH,
+          borderRadius: cfg.borderR,
+          transition: "width 0.25s, height 0.25s, border-radius 0.25s",
+        }}
       >
         {src ? (
           <iframe
@@ -1870,7 +1875,7 @@ function IframePreview({
               top: 0,
               left: 0,
               width: cfg.iframeW,
-              height: cfg.iframeH,
+              height: iframeH,
               border: 0,
               transformOrigin: "top left",
               transform: `scale(${scale})`,
