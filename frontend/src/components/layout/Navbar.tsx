@@ -322,12 +322,13 @@ function CloseIcon() {
 
 function GroupAddIcon() {
   return (
-    <svg viewBox="0 0 33 33" className={iconCls}>
-      <circle cx="11" cy="9" r="5" stroke="#00205F" strokeWidth="1.53"/>
-      <circle cx="22" cy="10" r="4" stroke="#00205F" strokeWidth="1.53"/>
-      <path d="M2 26 C2 20 6 18 11 18 C16 18 20 20 20 26" stroke="#00205F" strokeWidth="1.53"/>
-      <line x1="26" y1="3" x2="26" y2="11" stroke="#00205F" strokeWidth="1.53" strokeLinecap="round"/>
-      <line x1="22" y1="7" x2="30" y2="7" stroke="#00205F" strokeWidth="1.53" strokeLinecap="round"/>
+    <svg viewBox="0 0 30 28" className={iconCls}>
+      {/* Person */}
+      <circle cx="10" cy="8" r="5" stroke="#00205F" strokeWidth="2"/>
+      <path d="M1 27 C1 20 5 17 10 17 C15 17 19 20 19 27" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      {/* Plus sign — clearly to the right, not overlapping */}
+      <line x1="24" y1="4" x2="24" y2="16" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="18" y1="10" x2="30" y2="10" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
     </svg>
   );
 }
