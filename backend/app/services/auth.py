@@ -311,6 +311,8 @@ class AuthService:
         user = result.scalar_one_or_none()
         if user is None:
             raise AuthError("Invalid credentials")
+        if user.is_blocked:
+            raise AuthError("Account is blocked", status_code=403)
         return user
 
     async def _get_active_user_by_id(self, user_id: uuid.UUID) -> User:

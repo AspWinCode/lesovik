@@ -11,6 +11,7 @@ export interface User {
   email: string;
   display_name: string;
   is_active: boolean;
+  is_blocked: boolean;
   is_superuser: boolean;
   totp_enabled: boolean;
   last_login_at: string | null;
@@ -29,6 +30,7 @@ export interface UserCreate {
 export interface UserUpdate {
   display_name?: string;
   is_active?: boolean;
+  is_blocked?: boolean;
   roles?: string[];
 }
 
@@ -62,6 +64,10 @@ export async function updateUser(userId: string, body: UserUpdate): Promise<User
 
 export async function deactivateUser(userId: string): Promise<void> {
   await apiClient.delete(`/users/${userId}`);
+}
+
+export async function hardDeleteUser(userId: string): Promise<void> {
+  await apiClient.delete(`/users/${userId}/hard`);
 }
 
 export async function listRoles(): Promise<UserRole[]> {

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
-import { useUsers, useDeactivateUser, useUpdateUser, useInviteUser, useRoles } from "@/shared/hooks/useUsers";
+import { useUsers, useDeactivateUser, useUpdateUser, useHardDeleteUser, useInviteUser, useRoles } from "@/shared/hooks/useUsers";
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
 import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
@@ -681,9 +681,11 @@ export function InviteUserDialog({ onClose }: { onClose: () => void }) {
 function AdminUsers() {
   const [search, setSearch] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const { data, isLoading } = useUsers(search ? { search } : undefined);
   const deactivate = useDeactivateUser();
-  const activate = useUpdateUser();
+  const update = useUpdateUser();
+  const hardDelete = useHardDeleteUser();
 
   const users = data?.items ?? [];
 
@@ -691,9 +693,52 @@ function AdminUsers() {
     return new Date(iso).toLocaleDateString("ru", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
 
+  function userStatus(u: typeof users[0]) {
+    if (u.is_blocked) return { label: "Заблокирован", color: "text-[#C22A2A]" };
+    if (!u.is_active) return { label: "Неактивен", color: "text-[#FFA600]" };
+    return { label: "Активен", color: "text-[#20BE4F]" };
+  }
+
   return (
     <div className="flex flex-col gap-[40px]">
       {inviteOpen && <InviteUserDialog onClose={() => setInviteOpen(false)} />}
+
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,32,95,0.35)" }}
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div
+            className="bg-white rounded-[20px] w-[420px] p-[30px] flex flex-col gap-[20px]"
+            style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-[8px]">
+              <span className="text-[20px] font-bold text-primary">Удалить пользователя?</span>
+              <span className="text-[15px] text-primary/60">
+                Это действие необратимо. Учётная запись <strong className="text-primary">{deleteConfirm.name}</strong> и все связанные данные будут удалены навсегда.
+              </span>
+            </div>
+            <div className="flex gap-[10px] justify-end">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => hardDelete.mutate(deleteConfirm.id, { onSuccess: () => setDeleteConfirm(null) })}
+                disabled={hardDelete.isPending}
+                className="h-[42px] px-[22px] bg-[#C22A2A] rounded-[20px] text-[15px] font-semibold text-white hover:bg-[#A01E1E] transition-colors disabled:opacity-50"
+              >
+                {hardDelete.isPending ? "Удаление…" : "Удалить навсегда"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h1 className="text-[40px] font-bold text-primary leading-[150%]">Пользователи</h1>
         <button
@@ -740,44 +785,157 @@ function AdminUsers() {
             {!isLoading && users.length === 0 && (
               <tr><td colSpan={7} className="px-6 py-4 text-center text-primary/50 text-[16px]">Пользователи не найдены</td></tr>
             )}
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-mainbg hover:bg-mainbg/40">
-                <td className="px-6 py-3 text-meta font-semibold text-primary">{u.display_name}</td>
-                <td className="px-6 py-3 text-meta text-primary">{u.email}</td>
-                <td className="px-6 py-3 text-meta text-primary">
-                  {u.roles.length > 0 ? u.roles.map((r) => r.display_name).join(", ") : "—"}
-                </td>
-                <td className={cn("px-6 py-3 text-meta font-semibold",
-                  u.is_active ? "text-[#20BE4F]" : "text-[#FFA600]"
-                )}>
-                  {u.is_active ? "Активен" : "Неактивен"}
-                </td>
-                <td className="px-6 py-3 text-meta text-primary">
-                  {u.last_login_at ? fmtDate(u.last_login_at) : "—"}
-                </td>
-                <td className="px-6 py-3 text-meta text-primary">{fmtDate(u.created_at)}</td>
-                <td className="px-6 py-3">
-                  {u.is_active ? (
-                    <button
-                      onClick={() => deactivate.mutate(u.id)}
-                      className="text-[14px] text-[#C22A2A] hover:underline"
-                    >
-                      Деактивировать
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => activate.mutate({ userId: u.id, body: { is_active: true } })}
-                      className="text-[14px] text-[#20BE4F] hover:underline"
-                    >
-                      Активировать
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {users.map((u) => {
+              const st = userStatus(u);
+              return (
+                <tr key={u.id} className="border-t border-mainbg hover:bg-mainbg/40">
+                  <td className="px-6 py-3 text-meta font-semibold text-primary">{u.display_name}</td>
+                  <td className="px-6 py-3 text-meta text-primary">{u.email}</td>
+                  <td className="px-6 py-3 text-meta text-primary">
+                    {u.roles.length > 0 ? u.roles.map((r) => r.display_name).join(", ") : "—"}
+                  </td>
+                  <td className={cn("px-6 py-3 text-meta font-semibold", st.color)}>{st.label}</td>
+                  <td className="px-6 py-3 text-meta text-primary">
+                    {u.last_login_at ? fmtDate(u.last_login_at) : "—"}
+                  </td>
+                  <td className="px-6 py-3 text-meta text-primary">{fmtDate(u.created_at)}</td>
+                  <td className="px-6 py-3">
+                    <UserActionsMenu
+                      user={u}
+                      onDeactivate={() => deactivate.mutate(u.id)}
+                      onActivate={() => update.mutate({ userId: u.id, body: { is_active: true } })}
+                      onBlock={() => update.mutate({ userId: u.id, body: { is_blocked: true } })}
+                      onUnblock={() => update.mutate({ userId: u.id, body: { is_blocked: false } })}
+                      onDelete={() => setDeleteConfirm({ id: u.id, name: u.display_name })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/* ── User actions dropdown ── */
+function UserActionsMenu({
+  user,
+  onDeactivate,
+  onActivate,
+  onBlock,
+  onUnblock,
+  onDelete,
+}: {
+  user: { is_active: boolean; is_blocked: boolean; is_superuser: boolean };
+  onDeactivate: () => void;
+  onActivate: () => void;
+  onBlock: () => void;
+  onUnblock: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function act(fn: () => void) {
+    fn();
+    setOpen(false);
+  }
+
+  return (
+    <div ref={ref} className="relative flex justify-end">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-7 h-7 flex items-center justify-center rounded hover:bg-mainbg transition-colors text-primary/40 hover:text-primary"
+        title="Действия"
+      >
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+          <circle cx="8" cy="3" r="1.3" />
+          <circle cx="8" cy="8" r="1.3" />
+          <circle cx="8" cy="13" r="1.3" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-8 z-50 bg-white rounded-[12px] py-[6px] min-w-[190px]"
+          style={{ boxShadow: "0 4px 24px rgba(0,32,95,0.14)" }}
+        >
+          {user.is_active ? (
+            <button
+              onClick={() => act(onDeactivate)}
+              className="w-full text-left flex items-center gap-[10px] px-[14px] h-[36px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0 text-[#FFA600]" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="8" cy="8" r="6.5" />
+                <line x1="5" y1="8" x2="11" y2="8" strokeLinecap="round" />
+              </svg>
+              Деактивировать
+            </button>
+          ) : (
+            <button
+              onClick={() => act(onActivate)}
+              className="w-full text-left flex items-center gap-[10px] px-[14px] h-[36px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0 text-[#20BE4F]" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="8" cy="8" r="6.5" />
+                <path d="M5.5 8l2 2 3-3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Активировать
+            </button>
+          )}
+
+          {user.is_blocked ? (
+            <button
+              onClick={() => act(onUnblock)}
+              className="w-full text-left flex items-center gap-[10px] px-[14px] h-[36px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0 text-[#20BE4F]" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="7" width="10" height="7" rx="1.5" />
+                <path d="M5.5 7V5a2.5 2.5 0 015 0v2" strokeLinecap="round" />
+              </svg>
+              Разблокировать
+            </button>
+          ) : (
+            <button
+              onClick={() => act(onBlock)}
+              className="w-full text-left flex items-center gap-[10px] px-[14px] h-[36px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0 text-[#C22A2A]" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="7" width="10" height="7" rx="1.5" />
+                <path d="M5.5 7V5a2.5 2.5 0 015 0v2" strokeLinecap="round" />
+                <line x1="5" y1="10.5" x2="11" y2="10.5" strokeLinecap="round" />
+              </svg>
+              Заблокировать
+            </button>
+          )}
+
+          {!user.is_superuser && (
+            <>
+              <div className="border-t border-mainbg my-[4px]" />
+              <button
+                onClick={() => act(onDelete)}
+                className="w-full text-left flex items-center gap-[10px] px-[14px] h-[36px] text-[14px] text-[#C22A2A] hover:bg-[#FFF0F0] transition-colors"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M3 4h10M6 4V2.5h4V4M5 4v8.5a.5.5 0 00.5.5h5a.5.5 0 00.5-.5V4" strokeLinecap="round" />
+                  <line x1="6.5" y1="7" x2="6.5" y2="10.5" strokeLinecap="round" />
+                  <line x1="9.5" y1="7" x2="9.5" y2="10.5" strokeLinecap="round" />
+                </svg>
+                Удалить навсегда
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

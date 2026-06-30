@@ -138,7 +138,7 @@ async def update_user(user_id: uuid.UUID, body: UserUpdate, current_user: AuthDe
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Deactivate user")
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Deactivate user (soft)")
 async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> None:
     if not current_user.has_role("platform_admin", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
@@ -147,6 +147,26 @@ async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> N
             user_id,
             deleted_by=current_user.user_id,
             actor_org_id=current_user.org_id if current_user.is_org_admin else None,
+        )
+    except UserNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/{user_id}/hard",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Permanently delete user from database",
+)
+async def hard_delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> None:
+    if not current_user.has_role("platform_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only platform_admin can hard-delete users")
+    try:
+        await UserService(db).hard_delete_user(
+            user_id,
+            deleted_by=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
         )
     except UserNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc

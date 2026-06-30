@@ -17,6 +17,7 @@ class UserRead(BaseModel):
     email: EmailStr
     display_name: str
     is_active: bool
+    is_blocked: bool = False
     is_superuser: bool
     org_id: uuid.UUID | None = None
     totp_enabled: bool
@@ -44,6 +45,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=2, max_length=256)
     is_active: bool | None = None
+    is_blocked: bool | None = None
     roles: list[str] | None = None
 
 

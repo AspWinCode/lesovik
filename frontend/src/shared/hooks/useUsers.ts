@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createUser,
   deactivateUser,
+  hardDeleteUser,
   inviteUser,
   listRoles,
   listUsers,
@@ -26,7 +27,7 @@ export function useRoles() {
   return useQuery({
     queryKey: ROLES_KEY,
     queryFn: listRoles,
-    staleTime: 5 * 60 * 1000, // roles rarely change
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -51,6 +52,14 @@ export function useDeactivateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: USERS_KEY }); },
+  });
+}
+
+export function useHardDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => hardDeleteUser(userId),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: USERS_KEY }); },
   });
 }

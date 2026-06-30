@@ -53,6 +53,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(256), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     org_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -204,6 +204,9 @@ class UserService:
         if data.is_active is not None:
             user.is_active = data.is_active
             changed["is_active"] = data.is_active
+        if data.is_blocked is not None:
+            user.is_blocked = data.is_blocked
+            changed["is_blocked"] = data.is_blocked
         if data.roles is not None:
             if actor_org_id is not None:
                 self._check_org_assignable_roles(data.roles)
@@ -247,6 +250,32 @@ class UserService:
             resource_id=str(user_id),
             level="warn",
         )
+
+    async def hard_delete_user(
+        self,
+        user_id: uuid.UUID,
+        deleted_by: uuid.UUID | None = None,
+        actor_email: str | None = None,
+        actor_org_id: uuid.UUID | None = None,
+    ) -> None:
+        from sqlalchemy import delete as sa_delete
+        user = await self._fetch_user(user_id)
+        if user.is_superuser:
+            raise PermissionError("Cannot delete superuser")
+        if actor_org_id is not None and user.org_id != actor_org_id:
+            raise PermissionError("Cannot manage users outside your organisation")
+        await AuditService(self._db).log(
+            "user_hard_deleted",
+            user_id=deleted_by,
+            actor_email=actor_email,
+            resource_type="user",
+            resource_id=str(user_id),
+            level="warn",
+            details={"email": user.email, "display_name": user.display_name},
+        )
+        await self._db.execute(sa_delete(User).where(User.id == user_id))
+        await self._db.flush()
+        logger.info("user_hard_deleted", user_id=str(user_id))
 
     async def list_audit_logs(
         self,
