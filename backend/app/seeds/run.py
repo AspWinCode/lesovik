@@ -22,15 +22,15 @@ configure_logging()
 logger = structlog.get_logger(__name__)
 
 ROLES = [
-    {"id": "platform_admin", "display_name": "Platform Admin"},
-    {"id": "org_admin",      "display_name": "Organisation Admin"},
-    {"id": "app_builder",    "display_name": "App Builder"},
-    {"id": "app_admin",      "display_name": "App Admin"},
-    {"id": "data_editor",    "display_name": "Data Editor"},
-    {"id": "data_viewer",    "display_name": "Data Viewer"},
-    {"id": "workflow_actor", "display_name": "Workflow Actor"},
-    {"id": "auditor",        "display_name": "Auditor"},
-    {"id": "api_client",     "display_name": "API Client"},
+    {"id": "platform_admin", "display_name": "Администратор платформы"},
+    {"id": "org_admin",      "display_name": "Администратор организации"},
+    {"id": "app_builder",    "display_name": "Конструктор приложений"},
+    {"id": "app_admin",      "display_name": "Администратор приложения"},
+    {"id": "data_editor",    "display_name": "Редактор данных"},
+    {"id": "data_viewer",    "display_name": "Просмотр данных"},
+    {"id": "workflow_actor", "display_name": "Участник процессов"},
+    {"id": "auditor",        "display_name": "Аудитор"},
+    {"id": "api_client",     "display_name": "API-клиент"},
 ]
 
 ADMIN_ROLES = ["platform_admin", "app_builder"]
