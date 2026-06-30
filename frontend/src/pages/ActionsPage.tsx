@@ -16,6 +16,7 @@ export function ActionsPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState("");
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [position, setPosition] = useState("основной");
   const [displayOpen, setDisplayOpen] = useState(true);
   const [iconTab, setIconTab] = useState("Все");
@@ -33,10 +34,10 @@ export function ActionsPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Actions list panel ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute top-[70px] bg-mainbg flex flex-col"
         style={{ left: 85, width: 290, height: 1000, borderRadius: "20px 5px 5px 20px" }}
       >
@@ -95,12 +96,12 @@ export function ActionsPage() {
             );
           })}
         </div>
-      </aside>
+      </aside>}
 
       {/* ── Center: action editor ── */}
       <div
         className="absolute bg-mainbg rounded-[5px] overflow-hidden flex flex-col"
-        style={{ left: 380, top: 70, width: 945, height: 1000 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1235 : 945, height: 1000, transition: "left 0.2s, width 0.2s" }}
       >
         {/* Title bar */}
         <div className="h-[60px] flex items-center justify-between px-[41px] shrink-0">

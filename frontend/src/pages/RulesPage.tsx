@@ -444,6 +444,7 @@ export function RulesPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [modal, setModal] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
+  const [navCollapsed, setNavCollapsed] = useState(false);
 
   const appsQuery = useApps();
   const app = useActiveApp(appsQuery.data?.items ?? []);
@@ -466,10 +467,10 @@ export function RulesPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Entity sidebar ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute bg-white overflow-y-auto border-r border-cardbg"
         style={{ left: 85, top: 70, width: 295, height: 1010 }}
       >
@@ -495,12 +496,12 @@ export function RulesPage() {
             </button>
           ))}
         </nav>
-      </aside>
+      </aside>}
 
       {/* ── Rules list ── */}
       <main
         className="absolute bg-mainbg overflow-y-auto"
-        style={{ left: 380, top: 70, width: 1130, height: 1010 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1420 : 1130, height: 1010, transition: "left 0.2s, width 0.2s" }}
       >
         <div className="px-[40px] py-[28px]">
           <div className="flex items-center justify-between mb-6">

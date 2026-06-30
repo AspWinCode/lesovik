@@ -30,6 +30,7 @@ type EditingCell = { rowId: number; field: string } | null;
 export function DataPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
   const [activeView, setActiveView] = useState("Все записи");
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
   const [cellValues, setCellValues] = useState<Record<string, string>>({});
@@ -59,10 +60,10 @@ export function DataPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Sidebar ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute bg-white border-r border-cardbg overflow-y-auto flex flex-col"
         style={{ left: 85, top: 70, width: 295, height: 1010 }}
       >
@@ -94,12 +95,12 @@ export function DataPage() {
             Создать представление
           </button>
         </div>
-      </aside>
+      </aside>}
 
       {/* ── Main ── */}
       <main
         className="absolute bg-mainbg overflow-y-auto flex flex-col"
-        style={{ left: 380, top: 70, width: 1255, height: 1010 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1545 : 1255, height: 1010, transition: "left 0.2s, width 0.2s" }}
       >
         {/* Toolbar */}
         <div className="px-8 py-4 bg-white border-b border-cardbg shrink-0">

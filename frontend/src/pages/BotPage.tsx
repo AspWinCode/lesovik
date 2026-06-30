@@ -60,6 +60,7 @@ export function BotPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
   const [botTab, setBotTab] = useState("Бот");
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(true);
   const [selectedCard, setSelectedCard] = useState<SelectedCard>(null);
@@ -134,10 +135,10 @@ export function BotPage() {
       onClick={() => setOpenMenuId(null)}
     >
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Left panel ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute top-[70px] bg-mainbg flex flex-col"
         style={{ left: 85, width: 290, height: 1005, borderRadius: "20px 5px 5px 20px" }}
       >
@@ -201,12 +202,12 @@ export function BotPage() {
             />
           ))}
         </div>
-      </aside>
+      </aside>}
 
       {/* ── Center panel ── */}
       <div
         className="absolute bg-mainbg rounded-[5px] overflow-hidden flex flex-col"
-        style={{ left: 380, top: 70, width: 945, height: 1000 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1235 : 945, height: 1000, transition: "left 0.2s, width 0.2s" }}
       >
         <div className="h-[55px] flex items-center gap-[30px] px-[40px] shrink-0">
           {BOT_TABS.map((t) => (

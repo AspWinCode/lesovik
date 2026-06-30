@@ -37,6 +37,7 @@ export function DbHistoryPage() {
   const [search, setSearch] = useState("");
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [navCollapsed, setNavCollapsed] = useState(false);
 
   const ROWS_PER_PAGE = 10;
 
@@ -53,10 +54,10 @@ export function DbHistoryPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Sidebar ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute bg-white border-r border-cardbg overflow-y-auto"
         style={{ left: 85, top: 70, width: 295, height: 1010 }}
       >
@@ -107,12 +108,12 @@ export function DbHistoryPage() {
             ))}
           </div>
         </div>
-      </aside>
+      </aside>}
 
       {/* ── Main content ── */}
       <main
         className="absolute bg-mainbg overflow-y-auto flex flex-col"
-        style={{ left: 380, top: 70, width: 1540, height: 1010 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1830 : 1540, height: 1010, transition: "left 0.2s, width 0.2s" }}
       >
         <div className="px-8 py-6 bg-white border-b border-cardbg shrink-0">
           <div className="flex items-center justify-between mb-4">

@@ -54,6 +54,7 @@ export function DataSourcesPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
   const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("fields");
+  const [navCollapsed, setNavCollapsed] = useState(false);
 
   const { data: appsData } = useApps();
   const appId = appsData?.items[0]?.id;
@@ -66,10 +67,10 @@ export function DataSourcesPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Source list sidebar ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute top-[70px] bg-mainbg flex flex-col"
         style={{ left: 85, width: 290, height: 1000, borderRadius: "20px 5px 5px 20px" }}
       >
@@ -114,12 +115,12 @@ export function DataSourcesPage() {
             <span className="text-meta text-primary">Пользовательские настройки</span>
           </div>
         </div>
-      </aside>
+      </aside>}
 
       {/* ── Center: field editor ── */}
       <div
         className="absolute bg-mainbg rounded-[5px] overflow-hidden flex flex-col"
-        style={{ left: 380, top: 70, width: 945, height: 1000 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1235 : 945, height: 1000, transition: "left 0.2s, width 0.2s" }}
       >
         {/* Header */}
         <div className="flex items-center justify-between pl-[25px] pr-[15px] h-[64px] border-b-2 border-white shrink-0">

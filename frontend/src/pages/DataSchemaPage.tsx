@@ -59,6 +59,7 @@ type FormulaModal = { columnId: string; columnName: string } | null;
 export function DataSchemaPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
   const [activeSource, setActiveSource] = useState("analytics");
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [formulaModal, setFormulaModal] = useState<FormulaModal>(null);
   const [selectDbOpen, setSelectDbOpen] = useState(false);
   const [editColModal, setEditColModal] = useState<{ name: string; type: string } | null>(null);
@@ -75,10 +76,10 @@ export function DataSchemaPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
+      <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
 
       {/* ── Sources sidebar ── */}
-      <aside
+      {!navCollapsed && <aside
         className="absolute bg-white overflow-y-auto border-r border-cardbg"
         style={{ left: 85, top: 70, width: 295, height: 1010 }}
       >
@@ -149,12 +150,12 @@ export function DataSchemaPage() {
             Пользовательские настройки
           </button>
         </div>
-      </aside>
+      </aside>}
 
       {/* ── Column editor ── */}
       <main
         className="absolute bg-mainbg overflow-y-auto"
-        style={{ left: 380, top: 70, width: 945, height: 1010 }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1235 : 945, height: 1010, transition: "left 0.2s, width 0.2s" }}
       >
         {/* Content header */}
         <div className="px-6 py-4 bg-white border-b border-cardbg">
