@@ -3,6 +3,8 @@ import uuid
 import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.core.config import settings
+
 from app.api.deps import AuthDep, DbDep
 from app.schemas.common import CursorPage
 from app.schemas.users import (
@@ -81,7 +83,7 @@ async def invite_user(body: InviteUserRequest, current_user: AuthDep, db: DbDep)
         import asyncio
         from app.services.email import send_invitation_email
         asyncio.ensure_future(
-            send_invitation_email(body.email, body.display_name, temp_password)
+            send_invitation_email(body.email, body.display_name, temp_password, settings.FRONTEND_URL)
         )
         return user
     except UserConflictError as exc:
