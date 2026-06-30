@@ -26,6 +26,8 @@ interface ViewNavPanelProps {
   onSelect: (id: string) => void;
   onAddView?: (sectionId: string) => void;
   onDeleteView?: (viewId: string) => void;
+  onDeleteSystemView?: (viewId: string) => void;
+  onAddRecord?: (entityId: string) => void;
   hasWarning?: boolean;
   systemGroups?: SystemNavGroup[];
 }
@@ -37,6 +39,8 @@ export function ViewNavPanel({
   onSelect,
   onAddView,
   onDeleteView,
+  onDeleteSystemView,
+  onAddRecord,
   hasWarning = false,
   systemGroups = [],
 }: ViewNavPanelProps) {
@@ -196,9 +200,20 @@ export function ViewNavPanel({
             )}
             {systemGroups.map((group) => (
               <div key={group.entityId} className="flex flex-col gap-[6px]">
-                <span className="text-[13px] font-semibold text-primary/50 px-[15px] uppercase tracking-wide">
-                  {group.entityName}
-                </span>
+                <div className="flex items-center justify-between px-[15px]">
+                  <span className="text-[13px] font-semibold text-primary/50 uppercase tracking-wide">
+                    {group.entityName}
+                  </span>
+                  {onAddRecord && (
+                    <button
+                      onClick={() => onAddRecord(group.entityId)}
+                      title="Добавить запись"
+                      className="w-[18px] h-[18px] flex items-center justify-center hover:opacity-70 transition-opacity"
+                    >
+                      <PlusIcon color="#00205F" />
+                    </button>
+                  )}
+                </div>
                 {group.views.map((view) => (
                   <NavPill
                     key={view.id}
@@ -206,6 +221,7 @@ export function ViewNavPanel({
                     active={view.id === activeViewId}
                     onClick={() => onSelect(view.id)}
                     systemType={view.systemType}
+                    onDelete={onDeleteSystemView ? () => onDeleteSystemView(view.id) : undefined}
                   />
                 ))}
               </div>

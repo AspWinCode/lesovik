@@ -16,6 +16,7 @@ import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage } from "@/shared/hooks/useViews";
 import { useEntities } from "@/shared/hooks/useEntities";
 import type { FieldRead } from "@/shared/api/entities";
+import { useCreateRecord } from "@/shared/hooks/useRecords";
 import { SortingModal, GroupingModal, DensityModal, TableViewsModal, NewActionModal } from "@/components/modals/ViewModals";
 
 /* ── View types ── */
@@ -150,6 +151,7 @@ export function ViewEditorPage() {
   const [showActionModal, setShowActionModal] = useState(false);
 
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const [quickAddEntityId, setQuickAddEntityId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [entityDdOpen, setEntityDdOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(true);
@@ -183,6 +185,7 @@ export function ViewEditorPage() {
   const unpublishPageMutation = useUnpublishPage(appId ?? "");
 
   const { data: entities = [] } = useEntities(appId);
+  const createRecordMutation = useCreateRecord(appId ?? "", quickAddEntityId ?? "");
 
   const activePage = pages.find((p) => p.id === activeView) ?? null;
 
@@ -424,6 +427,8 @@ export function ViewEditorPage() {
             const page = pages.find((p) => p.id === id);
             if (!page?.layout?.is_system) handleDeletePage(id);
           }}
+          onDeleteSystemView={(id) => handleDeletePage(id)}
+          onAddRecord={(entityId) => setQuickAddEntityId(entityId)}
           hasWarning={hasWarning}
           systemGroups={systemGroups}
         />
@@ -822,6 +827,117 @@ export function ViewEditorPage() {
           onConfirm={() => setShowActionModal(false)}
         />
       )}
+
+      {quickAddEntityId && (
+        <QuickAddRecordModal
+          entity={entities.find((e) => e.id === quickAddEntityId) ?? null}
+          onClose={() => setQuickAddEntityId(null)}
+          onSave={(payload) => {
+            createRecordMutation.mutate(
+              { payload },
+              { onSuccess: () => { setQuickAddEntityId(null); _postRefetch(); } },
+            );
+          }}
+          saving={createRecordMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Quick-add record modal ── */
+function QuickAddRecordModal({
+  entity,
+  onClose,
+  onSave,
+  saving,
+}: {
+  entity: { display_name: string; fields: FieldRead[] } | null;
+  onClose: () => void;
+  onSave: (payload: Record<string, unknown>) => void;
+  saving: boolean;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  if (!entity) return null;
+  const fields = entity.fields.filter((f) => !f.is_system);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const payload: Record<string, unknown> = {};
+    fields.forEach((f) => { if (values[f.name] !== undefined && values[f.name] !== "") payload[f.name] = values[f.name]; });
+    onSave(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="bg-white rounded-[20px] shadow-[0_8px_40px_rgba(0,32,95,0.18)] w-[480px] max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-[30px] pt-[24px] pb-[16px]">
+          <h3 className="text-[20px] font-bold text-primary">Новая запись — {entity.display_name}</h3>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-[22px] leading-none transition-colors">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-[14px] px-[30px] pb-[24px] overflow-y-auto">
+          {fields.map((f) => (
+            <div key={f.id} className="flex flex-col gap-[4px]">
+              <label className="text-[13px] font-medium text-primary/70">
+                {f.display_name}{f.is_required && <span className="text-red-500 ml-0.5">*</span>}
+              </label>
+              {f.field_type === "text" || f.field_type === "email" || f.field_type === "phone" || f.field_type === "url" ? (
+                <input
+                  type="text"
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  required={f.is_required}
+                  className="h-[40px] px-[12px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors"
+                />
+              ) : f.field_type === "number" || f.field_type === "decimal" ? (
+                <input
+                  type="number"
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  required={f.is_required}
+                  className="h-[40px] px-[12px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors"
+                />
+              ) : f.field_type === "boolean" ? (
+                <label className="flex items-center gap-[8px] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={values[f.name] === "true"}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.name]: String(e.target.checked) }))}
+                    className="w-4 h-4 accent-cta"
+                  />
+                  <span className="text-[14px] text-primary">Да</span>
+                </label>
+              ) : (
+                <input
+                  type="text"
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  required={f.is_required}
+                  className="h-[40px] px-[12px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors"
+                />
+              )}
+            </div>
+          ))}
+          {fields.length === 0 && (
+            <p className="text-[14px] text-primary/40">Нет полей для заполнения</p>
+          )}
+          <div className="flex justify-end gap-[10px] mt-[6px]">
+            <button type="button" onClick={onClose} className="h-[40px] px-[20px] rounded-[20px] border-2 border-primary/20 text-[15px] text-primary hover:bg-cardbg transition-colors">
+              Отмена
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="h-[40px] px-[20px] rounded-[20px] bg-cta text-white text-[15px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {saving ? "Сохранение…" : "Добавить"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
