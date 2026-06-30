@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/shared/auth/store";
 import { useThemeStore } from "@/shared/theme/store";
+import { InviteUserDialog } from "@/pages/AdminPage";
 
 interface NavbarProps {
   brandName?: string;
@@ -26,6 +27,7 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const toggleTheme = useThemeStore((s) => s.toggle);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   async function handleLogout() {
     await logout();
@@ -33,6 +35,7 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
   }
 
   return (
+    <>
     <header
       className={cn(
         "absolute left-0 top-0 w-full h-[70px] flex items-center justify-between",
@@ -57,9 +60,9 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
         </div>
         <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" onClick={() => navigate("/")} />
         <NavIconButton
-          label="Добавить пользователя"
+          label="Пригласить пользователя"
           icon={<GroupAddIcon />}
-          onClick={onGroupAddClick ?? (() => navigate("/admin"))}
+          onClick={onGroupAddClick ?? (() => setInviteOpen(true))}
         />
         <HelpDropdown />
         <SupportDropdown />
@@ -74,6 +77,8 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
         />
       </div>
     </header>
+    {inviteOpen && <InviteUserDialog onClose={() => setInviteOpen(false)} />}
+    </>
   );
 }
 

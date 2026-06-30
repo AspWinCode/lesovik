@@ -100,6 +100,12 @@ async def me(current_user: AuthDep, db: DbDep) -> UserRead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
 
 
+@router.get("/roles", response_model=list[RoleRead], tags=["roles"], summary="List all roles")
+async def list_roles(current_user: AuthDep, db: DbDep) -> list[RoleRead]:
+    roles = await UserService(db).get_roles()
+    return [RoleRead(id=r["id"], display_name=r["display_name"]) for r in roles]
+
+
 @router.get("/{user_id}", response_model=UserRead, summary="Get user by ID")
 async def get_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> UserRead:
     if user_id != current_user.user_id and not current_user.has_role("platform_admin", "auditor", "org_admin"):
@@ -146,12 +152,6 @@ async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> N
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-
-
-@router.get("/roles", response_model=list[RoleRead], tags=["roles"], summary="List all roles")
-async def list_roles(current_user: AuthDep, db: DbDep) -> list[RoleRead]:
-    roles = await UserService(db).get_roles()
-    return [RoleRead(id=r["id"], display_name=r["display_name"]) for r in roles]
 
 
 @router.get("/audit-logs", response_model=list[AuditLogRead], summary="Get audit log (admin only)")

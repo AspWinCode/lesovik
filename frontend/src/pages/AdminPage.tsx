@@ -524,7 +524,7 @@ function LogDetailPanel({ log, onClose }: { log: LogEntry; onClose: () => void }
 }
 
 /* ── Invite dialog ── */
-function InviteUserDialog({ onClose }: { onClose: () => void }) {
+export function InviteUserDialog({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
