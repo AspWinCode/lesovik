@@ -27,10 +27,13 @@ async def send_email(
     msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     try:
+        use_ssl = settings.SMTP_TLS and settings.SMTP_PORT in (465, 9465)
+        use_starttls = settings.SMTP_TLS and not use_ssl
         async with SMTP(
             hostname=settings.SMTP_HOST,
             port=settings.SMTP_PORT,
-            use_tls=settings.SMTP_TLS,
+            use_tls=use_ssl,
+            start_tls=use_starttls,
         ) as smtp:
             if settings.SMTP_USER and settings.SMTP_PASSWORD:
                 await smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
