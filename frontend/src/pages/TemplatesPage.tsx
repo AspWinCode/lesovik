@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar, type SidebarTab } from "@/components/layout/Sidebar";
@@ -17,11 +17,12 @@ interface Template {
   features: string[];
   complexity: string;
   modules?: string[];
+  isCustom?: boolean;
 }
 
 const ALL = "Все";
 
-const TEMPLATES: Template[] = [
+const BUILT_IN_TEMPLATES: Template[] = [
   {
     id: "trading_company",
     name: "Торговая компания",
@@ -113,6 +114,26 @@ const FUNCTIONS = [ALL, "Отслеживание", "Управление", "А�
 const FEATURES = [ALL, "Мобильное", "Веб"];
 const COMPLEXITIES = [ALL, "Простой", "Средний", "Сложный"];
 
+const COLOR_PRESETS = [
+  "#EBF4FF", "#E8F5E9", "#FFF8E1", "#FCE4EC",
+  "#F3E5F5", "#E0F7FA", "#F5F5F5", "#FFF3E0",
+  "#E8EAF6", "#F1F8E9",
+];
+
+const LS_KEY = "user_templates_v1";
+
+function loadUserTemplates(): Template[] {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveUserTemplates(templates: Template[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(templates));
+}
+
 function isAll(value: string): boolean {
   return value === ALL || value === "All";
 }
@@ -157,14 +178,20 @@ export function TemplatesPage() {
   const [feature, setFeature] = useState(ALL);
   const [complexity, setComplexity] = useState(ALL);
   const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [userTemplates, setUserTemplates] = useState<Template[]>(() => loadUserTemplates());
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
 
-  const filtered = filterTemplates(TEMPLATES, { search, category, func: funcFilter, feature, complexity });
+  useEffect(() => { saveUserTemplates(userTemplates); }, [userTemplates]);
+
+  const allTemplates = showOnlyMine
+    ? userTemplates
+    : [...BUILT_IN_TEMPLATES, ...userTemplates];
+
+  const filtered = filterTemplates(allTemplates, { search, category, func: funcFilter, feature, complexity });
 
   function handleSidebar(tab: SidebarTab) {
-    if (tab === "templates") {
-      setSidebarTab(tab);
-      return;
-    }
+    if (tab === "templates") { setSidebarTab(tab); return; }
     navigate("/");
   }
 
@@ -180,12 +207,26 @@ export function TemplatesPage() {
       },
       {
         onSuccess: async (app) => {
-          await installTemplate(app.id, template.id);
+          if (!template.isCustom) await installTemplate(app.id, template.id);
           navigate(`/views?app=${app.id}`);
         },
         onError: () => setCopyingId(null),
       },
     );
+  }
+
+  function handleCreateTemplate(data: Omit<Template, "id" | "isCustom">) {
+    const newTemplate: Template = {
+      ...data,
+      id: `custom_${Date.now()}`,
+      isCustom: true,
+    };
+    setUserTemplates((prev) => [...prev, newTemplate]);
+    setShowCreateModal(false);
+  }
+
+  function handleDeleteTemplate(id: string) {
+    setUserTemplates((prev) => prev.filter((t) => t.id !== id));
   }
 
   return (
@@ -195,12 +236,21 @@ export function TemplatesPage() {
 
       <main className="absolute top-[70px] overflow-y-auto bg-white" style={{ left: 280, width: 1640, height: 1010 }}>
         <div className="px-10 py-8">
-          <h1 className="text-[32px] font-bold text-primary mb-2">Шаблоны приложений</h1>
+          <div className="flex items-start justify-between mb-2">
+            <h1 className="text-[32px] font-bold text-primary">Шаблоны приложений</h1>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 bg-cta text-white text-[14px] font-semibold rounded-[20px] px-5 py-2.5 hover:bg-active transition-colors mt-1"
+            >
+              <span className="text-[18px] leading-none">+</span>
+              Создать шаблон
+            </button>
+          </div>
           <p className="text-[15px] text-primary/60 mb-6 max-w-[900px]">
             Готовые наборы модулей из ТЗ. При копировании создаётся приложение и устанавливаются нужные модули.
           </p>
 
-          <div className="flex items-center gap-4 mb-8">
+          <div className="flex items-center gap-4 mb-6">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -211,6 +261,17 @@ export function TemplatesPage() {
             <FilterDropdown label="Функции" options={FUNCTIONS} value={funcFilter} onChange={setFuncFilter} />
             <FilterDropdown label="Особенности" options={FEATURES} value={feature} onChange={setFeature} />
             <FilterDropdown label="Сложность" options={COMPLEXITIES} value={complexity} onChange={setComplexity} />
+            {userTemplates.length > 0 && (
+              <button
+                onClick={() => setShowOnlyMine((v) => !v)}
+                className={cn(
+                  "border rounded-[20px] px-4 py-2 text-[13px] transition-colors",
+                  showOnlyMine ? "border-cta text-cta bg-[#EBF4FF]" : "border-cardbg text-primary bg-white hover:border-cta/40",
+                )}
+              >
+                Мои шаблоны {userTemplates.length > 0 && `(${userTemplates.length})`}
+              </button>
+            )}
           </div>
 
           <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
@@ -220,6 +281,7 @@ export function TemplatesPage() {
                 template={template}
                 copying={copyingId === template.id}
                 onCopy={() => handleCopy(template)}
+                onDelete={template.isCustom ? () => handleDeleteTemplate(template.id) : undefined}
               />
             ))}
           </div>
@@ -231,29 +293,69 @@ export function TemplatesPage() {
           )}
         </div>
       </main>
+
+      {showCreateModal && (
+        <CreateTemplateModal
+          onClose={() => setShowCreateModal(false)}
+          onCreate={handleCreateTemplate}
+        />
+      )}
     </div>
   );
 }
 
-function TemplateCard({ template, copying, onCopy }: { template: Template; copying: boolean; onCopy: () => void }) {
+/* ── Template Card ── */
+function TemplateCard({
+  template,
+  copying,
+  onCopy,
+  onDelete,
+}: {
+  template: Template;
+  copying: boolean;
+  onCopy: () => void;
+  onDelete?: () => void;
+}) {
   const modules = template.modules ?? [];
 
   return (
-    <div className="border border-cardbg rounded-[8px] overflow-hidden hover:shadow-md transition-shadow bg-white">
-      <div className="h-[120px] flex items-center justify-center text-[30px] font-bold text-primary/70" style={{ backgroundColor: template.color }}>
+    <div className="border border-cardbg rounded-[8px] overflow-hidden hover:shadow-md transition-shadow bg-white relative">
+      {template.isCustom && (
+        <div className="absolute top-3 right-3 z-10">
+          <span className="bg-white/80 text-cta text-[11px] font-semibold px-2 py-0.5 rounded-full border border-cta/30">
+            Мой
+          </span>
+        </div>
+      )}
+      <div
+        className="h-[120px] flex items-center justify-center text-[30px] font-bold text-primary/70"
+        style={{ backgroundColor: template.color }}
+      >
         {template.emoji}
       </div>
       <div className="p-5">
         <h3 className="text-[16px] font-semibold text-cta mb-1">{template.name}</h3>
         <p className="text-[13px] text-primary/60 mb-3 min-h-[38px]">{template.desc}</p>
-        <p className="text-[12px] text-primary/45 mb-4">Модули: {modules.length ? modules.join(", ") : "нет"}</p>
+        <p className="text-[12px] text-primary/45 mb-4">
+          {modules.length ? `Модули: ${modules.join(", ")}` : template.category}
+        </p>
         <div className="flex items-center gap-3">
-          <button
-            disabled
-            className="border border-cardbg text-primary/40 text-[13px] font-medium rounded-[20px] px-4 py-1.5 cursor-not-allowed"
-          >
-            Предпросмотр
-          </button>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="border border-red-200 text-red-400 text-[13px] font-medium rounded-[20px] px-4 py-1.5 hover:bg-red-50 transition-colors"
+            >
+              Удалить
+            </button>
+          )}
+          {!template.isCustom && (
+            <button
+              disabled
+              className="border border-cardbg text-primary/40 text-[13px] font-medium rounded-[20px] px-4 py-1.5 cursor-not-allowed"
+            >
+              Предпросмотр
+            </button>
+          )}
           <button
             onClick={onCopy}
             disabled={copying}
@@ -267,6 +369,206 @@ function TemplateCard({ template, copying, onCopy }: { template: Template; copyi
   );
 }
 
+/* ── Create Template Modal ── */
+function CreateTemplateModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (data: Omit<Template, "id" | "isCustom">) => void;
+}) {
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [emoji, setEmoji] = useState("МШ");
+  const [color, setColor] = useState(COLOR_PRESETS[0]);
+  const [category, setCategory] = useState("Бизнес");
+  const [complexity, setComplexity] = useState("Простой");
+  const [functions, setFunctions] = useState<string[]>(["Управление"]);
+  const [features, setFeatures] = useState<string[]>(["Веб"]);
+
+  function toggleArr<T>(arr: T[], item: T): T[] {
+    return arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onCreate({
+      name: name.trim(),
+      desc: desc.trim(),
+      emoji: emoji.trim().slice(0, 4) || name.slice(0, 2).toUpperCase(),
+      color,
+      category,
+      complexity,
+      functions: functions.length ? functions : ["Управление"],
+      features: features.length ? features : ["Веб"],
+      modules: [],
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="bg-white rounded-[20px] shadow-[0_8px_40px_rgba(0,32,95,0.18)] w-[560px] max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[20px]">
+          <h3 className="text-[22px] font-bold text-primary">Создать шаблон</h3>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-[24px] leading-none transition-colors">×</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-[18px] px-[30px] pb-[28px] overflow-y-auto">
+
+          {/* Preview */}
+          <div
+            className="h-[80px] rounded-[10px] flex items-center justify-center text-[28px] font-bold text-primary/70 mb-[-4px]"
+            style={{ backgroundColor: color }}
+          >
+            {emoji.slice(0, 4) || "??"}
+          </div>
+
+          {/* Name */}
+          <div className="flex flex-col gap-[5px]">
+            <label className="text-[13px] font-medium text-primary/70">Название <span className="text-red-500">*</span></label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="Например: Мой учёт"
+              className="h-[42px] px-[14px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors"
+            />
+          </div>
+
+          {/* Description */}
+          <div className="flex flex-col gap-[5px]">
+            <label className="text-[13px] font-medium text-primary/70">Описание</label>
+            <textarea
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              rows={2}
+              placeholder="Краткое описание шаблона"
+              className="px-[14px] py-[10px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors resize-none"
+            />
+          </div>
+
+          {/* Emoji & Color */}
+          <div className="flex gap-[14px]">
+            <div className="flex flex-col gap-[5px] w-[120px]">
+              <label className="text-[13px] font-medium text-primary/70">Аббревиатура</label>
+              <input
+                value={emoji}
+                onChange={(e) => setEmoji(e.target.value.slice(0, 4))}
+                maxLength={4}
+                placeholder="TC"
+                className="h-[42px] px-[14px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors text-center font-bold"
+              />
+            </div>
+            <div className="flex flex-col gap-[5px] flex-1">
+              <label className="text-[13px] font-medium text-primary/70">Цвет фона</label>
+              <div className="flex gap-[8px] flex-wrap pt-[4px]">
+                {COLOR_PRESETS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setColor(c)}
+                    className={cn(
+                      "w-[28px] h-[28px] rounded-full border-2 transition-transform hover:scale-110",
+                      color === c ? "border-cta scale-110" : "border-transparent",
+                    )}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Category & Complexity */}
+          <div className="flex gap-[14px]">
+            <div className="flex flex-col gap-[5px] flex-1">
+              <label className="text-[13px] font-medium text-primary/70">Категория</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="h-[42px] px-[14px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors"
+              >
+                {CATEGORIES.filter((c) => c !== ALL).map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-[5px] flex-1">
+              <label className="text-[13px] font-medium text-primary/70">Сложность</label>
+              <select
+                value={complexity}
+                onChange={(e) => setComplexity(e.target.value)}
+                className="h-[42px] px-[14px] rounded-[10px] border border-primary/20 text-[15px] text-primary outline-none focus:border-cta transition-colors"
+              >
+                {COMPLEXITIES.filter((c) => c !== ALL).map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Functions */}
+          <div className="flex flex-col gap-[5px]">
+            <label className="text-[13px] font-medium text-primary/70">Функции</label>
+            <div className="flex gap-[8px] flex-wrap">
+              {FUNCTIONS.filter((f) => f !== ALL).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFunctions((prev) => toggleArr(prev, f))}
+                  className={cn(
+                    "px-3 py-1.5 rounded-[20px] text-[13px] border transition-colors",
+                    functions.includes(f) ? "bg-cta text-white border-cta" : "border-cardbg text-primary hover:border-cta/40",
+                  )}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Features */}
+          <div className="flex flex-col gap-[5px]">
+            <label className="text-[13px] font-medium text-primary/70">Особенности</label>
+            <div className="flex gap-[8px]">
+              {FEATURES.filter((f) => f !== ALL).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFeatures((prev) => toggleArr(prev, f))}
+                  className={cn(
+                    "px-3 py-1.5 rounded-[20px] text-[13px] border transition-colors",
+                    features.includes(f) ? "bg-cta text-white border-cta" : "border-cardbg text-primary hover:border-cta/40",
+                  )}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-[10px] pt-[4px]">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-[42px] px-[22px] rounded-[20px] border-2 border-primary/20 text-[15px] text-primary hover:bg-mainbg transition-colors"
+            >
+              Отмена
+            </button>
+            <button
+              type="submit"
+              className="h-[42px] px-[22px] rounded-[20px] bg-cta text-white text-[15px] font-semibold hover:bg-active transition-colors"
+            >
+              Создать
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ── Filter Dropdown ── */
 function FilterDropdown({
   label,
   options,
