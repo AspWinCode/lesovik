@@ -240,12 +240,22 @@ export function ViewEditorPage() {
     })
     .filter((g) => g.views.length > 0);
 
-  // Warning: any page has no blocks, OR a data-view page has no entity_id set
-  const hasWarning = pages.some((p) => {
-    const blks = (p.blocks ?? []) as unknown[];
+  // Warning: non-system pages with no blocks or data-view pages with no entity_id
+  const warningPages = pages.filter((p) => {
     const lay = (p.layout ?? {}) as Record<string, unknown>;
+    if (lay.is_system) return false;
+    const blks = (p.blocks ?? []) as unknown[];
     const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
     return blks.length === 0 || (isDataView && !lay.entity_id);
+  });
+  const warningMessages = warningPages.map((p) => {
+    const lay = (p.layout ?? {}) as Record<string, unknown>;
+    const blks = (p.blocks ?? []) as unknown[];
+    const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
+    const name = (lay.name as string) ?? p.id;
+    if (blks.length === 0) return `«${name}» — нет блоков`;
+    if (isDataView && !lay.entity_id) return `«${name}» — не выбрана таблица`;
+    return `«${name}»`;
   });
 
   function _postRefetch(updatedLayout?: Record<string, unknown>) {
@@ -429,7 +439,7 @@ export function ViewEditorPage() {
           }}
           onDeleteSystemView={(id) => handleDeletePage(id)}
           onAddRecord={(entityId) => setQuickAddEntityId(entityId)}
-          hasWarning={hasWarning}
+          warningMessages={warningMessages}
           systemGroups={systemGroups}
         />
       )}

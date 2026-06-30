@@ -28,7 +28,7 @@ interface ViewNavPanelProps {
   onDeleteView?: (viewId: string) => void;
   onDeleteSystemView?: (viewId: string) => void;
   onAddRecord?: (entityId: string) => void;
-  hasWarning?: boolean;
+  warningMessages?: string[];
   systemGroups?: SystemNavGroup[];
 }
 
@@ -41,14 +41,24 @@ export function ViewNavPanel({
   onDeleteView,
   onDeleteSystemView,
   onAddRecord,
-  hasWarning = false,
+  warningMessages = [],
   systemGroups = [],
 }: ViewNavPanelProps) {
   const [systemOpen, setSystemOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [warningOpen, setWarningOpen] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
+
+  function toggleSection(id: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   function toggleSearch() {
     if (searchOpen) {
@@ -91,10 +101,30 @@ export function ViewNavPanel({
           <h2 className="text-nav font-bold text-primary">{title}</h2>
         )}
         <div className="flex items-center gap-4 shrink-0">
-          {hasWarning && !searchOpen && (
-            <span aria-label="Есть предупреждения" title="Есть предупреждения" className="w-[22px] h-5">
-              <WarningIcon />
-            </span>
+          {warningMessages.length > 0 && !searchOpen && (
+            <div className="relative">
+              <button
+                onClick={() => setWarningOpen((v) => !v)}
+                aria-label="Есть предупреждения"
+                className="w-[22px] h-5 flex items-center justify-center hover:opacity-70 transition-opacity"
+              >
+                <WarningIcon />
+              </button>
+              {warningOpen && (
+                <div
+                  className="absolute right-0 top-[28px] z-50 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] py-[10px] flex flex-col min-w-[230px]"
+                  onMouseLeave={() => setWarningOpen(false)}
+                >
+                  <p className="text-[12px] font-semibold text-primary/50 px-4 pb-[6px] uppercase tracking-wide">Предупреждения</p>
+                  {warningMessages.map((msg, i) => (
+                    <div key={i} className="flex items-start gap-2 px-4 py-[5px]">
+                      <span className="mt-[2px] shrink-0 w-[14px] h-[14px]"><WarningIcon /></span>
+                      <span className="text-[13px] text-primary leading-[1.4]">{msg}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <button
             aria-label="Поиск"
@@ -146,38 +176,50 @@ export function ViewNavPanel({
 
       {/* Sections */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-[22px] pt-[10px]">
-        {filteredSections.map((section, idx) => (
-          <div key={section.id} className="flex flex-col gap-[10px]">
-            <div className="flex items-center justify-between px-[15px] h-[27px]">
-              <span className={cn("text-[18px] leading-[150%] font-bold", idx === 0 ? "text-cta" : "text-primary")}>
-                {section.title}
-              </span>
-              <button
-                onClick={() => onAddView?.(section.id)}
-                aria-label={`Добавить в ${section.title}`}
-                className="w-[15px] h-[15px] flex items-center justify-center hover:opacity-70 transition-opacity"
-              >
-                <PlusIcon color={idx === 0 ? "#35A7FF" : "#00205F"} />
-              </button>
+        {filteredSections.map((section, idx) => {
+          const isCollapsed = collapsedSections.has(section.id);
+          return (
+            <div key={section.id} className="flex flex-col gap-[10px]">
+              <div className="flex items-center justify-between px-[15px] h-[27px]">
+                <button
+                  onClick={() => toggleSection(section.id)}
+                  className="flex items-center gap-[6px] min-w-0 flex-1 text-left hover:opacity-70 transition-opacity"
+                  aria-expanded={!isCollapsed}
+                >
+                  <span className={cn("text-[18px] leading-[150%] font-bold truncate", idx === 0 ? "text-cta" : "text-primary")}>
+                    {section.title}
+                  </span>
+                  <span className={cn("w-4 h-4 shrink-0 transition-transform opacity-40", isCollapsed && "-rotate-90")}>
+                    <ChevronDownIcon />
+                  </span>
+                </button>
+                <button
+                  onClick={() => onAddView?.(section.id)}
+                  aria-label={`Добавить в ${section.title}`}
+                  className="w-[15px] h-[15px] flex items-center justify-center hover:opacity-70 transition-opacity shrink-0 ml-2"
+                >
+                  <PlusIcon color={idx === 0 ? "#35A7FF" : "#00205F"} />
+                </button>
+              </div>
+
+              {!isCollapsed && section.views.length === 0 && (
+                <p className="text-[13px] text-primary/40 px-[15px]">
+                  {query ? "Нет совпадений" : "Нет страниц — нажмите +"}
+                </p>
+              )}
+
+              {!isCollapsed && section.views.map((view) => (
+                <NavPill
+                  key={view.id}
+                  label={view.label}
+                  active={view.id === activeViewId}
+                  onClick={() => { onSelect(view.id); setSearchOpen(false); setSearchQuery(""); }}
+                  onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
+                />
+              ))}
             </div>
-
-            {section.views.length === 0 && (
-              <p className="text-[13px] text-primary/40 px-[15px]">
-                {query ? "Нет совпадений" : "Нет страниц — нажмите +"}
-              </p>
-            )}
-
-            {section.views.map((view) => (
-              <NavPill
-                key={view.id}
-                label={view.label}
-                active={view.id === activeViewId}
-                onClick={() => { onSelect(view.id); setSearchOpen(false); setSearchQuery(""); }}
-                onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
-              />
-            ))}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* System views (bottom) */}
