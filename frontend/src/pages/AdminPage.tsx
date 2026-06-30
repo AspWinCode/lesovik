@@ -528,8 +528,12 @@ export function InviteUserDialog({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
+  const [roleOpen, setRoleOpen] = useState(false);
   const { data: rolesData } = useRoles();
   const invite = useInviteUser();
+
+  const roles = rolesData ?? [];
+  const selectedRole = roles.find((r) => r.id === role);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -543,66 +547,127 @@ export function InviteUserDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.45)" }}
+      style={{ background: "rgba(0,32,95,0.35)" }}
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-[10px] shadow-lg w-[480px] flex flex-col"
+        className="bg-white rounded-[20px] w-[480px] flex flex-col"
+        style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-8 py-5 border-b border-mainbg">
+        {/* Header */}
+        <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[20px]">
           <span className="text-[22px] font-bold text-primary">Пригласить пользователя</span>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg">
-            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
-              <path d="M3 3L13 13M13 3L3 13" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors text-primary/40 hover:text-primary text-[22px] leading-none"
+          >
+            ×
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5 px-8 py-6">
-          <div className="flex flex-col gap-1">
-            <label className="text-[14px] text-primary/60">Email</label>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-[18px] px-[30px] pb-[28px]">
+          {/* Email */}
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[13px] font-medium text-primary/60">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               placeholder="user@company.ru"
-              className="h-[42px] px-4 bg-mainbg rounded-[5px] text-[16px] text-primary outline-none border border-transparent focus:border-cta"
+              className="h-[42px] px-[14px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[14px] text-primary/60">Имя</label>
+
+          {/* Name */}
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[13px] font-medium text-primary/60">Имя и фамилия</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
               placeholder="Иванов Иван"
-              className="h-[42px] px-4 bg-mainbg rounded-[5px] text-[16px] text-primary outline-none border border-transparent focus:border-cta"
+              className="h-[42px] px-[14px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[14px] text-primary/60">Роль</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="h-[42px] px-4 bg-mainbg rounded-[5px] text-[16px] text-primary outline-none border border-transparent focus:border-cta"
-            >
-              <option value="">— без роли —</option>
-              {(rolesData ?? []).map((r) => (
-                <option key={r.id} value={r.id}>{r.display_name}</option>
-              ))}
-            </select>
+
+          {/* Role — custom dropdown */}
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[13px] font-medium text-primary/60">Роль</label>
+            <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setRoleOpen(false); }}>
+              <button
+                type="button"
+                onClick={() => setRoleOpen((v) => !v)}
+                className="w-full h-[42px] px-[14px] bg-mainbg rounded-[10px] text-[15px] text-left flex items-center justify-between border border-transparent focus:border-cta transition-colors outline-none"
+              >
+                <span className={selectedRole ? "text-primary" : "text-primary/30"}>
+                  {selectedRole ? selectedRole.display_name : "— без роли —"}
+                </span>
+                <svg
+                  viewBox="0 0 16 16"
+                  className={cn("w-4 h-4 text-primary/40 transition-transform shrink-0", roleOpen && "rotate-180")}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M3 6l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+
+              {roleOpen && (
+                <div
+                  className="absolute left-0 right-0 top-[46px] z-50 bg-white rounded-[12px] py-[6px] flex flex-col overflow-hidden"
+                  style={{ boxShadow: "0 4px 24px rgba(0,32,95,0.14)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { setRole(""); setRoleOpen(false); }}
+                    className={cn(
+                      "flex items-center h-[38px] px-[14px] text-[15px] text-left transition-colors",
+                      !role ? "bg-selected text-cta font-medium" : "text-primary/40 hover:bg-mainbg"
+                    )}
+                  >
+                    — без роли —
+                  </button>
+                  {roles.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => { setRole(r.id); setRoleOpen(false); }}
+                      className={cn(
+                        "flex items-center h-[38px] px-[14px] text-[15px] text-left transition-colors",
+                        role === r.id ? "bg-selected text-cta font-medium" : "text-primary hover:bg-mainbg"
+                      )}
+                    >
+                      {r.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
           {invite.isError && (
-            <p className="text-[14px] text-[#C22A2A]">Ошибка приглашения. Попробуйте снова.</p>
+            <p className="text-[13px] text-[#C22A2A] bg-[#FFF0F0] rounded-[8px] px-3 py-2">
+              Ошибка приглашения. Попробуйте снова.
+            </p>
           )}
-          <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={onClose}
-              className="h-[38px] px-6 border border-primary/30 rounded-[20px] text-[14px] text-primary hover:bg-mainbg">
+
+          {/* Actions */}
+          <div className="flex gap-[10px] justify-end pt-[4px]">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors"
+            >
               Отмена
             </button>
-            <button type="submit" disabled={invite.isPending}
-              className="h-[38px] px-6 bg-cta rounded-[20px] text-[14px] font-semibold text-white hover:bg-cta/90 disabled:opacity-50">
+            <button
+              type="submit"
+              disabled={invite.isPending}
+              className="h-[42px] px-[22px] bg-cta rounded-[20px] text-[15px] font-semibold text-white hover:bg-active transition-colors disabled:opacity-50"
+            >
               {invite.isPending ? "Отправка…" : "Пригласить"}
             </button>
           </div>
