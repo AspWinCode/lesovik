@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
 import { useUsers, useDeactivateUser, useUpdateUser, useHardDeleteUser, useInviteUser, useRoles } from "@/shared/hooks/useUsers";
+import { useGroups, useCreateGroup, useUpdateGroup, useDeleteGroup, useGroup, useAddGroupMember, useRemoveGroupMember, useApplyGroupRoles } from "@/shared/hooks/useGroups";
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
 import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
@@ -9,12 +10,13 @@ import { useHealth } from "@/shared/hooks/useHealth";
 import { useAuthStore } from "@/shared/auth/store";
 
 /* ── Types ── */
-type AdminSection = "home" | "orgs" | "logs" | "users" | "apps" | "databases";
+type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "apps" | "databases";
 
 const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode; platformOnly?: boolean }[] = [
   { id: "home",      label: "Главная",        icon: <HomeIcon /> },
   { id: "orgs",      label: "Организации",    icon: <OrgsIcon />, platformOnly: true },
   { id: "users",     label: "Пользователи",   icon: <UsersIcon /> },
+  { id: "groups",    label: "Группы",         icon: <GroupsIcon /> },
   { id: "apps",      label: "Приложения",     icon: <AppsIcon />, platformOnly: true },
   { id: "databases", label: "Базы данных",    icon: <DbIcon />, platformOnly: true },
   { id: "logs",      label: "Журнал аудита",  icon: <LogsIcon /> },
@@ -940,6 +942,458 @@ function UserActionsMenu({
   );
 }
 
+/* ── Groups ── */
+function AdminGroups() {
+  const { data: groups = [], isLoading } = useGroups();
+  const { data: allUsers } = useUsers();
+  const { data: allRoles } = useRoles();
+  const createGroup = useCreateGroup();
+  const updateGroup = useUpdateGroup();
+  const deleteGroup = useDeleteGroup();
+  const addMember = useAddGroupMember();
+  const removeMember = useRemoveGroupMember();
+  const applyRoles = useApplyGroupRoles();
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { data: detail } = useGroup(selectedId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [applyResult, setApplyResult] = useState<number | null>(null);
+
+  const users = allUsers?.items ?? [];
+  const roles = allRoles ?? [];
+
+  const memberIds = new Set((detail?.members ?? []).map((m) => m.id));
+  const nonMembers = users.filter((u) => !memberIds.has(u.id));
+
+  return (
+    <div className="flex flex-col gap-[40px]">
+      {/* Create modal */}
+      {createOpen && (
+        <GroupFormModal
+          title="Создать группу"
+          roles={roles}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={(data) =>
+            createGroup.mutate(data, {
+              onSuccess: (g) => { setCreateOpen(false); setSelectedId(g.id); },
+            })
+          }
+          pending={createGroup.isPending}
+        />
+      )}
+
+      {/* Edit modal */}
+      {editOpen && detail && (
+        <GroupFormModal
+          title="Редактировать группу"
+          roles={roles}
+          initial={{ name: detail.name, description: detail.description ?? "", role_ids: detail.roles.map((r) => r.id) }}
+          onClose={() => setEditOpen(false)}
+          onSubmit={(data) =>
+            updateGroup.mutate({ groupId: detail.id, body: data }, { onSuccess: () => setEditOpen(false) })
+          }
+          pending={updateGroup.isPending}
+        />
+      )}
+
+      {/* Delete confirm */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,32,95,0.35)" }}
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div
+            className="bg-white rounded-[20px] w-[400px] p-[30px] flex flex-col gap-[20px]"
+            style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-[20px] font-bold text-primary">Удалить группу?</span>
+            <span className="text-[15px] text-primary/60">
+              Группа <strong className="text-primary">{deleteConfirm.name}</strong> будет удалена. Участники и их роли не изменятся.
+            </span>
+            <div className="flex gap-[10px] justify-end">
+              <button onClick={() => setDeleteConfirm(null)}
+                className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors">
+                Отмена
+              </button>
+              <button
+                onClick={() => deleteGroup.mutate(deleteConfirm.id, {
+                  onSuccess: () => { setDeleteConfirm(null); if (selectedId === deleteConfirm.id) setSelectedId(null); }
+                })}
+                disabled={deleteGroup.isPending}
+                className="h-[42px] px-[22px] bg-[#C22A2A] rounded-[20px] text-[15px] font-semibold text-white hover:bg-[#A01E1E] transition-colors disabled:opacity-50"
+              >
+                {deleteGroup.isPending ? "Удаление…" : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Apply roles result toast */}
+      {applyResult !== null && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white rounded-[12px] px-5 py-3 flex items-center gap-3"
+          style={{ boxShadow: "0 4px 24px rgba(0,32,95,0.18)" }}>
+          <span className="text-[#20BE4F] text-[20px]">✓</span>
+          <span className="text-[15px] text-primary">
+            {applyResult === 0 ? "Все роли уже назначены" : `Добавлено ${applyResult} назначений ролей`}
+          </span>
+          <button onClick={() => setApplyResult(null)} className="text-primary/40 hover:text-primary ml-2">×</button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <h1 className="text-[40px] font-bold text-primary leading-[150%]">Группы</h1>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-2 h-[42px] px-6 bg-cta rounded-[20px] text-[16px] font-semibold text-white hover:bg-cta/90 transition-colors"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
+            <line x1="10" y1="3" x2="10" y2="17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+            <line x1="3" y1="10" x2="17" y2="10" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Создать группу
+        </button>
+      </div>
+
+      <div className="flex gap-[24px]">
+        {/* Group list */}
+        <div className="flex flex-col gap-[8px] w-[320px] shrink-0">
+          {isLoading && <span className="text-[15px] text-primary/50">Загрузка…</span>}
+          {!isLoading && groups.length === 0 && (
+            <div className="bg-white rounded-[12px] p-6 text-center text-[15px] text-primary/40"
+              style={{ boxShadow: "0 2px 8px rgba(0,32,95,0.08)" }}>
+              Групп пока нет
+            </div>
+          )}
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              onClick={() => setSelectedId(g.id === selectedId ? null : g.id)}
+              className={cn(
+                "w-full text-left rounded-[12px] px-5 py-4 transition-colors",
+                selectedId === g.id
+                  ? "bg-selected border-2 border-cta"
+                  : "bg-white hover:bg-mainbg border-2 border-transparent",
+              )}
+              style={{ boxShadow: "0 2px 8px rgba(0,32,95,0.06)" }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className={cn("text-[16px] font-semibold", selectedId === g.id ? "text-cta" : "text-primary")}>
+                  {g.name}
+                </span>
+                <span className="text-[13px] text-primary/40 shrink-0">{g.member_count} чел.</span>
+              </div>
+              {g.description && (
+                <p className="text-[13px] text-primary/50 mt-1 truncate">{g.description}</p>
+              )}
+              {g.roles.length > 0 && (
+                <div className="flex flex-wrap gap-[4px] mt-2">
+                  {g.roles.map((r) => (
+                    <span key={r.id} className="text-[11px] bg-cta/10 text-cta rounded-full px-2 py-0.5">{r.display_name}</span>
+                  ))}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Group detail */}
+        {selectedId && detail ? (
+          <div className="flex-1 flex flex-col gap-[20px]">
+            {/* Header */}
+            <div className="bg-white rounded-[16px] p-6 flex items-start justify-between"
+              style={{ boxShadow: "0 2px 12px rgba(0,32,95,0.08)" }}>
+              <div className="flex flex-col gap-[4px]">
+                <h2 className="text-[24px] font-bold text-primary">{detail.name}</h2>
+                {detail.description && <p className="text-[15px] text-primary/60">{detail.description}</p>}
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {detail.roles.length === 0
+                    ? <span className="text-[13px] text-primary/40">Без ролей</span>
+                    : detail.roles.map((r) => (
+                        <span key={r.id} className="text-[12px] bg-cta/10 text-cta rounded-full px-3 py-0.5">{r.display_name}</span>
+                      ))
+                  }
+                </div>
+              </div>
+              <div className="flex gap-[8px]">
+                {detail.roles.length > 0 && (
+                  <button
+                    onClick={() => applyRoles.mutate(detail.id, {
+                      onSuccess: (r) => setApplyResult(r.grants_added),
+                    })}
+                    disabled={applyRoles.isPending}
+                    title="Назначить роли группы всем участникам"
+                    className="h-[36px] px-4 bg-cta/10 text-cta rounded-[20px] text-[13px] font-medium hover:bg-cta/20 transition-colors disabled:opacity-50"
+                  >
+                    {applyRoles.isPending ? "Применяю…" : "Применить роли"}
+                  </button>
+                )}
+                <button onClick={() => setEditOpen(true)}
+                  className="h-[36px] px-4 border border-primary/20 rounded-[20px] text-[13px] text-primary hover:bg-mainbg transition-colors">
+                  Редактировать
+                </button>
+                <button onClick={() => setDeleteConfirm({ id: detail.id, name: detail.name })}
+                  className="h-[36px] px-4 border border-[#C22A2A]/30 rounded-[20px] text-[13px] text-[#C22A2A] hover:bg-[#FFF0F0] transition-colors">
+                  Удалить
+                </button>
+              </div>
+            </div>
+
+            {/* Members */}
+            <div className="bg-white rounded-[16px] overflow-hidden"
+              style={{ boxShadow: "0 2px 12px rgba(0,32,95,0.08)" }}>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-mainbg">
+                <span className="text-[18px] font-bold text-primary">Участники ({detail.member_count})</span>
+                {/* Add member dropdown */}
+                {nonMembers.length > 0 && (
+                  <AddMemberDropdown
+                    users={nonMembers}
+                    onAdd={(userId) => addMember.mutate({ groupId: detail.id, userId })}
+                  />
+                )}
+              </div>
+              {detail.members.length === 0 ? (
+                <div className="px-6 py-8 text-center text-[15px] text-primary/40">Нет участников</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-mainbg">
+                    <tr>
+                      {["Имя", "Email", "Статус", ""].map((h, i) => (
+                        <th key={i} className="text-left px-6 py-3 text-[13px] font-semibold text-primary">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.members.map((m) => (
+                      <tr key={m.id} className="border-t border-mainbg hover:bg-mainbg/40">
+                        <td className="px-6 py-3 text-[14px] font-semibold text-primary">{m.display_name}</td>
+                        <td className="px-6 py-3 text-[14px] text-primary">{m.email}</td>
+                        <td className={cn("px-6 py-3 text-[14px] font-semibold",
+                          m.is_active ? "text-[#20BE4F]" : "text-[#FFA600]"
+                        )}>
+                          {m.is_active ? "Активен" : "Неактивен"}
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          <button
+                            onClick={() => removeMember.mutate({ groupId: detail.id, userId: m.id })}
+                            className="text-[13px] text-primary/40 hover:text-[#C22A2A] transition-colors"
+                          >
+                            Исключить
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        ) : selectedId ? (
+          <div className="flex-1 flex items-center justify-center text-primary/40 text-[15px]">Загрузка…</div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center flex flex-col items-center gap-3">
+              <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 text-primary/20">
+                <circle cx="16" cy="16" r="7" stroke="currentColor" strokeWidth="2.5" />
+                <circle cx="32" cy="16" r="7" stroke="currentColor" strokeWidth="2.5" />
+                <path d="M4 40c0-7 5-12 12-12h4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M24 40c0-7 5-12 12-12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+              <span className="text-[15px] text-primary/40">Выберите группу для просмотра</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Add member dropdown ── */
+function AddMemberDropdown({
+  users,
+  onAdd,
+}: {
+  users: { id: string; display_name: string; email: string }[];
+  onAdd: (userId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = users.filter(
+    (u) =>
+      u.display_name.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 h-[34px] px-4 bg-cta rounded-[20px] text-[13px] font-semibold text-white hover:bg-cta/90 transition-colors"
+      >
+        <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5">
+          <line x1="7" y1="1" x2="7" y2="13" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="1" y1="7" x2="13" y2="7" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+        Добавить участника
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-10 z-50 bg-white rounded-[12px] w-[280px]"
+          style={{ boxShadow: "0 4px 24px rgba(0,32,95,0.14)" }}
+        >
+          <div className="p-2 border-b border-mainbg">
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск…"
+              className="w-full h-[32px] px-3 bg-mainbg rounded-[8px] text-[13px] text-primary outline-none"
+            />
+          </div>
+          <div className="max-h-[220px] overflow-y-auto py-1">
+            {filtered.length === 0 && (
+              <div className="px-4 py-3 text-[13px] text-primary/40">Не найдено</div>
+            )}
+            {filtered.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => { onAdd(u.id); setOpen(false); setSearch(""); }}
+                className="w-full text-left flex flex-col px-4 py-2 hover:bg-mainbg transition-colors"
+              >
+                <span className="text-[14px] text-primary font-medium">{u.display_name}</span>
+                <span className="text-[12px] text-primary/50">{u.email}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Group form modal ── */
+function GroupFormModal({
+  title,
+  roles,
+  initial,
+  onClose,
+  onSubmit,
+  pending,
+}: {
+  title: string;
+  roles: { id: string; display_name: string }[];
+  initial?: { name: string; description: string; role_ids: string[] };
+  onClose: () => void;
+  onSubmit: (data: { name: string; description?: string; role_ids: string[] }) => void;
+  pending: boolean;
+}) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [selectedRoles, setSelectedRoles] = useState<Set<string>>(new Set(initial?.role_ids ?? []));
+
+  function toggleRole(id: string) {
+    setSelectedRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSubmit({ name: name.trim(), description: description.trim() || undefined, role_ids: [...selectedRoles] });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,32,95,0.35)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-[20px] w-[520px] flex flex-col"
+        style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[20px]">
+          <span className="text-[22px] font-bold text-primary">{title}</span>
+          <button onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors text-primary/40 hover:text-primary text-[22px] leading-none">
+            ×
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-[18px] px-[30px] pb-[28px]">
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[13px] font-medium text-primary/60">Название группы</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="Финансовый отдел"
+              className="h-[42px] px-[14px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30"
+            />
+          </div>
+
+          <div className="flex flex-col gap-[6px]">
+            <label className="text-[13px] font-medium text-primary/60">Описание <span className="text-primary/30">(необязательно)</span></label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Краткое описание группы"
+              className="px-[14px] py-[10px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30 resize-none"
+            />
+          </div>
+
+          <div className="flex flex-col gap-[8px]">
+            <label className="text-[13px] font-medium text-primary/60">Роли группы <span className="text-primary/30">(назначаются участникам)</span></label>
+            <div className="flex flex-col gap-[4px] max-h-[200px] overflow-y-auto bg-mainbg rounded-[10px] p-2">
+              {roles.map((r) => (
+                <label key={r.id} className="flex items-center gap-[10px] px-3 py-2 rounded-[8px] hover:bg-white cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedRoles.has(r.id)}
+                    onChange={() => toggleRole(r.id)}
+                    className="w-4 h-4 accent-[#00205F] cursor-pointer"
+                  />
+                  <span className="text-[14px] text-primary">{r.display_name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-[10px] justify-end pt-[4px]">
+            <button type="button" onClick={onClose}
+              className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors">
+              Отмена
+            </button>
+            <button type="submit" disabled={pending}
+              className="h-[42px] px-[22px] bg-cta rounded-[20px] text-[15px] font-semibold text-white hover:bg-active transition-colors disabled:opacity-50">
+              {pending ? "Сохранение…" : (initial ? "Сохранить" : "Создать")}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ── Apps ── */
 function AdminApps() {
   const { data, isLoading } = useApps();
@@ -1270,6 +1724,7 @@ export function AdminPage() {
     orgs:      <AdminOrgs />,
     logs:      <AdminLogs />,
     users:     <AdminUsers />,
+    groups:    <AdminGroups />,
     apps:      <AdminApps />,
     databases: <AdminDatabases />,
   };
@@ -1335,6 +1790,17 @@ function UsersIcon() {
     <svg viewBox="0 0 29 29" fill="none" className="w-full h-full">
       <circle cx="14.5" cy="10" r="5" stroke="#00205F" strokeWidth="2"/>
       <path d="M4 26 C4 20 8.5 17 14.5 17 C20.5 17 25 20 25 26" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function GroupsIcon() {
+  return (
+    <svg viewBox="0 0 29 29" fill="none" className="w-full h-full">
+      <circle cx="10" cy="11" r="4.5" stroke="#00205F" strokeWidth="2"/>
+      <circle cx="21" cy="11" r="4.5" stroke="#00205F" strokeWidth="2"/>
+      <path d="M2 26c0-5 3.5-8 8-8h4c4.5 0 8 3 8 8" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M19 18c2.5 0 6 1.5 7 7" stroke="#00205F" strokeWidth="2" strokeLinecap="round"/>
     </svg>
   );
 }
