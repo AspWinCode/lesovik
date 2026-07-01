@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useRef, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
@@ -50,6 +50,7 @@ function colWidth(field: FieldRead): number {
 
 export function DatabasePage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [activeEntityIdx, setActiveEntityIdx] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [activeRow, setActiveRow] = useState<number | null>(null);
@@ -66,6 +67,7 @@ export function DatabasePage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterRules, setFilterRules] = useState<FilterRule[]>([]);
   const [showViewDropdown, setShowViewDropdown] = useState(false);
+  const [quickEdit, setQuickEdit] = useState(true);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -77,6 +79,14 @@ export function DatabasePage() {
   const entitiesQuery = useEntities(appId);
   const entities = entitiesQuery.data ?? [];
   const entity = entities[activeEntityIdx];
+
+  // Pre-select entity from ?entity=UUID param (coming from /schema "view data" button)
+  useEffect(() => {
+    const entityId = params.get("entity");
+    if (!entityId || !entities.length) return;
+    const idx = entities.findIndex((e) => e.id === entityId);
+    if (idx !== -1) setActiveEntityIdx(idx);
+  }, [entities, params]);
 
   const recordsQuery = useRecords(appId, entity?.id, { limit: 100 });
   const records = recordsQuery.data?.items ?? [];
@@ -299,6 +309,21 @@ export function DatabasePage() {
           onClick={() => setShowFilterPanel((v) => !v)}
         />
         <DropdownButton icon={<SortIcon />}   label="Сортировка" onClick={() => setShowSortModal(true)} />
+        <button
+          onClick={() => { setQuickEdit((v) => !v); setActiveRow(null); setEditValues({}); }}
+          title={quickEdit ? "Выключить быстрое редактирование" : "Включить быстрое редактирование"}
+          className={cn(
+            "flex items-center gap-1.5 h-[30px] px-3 rounded-[6px] border text-[13px] transition-colors",
+            quickEdit
+              ? "border-cta bg-cta/10 text-cta"
+              : "border-cardbg text-primary/60 hover:bg-mainbg hover:text-primary"
+          )}
+        >
+          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M11 2H5L3 9h4l-1 5 7-8H9l2-4z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Быстрое редактирование
+        </button>
         <div className="ml-auto flex items-center gap-2">
           {entity && (
             <button
@@ -470,10 +495,11 @@ export function DatabasePage() {
                   return (
                     <tr
                       key={rec.id}
-                      onClick={() => !isActive && startEdit(i, rec)}
+                      onClick={() => quickEdit && !isActive && startEdit(i, rec)}
                       className={cn(
-                        "border-b border-cardbg cursor-pointer",
-                        isActive ? "bg-[#EBF4FF]" : "hover:bg-mainbg/60"
+                        "border-b border-cardbg",
+                        quickEdit ? "cursor-pointer" : "cursor-default",
+                        isActive ? "bg-[#EBF4FF]" : quickEdit ? "hover:bg-mainbg/60" : ""
                       )}
                     >
                       <td className="w-10 border-r border-cardbg px-2 text-center text-primary/50 select-none">
@@ -490,7 +516,7 @@ export function DatabasePage() {
                               et === "number" || et === "decimal" ? "text-right" : ""
                             )}
                           >
-                            {isActive && canInlineEdit(et) ? (
+                            {isActive && quickEdit && canInlineEdit(et) ? (
                               <InlineEdit
                                 field={f}
                                 value={editValues[f.name] ?? ""}
