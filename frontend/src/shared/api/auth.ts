@@ -58,6 +58,24 @@ export async function testLdapConnection(): Promise<{ ok: boolean; message?: str
   return data;
 }
 
+export async function yandexCallback(code: string): Promise<TokenPair> {
+  const { data } = await apiClient.post<TokenPair>("/auth/yandex/callback", { code });
+  return data;
+}
+
+export async function vkCallback(code: string): Promise<TokenPair> {
+  const { data } = await apiClient.post<TokenPair>("/auth/vk/callback", { code });
+  return data;
+}
+
+export function getYandexAuthUrl(): string {
+  return `${apiClient.defaults.baseURL ?? ""}/auth/yandex`;
+}
+
+export function getVkAuthUrl(): string {
+  return `${apiClient.defaults.baseURL ?? ""}/auth/vk`;
+}
+
 export async function logout(refreshToken: string): Promise<void> {
   await apiClient.post("/auth/logout", { refresh_token: refreshToken });
 }

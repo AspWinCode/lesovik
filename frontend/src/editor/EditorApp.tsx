@@ -33,6 +33,7 @@ import { EditorPage } from "@/pages/EditorPage";
 import { PreviewPage } from "@/pages/PreviewPage";
 import { DbHistoryPage } from "@/pages/DbHistoryPage";
 import { DataPage } from "@/pages/DataPage";
+import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 
 export function EditorApp() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -58,6 +59,8 @@ export function EditorApp() {
         <Route path="/signup" element={<SignUpPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/yandex/callback" element={<OAuthCallbackPage />} />
+        <Route path="/auth/vk/callback" element={<OAuthCallbackPage />} />
 
         {/* Private */}
         <Route path="/"        element={<RequireAuth><ScaleToFit><MainPage /></ScaleToFit></RequireAuth>} />

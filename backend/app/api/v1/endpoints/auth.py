@@ -16,6 +16,7 @@ from app.schemas.auth import (
     TOTPSetupResponse,
     TOTPVerifyRequest,
     TokenPair,
+    VkCallbackRequest,
     YandexCallbackRequest,
 )
 from app.services.auth import AuthError, AuthService
@@ -207,6 +208,26 @@ async def yandex_redirect() -> RedirectResponse:
 async def yandex_callback(req: YandexCallbackRequest, request: Request, db: DbDep) -> TokenPair:
     try:
         return await _svc(db).yandex_callback(
+            req,
+            user_agent=request.headers.get("user-agent"),
+            ip=request.client.host if request.client else None,
+        )
+    except AuthError as exc:
+        raise _map_auth_error(exc) from exc
+
+
+# ---- VK ID ----
+
+@router.get("/vk", summary="Redirect to VK OAuth")
+async def vk_redirect() -> RedirectResponse:
+    url = AuthService.vk_auth_url()
+    return RedirectResponse(url)
+
+
+@router.post("/vk/callback", response_model=TokenPair, summary="VK OAuth callback")
+async def vk_callback(req: VkCallbackRequest, request: Request, db: DbDep) -> TokenPair:
+    try:
+        return await _svc(db).vk_callback(
             req,
             user_agent=request.headers.get("user-agent"),
             ip=request.client.host if request.client else None,

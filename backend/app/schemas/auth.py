@@ -17,6 +17,11 @@ class YandexCallbackRequest(BaseModel):
     state: str | None = None
 
 
+class VkCallbackRequest(BaseModel):
+    code: str
+    state: str | None = None
+
+
 class TokenPair(BaseModel):
     access_token: str
     refresh_token: str

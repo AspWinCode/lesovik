@@ -26,6 +26,7 @@ from app.schemas.auth import (
     ResetPasswordRequest,
     TokenPair,
     TOTPSetupResponse,
+    VkCallbackRequest,
     YandexCallbackRequest,
 )
 from app.services.audit import AuditService
@@ -452,6 +453,96 @@ class AuthService:
         auth_attempts.labels(result="yandex_success").inc()
         await AuditService(self._db).log(
             "login_yandex", user_id=user.id, actor_email=user.email,
+            level="info", ip_address=ip, user_agent=user_agent,
+        )
+        return await self._issue_tokens(user, user_agent=user_agent, ip=ip)
+
+    # ------------------------------------------------------------------
+    # VK ID OAuth
+    # ------------------------------------------------------------------
+    @staticmethod
+    def vk_auth_url() -> str:
+        from urllib.parse import urlencode
+        params = {
+            "client_id": settings.VK_CLIENT_ID,
+            "redirect_uri": settings.VK_REDIRECT_URI,
+            "scope": "email",
+            "response_type": "code",
+            "v": "5.199",
+        }
+        return "https://oauth.vk.com/authorize?" + urlencode(params)
+
+    async def vk_callback(
+        self,
+        req: VkCallbackRequest,
+        *,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> TokenPair:
+        import httpx
+
+        if not settings.VK_CLIENT_ID:
+            raise AuthError("VK OAuth is not configured", status_code=400)
+
+        # Exchange code for access token
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.get(
+                "https://oauth.vk.com/access_token",
+                params={
+                    "client_id": settings.VK_CLIENT_ID,
+                    "client_secret": settings.VK_CLIENT_SECRET,
+                    "redirect_uri": settings.VK_REDIRECT_URI,
+                    "code": req.code,
+                },
+            )
+        if token_resp.status_code != 200 or "error" in token_resp.json():
+            raise AuthError("Failed to exchange VK code for token")
+
+        token_data = token_resp.json()
+        vk_access_token: str = token_data["access_token"]
+        vk_user_id: int = token_data["user_id"]
+        email: str = token_data.get("email") or f"vk_{vk_user_id}@vk.com"
+
+        # Get user profile
+        async with httpx.AsyncClient() as client:
+            info_resp = await client.get(
+                "https://api.vk.com/method/users.get",
+                params={
+                    "user_ids": vk_user_id,
+                    "fields": "first_name,last_name",
+                    "access_token": vk_access_token,
+                    "v": "5.199",
+                },
+            )
+        display_name = email
+        if info_resp.status_code == 200:
+            users = info_resp.json().get("response", [])
+            if users:
+                u = users[0]
+                display_name = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or email
+
+        # Find or create local user
+        stmt = select(User).where(User.email == email)
+        result = await self._db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            user = User(
+                email=email,
+                display_name=display_name,
+                password_hash=None,
+            )
+            self._db.add(user)
+            await self._db.flush()
+        elif not user.is_active:
+            raise AuthError("Account is deactivated")
+
+        await self._db.execute(
+            update(User).where(User.id == user.id).values(last_login_at=datetime.now(UTC))
+        )
+        auth_attempts.labels(result="vk_success").inc()
+        await AuditService(self._db).log(
+            "login_vk", user_id=user.id, actor_email=user.email,
             level="info", ip_address=ip, user_agent=user_agent,
         )
         return await self._issue_tokens(user, user_agent=user_agent, ip=ip)
