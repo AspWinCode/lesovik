@@ -424,22 +424,22 @@ function buildPages(appId: string): PageRead[] {
   return [
     {
       id: `page-${appId}-reports`, app_id: appId, slug: "reports", title: "Отчёты",
-      icon: null, nav_order: 0, layout: {}, blocks: [], is_published: false,
+      icon: null, nav_order: 0, layout: {}, blocks: [], breakpoints: {}, is_published: false,
       published_at: null, created_at: now, updated_at: now,
     },
     {
       id: `page-${appId}-enterprise`, app_id: appId, slug: "enterprise", title: "Предприятие",
-      icon: null, nav_order: 1, layout: {}, blocks: [], is_published: false,
+      icon: null, nav_order: 1, layout: {}, blocks: [], breakpoints: {}, is_published: false,
       published_at: null, created_at: now, updated_at: now,
     },
     {
       id: `page-${appId}-main-menu`, app_id: appId, slug: "main-menu", title: "Главное меню",
-      icon: null, nav_order: 2, layout: {}, blocks: [], is_published: false,
+      icon: null, nav_order: 2, layout: {}, blocks: [], breakpoints: {}, is_published: false,
       published_at: null, created_at: now, updated_at: now,
     },
     {
       id: `page-${appId}-analytics`, app_id: appId, slug: "analytics", title: "Аналитика",
-      icon: null, nav_order: 3, layout: {}, blocks: [], is_published: false,
+      icon: null, nav_order: 3, layout: {}, blocks: [], breakpoints: {}, is_published: false,
       published_at: null, created_at: now, updated_at: now,
     },
   ];
@@ -907,7 +907,7 @@ export const handlers = [
     const page: PageRead = {
       id: crypto.randomUUID(), app_id: appId, slug: body.slug, title: body.title,
       icon: body.icon ?? null, nav_order: body.nav_order ?? pagesByApp[appId].length,
-      layout: body.layout ?? {}, blocks: body.blocks ?? [],
+      layout: body.layout ?? {}, blocks: body.blocks ?? [], breakpoints: {},
       is_published: false, published_at: null, created_at: now, updated_at: now,
     };
     pagesByApp[appId].push(page);

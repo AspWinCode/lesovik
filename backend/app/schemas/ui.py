@@ -184,6 +184,7 @@ class PageRead(BaseModel):
     nav_order: int
     layout: dict[str, Any]
     blocks: list[dict[str, Any]]
+    breakpoints: dict[str, Any]
     is_published: bool
     published_at: datetime | None
     created_at: datetime
@@ -202,6 +203,7 @@ class PageCreate(BaseModel):
     nav_order: int = Field(default=0, ge=0)
     layout: dict[str, Any] = Field(default_factory=dict)
     blocks: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    breakpoints: dict[str, Any] = Field(default_factory=dict)
 
 
 class PageUpdate(BaseModel):
@@ -210,3 +212,37 @@ class PageUpdate(BaseModel):
     nav_order: int | None = Field(default=None, ge=0)
     layout: dict[str, Any] | None = None
     blocks: list[dict[str, Any]] | None = Field(default=None, max_length=50)
+    breakpoints: dict[str, Any] | None = None
+
+
+# ------------------------------------------------------------------
+# Page role permissions
+# ------------------------------------------------------------------
+
+class PageRolePermissionRead(BaseModel):
+    page_id: uuid.UUID
+    role_id: str
+    can_view: bool
+    model_config = {"from_attributes": True}
+
+
+class PageRolePermissionItem(BaseModel):
+    role_id: str = Field(min_length=1, max_length=128)
+    can_view: bool = True
+
+
+class PagePermissionsSet(BaseModel):
+    permissions: list[PageRolePermissionItem] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------------
+# Nav reorder
+# ------------------------------------------------------------------
+
+class PageNavReorderItem(BaseModel):
+    page_id: uuid.UUID
+    nav_order: int = Field(ge=0)
+
+
+class PageNavReorder(BaseModel):
+    pages: list[PageNavReorderItem] = Field(min_length=1)

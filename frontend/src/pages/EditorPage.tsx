@@ -1,8 +1,11 @@
-import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { cn } from "@/lib/cn";
+import { useApps } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
+import { usePage, useUpdatePage } from "@/shared/hooks/useViews";
 
 export const EDITOR_DRAFT_KEY = "lesovik_editor_draft";
 
@@ -142,8 +145,22 @@ const ELEMENT_LABELS: Record<ElementId, string> = {
   "btn-danger": "Кнопка",
 };
 
+const DEFAULT_POS: Record<DraggableId, { x: number; y: number }> = {
+  heading: { x: 24, y: 24 },
+  table:   { x: 24, y: 96 },
+  buttons: { x: 24, y: 500 },
+};
+
+interface DeviceSnapshot {
+  posMap: Record<DraggableId, { x: number; y: number }>;
+  styleMap: Record<string, ElementStyle>;
+  basicMap: Record<string, ElementBasic>;
+  eventMap: Record<string, ElementEvent>;
+}
+
 export function EditorPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [railModule, setRailModule] = useState<RailModule>("documents");
   const [activeCategory, setActiveCategory] = useState<string>("display");
   const [selectedElement, setSelectedElement] = useState<ElementId | null>("heading");
@@ -154,11 +171,7 @@ export function EditorPage() {
   const [showGrid, setShowGrid] = useState(true);
 
   /* drag-and-snap */
-  const [posMap, setPosMap] = useState<Record<DraggableId, { x: number; y: number }>>({
-    heading: { x: 24, y: 24 },
-    table:   { x: 24, y: 96 },
-    buttons: { x: 24, y: 500 },
-  });
+  const [posMap, setPosMap] = useState<Record<DraggableId, { x: number; y: number }>>(DEFAULT_POS);
   const [dragState, setDragState] = useState<{
     id: DraggableId;
     startMouseX: number;
@@ -173,18 +186,82 @@ export function EditorPage() {
   const [basicMap, setBasicMap] = useState<Record<string, ElementBasic>>({});
   const [eventMap, setEventMap] = useState<Record<string, ElementEvent>>({});
 
+  /* backend state */
+  const appsQuery = useApps();
+  const apps = appsQuery.data?.items ?? [];
+  const activeApp = useActiveApp(apps);
+  const appId = searchParams.get("app") ?? activeApp?.id;
+  const pageId = searchParams.get("page") ?? undefined;
+  const pageQuery = usePage(appId, pageId);
+  const updatePageMutation = useUpdatePage(appId ?? "");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const breakpointsRef = useRef<Record<string, unknown>>({});
+
+  /* Load page breakpoints on mount */
+  useEffect(() => {
+    if (!pageQuery.data) return;
+    const bp = (pageQuery.data.breakpoints ?? {}) as Record<string, unknown>;
+    breakpointsRef.current = bp;
+    const snap = bp[device] as DeviceSnapshot | undefined;
+    if (snap) {
+      setPosMap(snap.posMap ?? DEFAULT_POS);
+      setStyleMap(snap.styleMap ?? {});
+      setBasicMap(snap.basicMap ?? {});
+      setEventMap(snap.eventMap ?? {});
+    }
+  // Only run when page first loads
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageQuery.data?.id]);
+
+  /* Switch device: save current state, load new device state */
+  function switchDevice(newDevice: Device) {
+    if (!pageId || !appId) { setDevice(newDevice); return; }
+    const snapshot: DeviceSnapshot = { posMap, styleMap, basicMap, eventMap };
+    const updated = { ...breakpointsRef.current, [device]: snapshot };
+    breakpointsRef.current = updated;
+    updatePageMutation.mutate({ pageId, body: { breakpoints: updated } });
+    const next = updated[newDevice] as DeviceSnapshot | undefined;
+    if (next) {
+      setPosMap(next.posMap ?? DEFAULT_POS);
+      setStyleMap(next.styleMap ?? {});
+      setBasicMap(next.basicMap ?? {});
+      setEventMap(next.eventMap ?? {});
+    } else {
+      setPosMap(DEFAULT_POS);
+      setStyleMap({});
+      setBasicMap({});
+      setEventMap({});
+    }
+    setDevice(newDevice);
+  }
+
+  /* Debounced save after element edits */
+  function scheduleSave() {
+    if (!pageId || !appId) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const snapshot: DeviceSnapshot = { posMap, styleMap, basicMap, eventMap };
+      const updated = { ...breakpointsRef.current, [device]: snapshot };
+      breakpointsRef.current = updated;
+      updatePageMutation.mutate({ pageId, body: { breakpoints: updated } });
+    }, 1000);
+  }
+
   function getStyle(id: ElementId): ElementStyle { return styleMap[id] ?? { ...defaultStyle }; }
   function getBasic(id: ElementId): ElementBasic { return basicMap[id] ?? { ...defaultBasic[id] }; }
   function getEvent(id: ElementId): ElementEvent { return eventMap[id] ?? { ...defaultEvent }; }
 
   function patchStyle(id: ElementId, patch: Partial<ElementStyle>) {
     setStyleMap((m) => ({ ...m, [id]: { ...getStyle(id), ...patch } }));
+    scheduleSave();
   }
   function patchBasic(id: ElementId, patch: Partial<ElementBasic>) {
     setBasicMap((m) => ({ ...m, [id]: { ...getBasic(id), ...patch } }));
+    scheduleSave();
   }
   function patchEvent(id: ElementId, patch: Partial<ElementEvent>) {
     setEventMap((m) => ({ ...m, [id]: { ...getEvent(id), ...patch } }));
+    scheduleSave();
   }
 
   const snap = useCallback((v: number) => Math.round(v / GRID) * GRID, []);
@@ -208,6 +285,7 @@ export function EditorPage() {
   }
 
   function onCanvasMouseUp() {
+    if (dragState) scheduleSave();
     setDragState(null);
     setSnapGuide(null);
   }
@@ -361,7 +439,7 @@ export function EditorPage() {
               {(["desktop", "tablet", "mobile"] as Device[]).map((d) => (
                 <button
                   key={d}
-                  onClick={() => setDevice(d)}
+                  onClick={() => switchDevice(d)}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-[13px] transition-colors",
                     device === d ? "bg-white text-cta shadow-sm font-medium" : "text-primary/60 hover:text-primary"

@@ -74,6 +74,7 @@ export interface PageRead {
   nav_order: number;
   layout: Record<string, unknown>;
   blocks: Record<string, unknown>[];
+  breakpoints: Record<string, unknown>;
   is_published: boolean;
   published_at: string | null;
   created_at: string;
@@ -87,6 +88,7 @@ export interface PageCreate {
   nav_order?: number;
   layout?: Record<string, unknown>;
   blocks?: Record<string, unknown>[];
+  breakpoints?: Record<string, unknown>;
 }
 
 export interface PageUpdate {
@@ -95,10 +97,27 @@ export interface PageUpdate {
   nav_order?: number;
   layout?: Record<string, unknown>;
   blocks?: Record<string, unknown>[];
+  breakpoints?: Record<string, unknown>;
+}
+
+export interface PageRolePermission {
+  page_id: string;
+  role_id: string;
+  can_view: boolean;
+}
+
+export interface PageNavReorderItem {
+  page_id: string;
+  nav_order: number;
 }
 
 export async function listPages(appId: string): Promise<PageRead[]> {
   const { data } = await apiClient.get<PageRead[]>(`/apps/${appId}/pages`);
+  return data;
+}
+
+export async function getPage(appId: string, pageId: string): Promise<PageRead> {
+  const { data } = await apiClient.get<PageRead>(`/apps/${appId}/pages/${pageId}`);
   return data;
 }
 
@@ -123,5 +142,30 @@ export async function publishPage(appId: string, pageId: string): Promise<PageRe
 
 export async function unpublishPage(appId: string, pageId: string): Promise<PageRead> {
   const { data } = await apiClient.post<PageRead>(`/apps/${appId}/pages/${pageId}/unpublish`);
+  return data;
+}
+
+export async function getPagePermissions(appId: string, pageId: string): Promise<PageRolePermission[]> {
+  const { data } = await apiClient.get<PageRolePermission[]>(`/apps/${appId}/pages/${pageId}/permissions`);
+  return data;
+}
+
+export async function setPagePermissions(
+  appId: string,
+  pageId: string,
+  permissions: { role_id: string; can_view: boolean }[],
+): Promise<PageRolePermission[]> {
+  const { data } = await apiClient.put<PageRolePermission[]>(
+    `/apps/${appId}/pages/${pageId}/permissions`,
+    { permissions },
+  );
+  return data;
+}
+
+export async function reorderPages(
+  appId: string,
+  pages: PageNavReorderItem[],
+): Promise<PageRead[]> {
+  const { data } = await apiClient.put<PageRead[]>(`/apps/${appId}/pages/nav-order`, { pages });
   return data;
 }

@@ -1,4 +1,19 @@
 import { useRef, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/cn";
 
 export interface NavView {
@@ -28,6 +43,8 @@ interface ViewNavPanelProps {
   onDeleteView?: (viewId: string) => void;
   onDeleteSystemView?: (viewId: string) => void;
   onAddRecord?: (entityId: string) => void;
+  onReorderViews?: (sectionId: string, orderedIds: string[]) => void;
+  onPagePermissions?: (viewId: string) => void;
   warningMessages?: string[];
   systemGroups?: SystemNavGroup[];
 }
@@ -41,6 +58,8 @@ export function ViewNavPanel({
   onDeleteView,
   onDeleteSystemView,
   onAddRecord,
+  onReorderViews,
+  onPagePermissions,
   warningMessages = [],
   systemGroups = [],
 }: ViewNavPanelProps) {
@@ -51,6 +70,8 @@ export function ViewNavPanel({
   const [warningOpen, setWarningOpen] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   function toggleSection(id: string) {
     setCollapsedSections((prev) => {
@@ -75,6 +96,16 @@ export function ViewNavPanel({
     ...s,
     views: query ? s.views.filter((v) => v.label.toLowerCase().includes(query)) : s.views,
   }));
+
+  function handleDragEnd(sectionId: string, views: NavView[], event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = views.findIndex((v) => v.id === active.id);
+    const newIndex = views.findIndex((v) => v.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(views, oldIndex, newIndex);
+    onReorderViews?.(sectionId, reordered.map((v) => v.id));
+  }
 
   return (
     <aside
@@ -160,14 +191,6 @@ export function ViewNavPanel({
                 >
                   Поиск страниц
                 </button>
-                <div className="h-px bg-cardbg mx-3 my-1" />
-                <button
-                  onClick={() => { setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-selected text-[14px] text-primary/50 text-left transition-colors cursor-not-allowed"
-                  disabled
-                >
-                  Сортировать A→Я
-                </button>
               </div>
             )}
           </div>
@@ -178,6 +201,7 @@ export function ViewNavPanel({
       <div className="flex-1 overflow-y-auto flex flex-col gap-[22px] pt-[10px]">
         {filteredSections.map((section, idx) => {
           const isCollapsed = collapsedSections.has(section.id);
+          const isDraggable = !!onReorderViews && !query;
           return (
             <div key={section.id} className="flex flex-col gap-[10px]">
               <div className="flex items-center justify-between px-[15px] h-[27px]">
@@ -208,15 +232,39 @@ export function ViewNavPanel({
                 </p>
               )}
 
-              {!isCollapsed && section.views.map((view) => (
-                <NavPill
-                  key={view.id}
-                  label={view.label}
-                  active={view.id === activeViewId}
-                  onClick={() => { onSelect(view.id); setSearchOpen(false); setSearchQuery(""); }}
-                  onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
-                />
-              ))}
+              {!isCollapsed && (
+                isDraggable ? (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(e) => handleDragEnd(section.id, section.views, e)}
+                  >
+                    <SortableContext items={section.views.map((v) => v.id)} strategy={verticalListSortingStrategy}>
+                      {section.views.map((view) => (
+                        <SortableNavPill
+                          key={view.id}
+                          view={view}
+                          active={view.id === activeViewId}
+                          onClick={() => { onSelect(view.id); setSearchOpen(false); setSearchQuery(""); }}
+                          onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
+                          onPermissions={onPagePermissions ? () => onPagePermissions(view.id) : undefined}
+                        />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  section.views.map((view) => (
+                    <NavPill
+                      key={view.id}
+                      label={view.label}
+                      active={view.id === activeViewId}
+                      onClick={() => { onSelect(view.id); setSearchOpen(false); setSearchQuery(""); }}
+                      onDelete={onDeleteView ? () => onDeleteView(view.id) : undefined}
+                      onPermissions={onPagePermissions ? () => onPagePermissions(view.id) : undefined}
+                    />
+                  ))
+                )
+              )}
             </div>
           );
         })}
@@ -275,18 +323,55 @@ export function ViewNavPanel({
   );
 }
 
+function SortableNavPill({
+  view,
+  active,
+  onClick,
+  onDelete,
+  onPermissions,
+}: {
+  view: NavView;
+  active: boolean;
+  onClick: () => void;
+  onDelete?: () => void;
+  onPermissions?: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: view.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <NavPill
+        label={view.label}
+        active={active}
+        onClick={onClick}
+        onDelete={onDelete}
+        onPermissions={onPermissions}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  );
+}
+
 function NavPill({
   label,
   active,
   onClick,
   onDelete,
+  onPermissions,
   systemType,
+  dragHandleProps,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   onDelete?: () => void;
+  onPermissions?: () => void;
   systemType?: "detail" | "form" | "inline";
+  dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -296,11 +381,21 @@ function NavPill({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {dragHandleProps && (
+        <span
+          {...dragHandleProps}
+          className="absolute left-[2px] flex items-center justify-center w-4 h-full cursor-grab opacity-0 hover:opacity-60 transition-opacity z-10"
+          title="Перетащить"
+        >
+          <DragDotsIcon />
+        </span>
+      )}
       <button
         onClick={onClick}
         className={cn(
           "flex items-center gap-[7px] w-[290px] h-[46px] px-[15px] rounded-btn transition-colors text-left",
-          active ? "bg-selected" : "hover:bg-cardbg/50"
+          active ? "bg-selected" : "hover:bg-cardbg/50",
+          dragHandleProps && "pl-[22px]",
         )}
       >
         <span className="w-6 h-6 shrink-0">
@@ -310,14 +405,27 @@ function NavPill({
           {label}
         </span>
       </button>
-      {onDelete && hovered && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="absolute right-[10px] w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-100 transition-colors"
-          title="Удалить страницу"
-        >
-          <TrashSmIcon />
-        </button>
+      {hovered && (
+        <div className="absolute right-[6px] flex items-center gap-[2px]">
+          {onPermissions && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPermissions(); }}
+              className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-blue-100 transition-colors"
+              title="Права доступа"
+            >
+              <ShieldIcon />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-100 transition-colors"
+              title="Удалить страницу"
+            >
+              <TrashSmIcon />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -356,6 +464,26 @@ function ChevronDownIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
       <path d="M7 10 L12 15 L17 10" stroke="#00205F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DragDotsIcon() {
+  return (
+    <svg viewBox="0 0 10 16" fill="none" className="w-2.5 h-4">
+      {[0, 1].map((col) =>
+        [0, 1, 2].map((row) => (
+          <circle key={`${col}-${row}`} cx={col * 4 + 3} cy={row * 5 + 3} r="1.2" fill="#00205F" opacity="0.4" />
+        ))
+      )}
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-3.5 h-3.5">
+      <path d="M10 2L3 5V10C3 14 6.5 17.5 10 18.5C13.5 17.5 17 14 17 10V5L10 2Z" stroke="#35A7FF" strokeWidth="1.6" strokeLinejoin="round" />
     </svg>
   );
 }

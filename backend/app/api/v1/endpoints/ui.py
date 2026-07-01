@@ -6,7 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.api.deps import AuthDep, DbDep
 from app.schemas.ui import (
     PageCreate,
+    PageNavReorder,
+    PagePermissionsSet,
     PageRead,
+    PageRolePermissionRead,
     PageUpdate,
     ViewCreate,
     ViewFieldConfigBulkUpdate,
@@ -179,6 +182,18 @@ async def replace_field_configs(
 # Pages
 # ==================================================================
 
+@pages_router.put("/nav-order", response_model=list[PageRead])
+async def reorder_pages(
+    app_id: uuid.UUID,
+    body: PageNavReorder,
+    current_user: AuthDep,
+    db: DbDep,
+) -> list[PageRead]:
+    """Bulk-update nav_order for pages in one app."""
+    await _check_app(app_id, current_user, db)
+    return await UIService(db).reorder_pages(app_id, body)
+
+
 @pages_router.get("", response_model=list[PageRead])
 async def list_pages(
     app_id: uuid.UUID,
@@ -247,6 +262,37 @@ async def delete_page(
         await UIService(db).delete_page(app_id, page_id)
     except PageNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from exc
+
+
+@pages_router.get("/{page_id}/permissions", response_model=list[PageRolePermissionRead])
+async def get_page_permissions(
+    app_id: uuid.UUID,
+    page_id: uuid.UUID,
+    current_user: AuthDep,
+    db: DbDep,
+) -> list[PageRolePermissionRead]:
+    await _check_app(app_id, current_user, db)
+    try:
+        await UIService(db).get_page(app_id, page_id)
+    except PageNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from exc
+    return await UIService(db).get_page_permissions(page_id)
+
+
+@pages_router.put("/{page_id}/permissions", response_model=list[PageRolePermissionRead])
+async def set_page_permissions(
+    app_id: uuid.UUID,
+    page_id: uuid.UUID,
+    body: PagePermissionsSet,
+    current_user: AuthDep,
+    db: DbDep,
+) -> list[PageRolePermissionRead]:
+    await _check_app(app_id, current_user, db)
+    try:
+        await UIService(db).get_page(app_id, page_id)
+    except PageNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from exc
+    return await UIService(db).set_page_permissions(page_id, body)
 
 
 @pages_router.post("/{page_id}/publish", response_model=PageRead)

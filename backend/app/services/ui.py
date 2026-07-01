@@ -6,10 +6,13 @@ import structlog
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ui import Page, View, ViewFieldConfig
+from app.models.ui import Page, PageRolePermission, View, ViewFieldConfig
 from app.schemas.ui import (
     PageCreate,
+    PageNavReorder,
+    PagePermissionsSet,
     PageRead,
+    PageRolePermissionRead,
     PageUpdate,
     ViewCreate,
     ViewFieldConfigBulkUpdate,
@@ -207,6 +210,8 @@ class UIService:
             page.layout = data.layout
         if data.blocks is not None:
             page.blocks = data.blocks
+        if data.breakpoints is not None:
+            page.breakpoints = data.breakpoints
         await self._db.flush()
         return PageRead.model_validate(page)
 
@@ -228,6 +233,50 @@ class UIService:
         page.is_published = False
         await self._db.flush()
         return PageRead.model_validate(page)
+
+    # ==============================================================
+    # Page role permissions
+    # ==============================================================
+
+    async def get_page_permissions(self, page_id: uuid.UUID) -> list[PageRolePermissionRead]:
+        result = await self._db.execute(
+            select(PageRolePermission)
+            .where(PageRolePermission.page_id == page_id)
+            .order_by(PageRolePermission.role_id)
+        )
+        return [PageRolePermissionRead.model_validate(r) for r in result.scalars()]
+
+    async def set_page_permissions(
+        self, page_id: uuid.UUID, data: PagePermissionsSet
+    ) -> list[PageRolePermissionRead]:
+        await self._db.execute(
+            delete(PageRolePermission).where(PageRolePermission.page_id == page_id)
+        )
+        rows: list[PageRolePermission] = []
+        for item in data.permissions:
+            row = PageRolePermission(
+                page_id=page_id,
+                role_id=item.role_id,
+                can_view=item.can_view,
+            )
+            self._db.add(row)
+            rows.append(row)
+        await self._db.flush()
+        return [PageRolePermissionRead.model_validate(r) for r in rows]
+
+    # ==============================================================
+    # Nav reorder
+    # ==============================================================
+
+    async def reorder_pages(self, app_id: uuid.UUID, data: PageNavReorder) -> list[PageRead]:
+        for item in data.pages:
+            await self._db.execute(
+                update(Page)
+                .where(Page.id == item.page_id, Page.app_id == app_id)
+                .values(nav_order=item.nav_order)
+            )
+        await self._db.flush()
+        return await self.list_pages(app_id)
 
     # ==============================================================
     # Internals

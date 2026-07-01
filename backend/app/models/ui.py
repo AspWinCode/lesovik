@@ -76,9 +76,23 @@ class Page(Base):
     nav_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="0")
     layout: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     blocks: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    breakpoints: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     is_published: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default="false")
     published_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime(timezone=True))
     created_at: Mapped[sa.DateTime] = mapped_column(sa.DateTime(timezone=True), nullable=False,
                                                      server_default=sa.text("now()"))
     updated_at: Mapped[sa.DateTime] = mapped_column(sa.DateTime(timezone=True), nullable=False,
                                                      server_default=sa.text("now()"))
+
+
+class PageRolePermission(Base):
+    __tablename__ = "page_role_permission"
+    __table_args__ = {"schema": "ui"}
+
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("ui.page.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    can_view: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default="true")

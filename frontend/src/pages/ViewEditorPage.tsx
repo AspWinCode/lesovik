@@ -13,7 +13,8 @@ import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
-import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage } from "@/shared/hooks/useViews";
+import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage, useReorderPages, usePagePermissions, useSetPagePermissions } from "@/shared/hooks/useViews";
+import { useAllRoles } from "@/shared/hooks/useRbac";
 import { useEntities } from "@/shared/hooks/useEntities";
 import type { FieldRead } from "@/shared/api/entities";
 import { useCreateRecord } from "@/shared/hooks/useRecords";
@@ -176,6 +177,8 @@ export function ViewEditorPage() {
   const app = useActiveApp(apps);
   const appId = app?.id;
 
+  const [permissionsPageId, setPermissionsPageId] = useState<string | null>(null);
+
   const pagesQuery = usePages(appId);
   const pages = pagesQuery.data ?? [];
   const updatePageMutation = useUpdatePage(appId ?? "");
@@ -183,6 +186,11 @@ export function ViewEditorPage() {
   const deletePageMutation = useDeletePage(appId ?? "");
   const publishPageMutation = usePublishPage(appId ?? "");
   const unpublishPageMutation = useUnpublishPage(appId ?? "");
+  const reorderPagesMutation = useReorderPages(appId ?? "");
+  const setPagePermissionsMutation = useSetPagePermissions(appId ?? "");
+  const allRolesQuery = useAllRoles();
+  const allRoles = allRolesQuery.data ?? [];
+  const pagePermsQuery = usePagePermissions(appId, permissionsPageId ?? undefined);
 
   const { data: entities = [] } = useEntities(appId);
   const createRecordMutation = useCreateRecord(appId ?? "", quickAddEntityId ?? "");
@@ -439,6 +447,11 @@ export function ViewEditorPage() {
           }}
           onDeleteSystemView={(id) => handleDeletePage(id)}
           onAddRecord={(entityId) => setQuickAddEntityId(entityId)}
+          onReorderViews={(_sectionId, orderedIds) => {
+            const reorderItems = orderedIds.map((id, idx) => ({ page_id: id, nav_order: idx }));
+            reorderPagesMutation.mutate(reorderItems);
+          }}
+          onPagePermissions={(id) => setPermissionsPageId(id)}
           warningMessages={warningMessages}
           systemGroups={systemGroups}
         />
@@ -851,6 +864,111 @@ export function ViewEditorPage() {
           saving={createRecordMutation.isPending}
         />
       )}
+
+      {permissionsPageId && (
+        <PagePermissionsModal
+          pageTitle={pages.find((p) => p.id === permissionsPageId)?.title ?? "Страница"}
+          roles={allRoles}
+          permissions={pagePermsQuery.data ?? []}
+          saving={setPagePermissionsMutation.isPending}
+          onClose={() => setPermissionsPageId(null)}
+          onSave={(perms) => {
+            setPagePermissionsMutation.mutate(
+              { pageId: permissionsPageId, permissions: perms },
+              { onSuccess: () => setPermissionsPageId(null) },
+            );
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Page permissions modal ── */
+function PagePermissionsModal({
+  pageTitle,
+  roles,
+  permissions,
+  saving,
+  onClose,
+  onSave,
+}: {
+  pageTitle: string;
+  roles: { id: string; display_name: string }[];
+  permissions: { role_id: string; can_view: boolean }[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (perms: { role_id: string; can_view: boolean }[]) => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, boolean>>(() => {
+    const map: Record<string, boolean> = {};
+    for (const p of permissions) { map[p.role_id] = p.can_view; }
+    return map;
+  });
+
+  function toggle(roleId: string) {
+    setDraft((prev) => ({ ...prev, [roleId]: !prev[roleId] }));
+  }
+
+  function handleSave() {
+    const perms = roles.map((r) => ({ role_id: r.id, can_view: draft[r.id] !== false }));
+    onSave(perms);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-white rounded-[20px] shadow-[0_8px_40px_rgba(0,32,95,0.18)] w-[480px] max-h-[80vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-cardbg">
+          <div>
+            <p className="text-[18px] font-semibold text-primary">Права видимости страницы</p>
+            <p className="text-[13px] text-primary/50 mt-0.5 truncate">{pageTitle}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors text-primary/40 hover:text-primary text-[20px] leading-none">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-2">
+          <p className="text-[13px] text-primary/50 mb-1">Снимите галочку с роли, чтобы скрыть страницу от пользователей с этой ролью.</p>
+          {roles.length === 0 && (
+            <p className="text-[13px] text-primary/40 py-4 text-center">Нет ролей</p>
+          )}
+          {roles.map((role) => {
+            const canView = draft[role.id] !== false;
+            return (
+              <div
+                key={role.id}
+                className="flex items-center justify-between px-4 py-3 rounded-[10px] bg-mainbg"
+              >
+                <span className="text-[15px] text-primary font-medium">{role.display_name}</span>
+                <button
+                  onClick={() => toggle(role.id)}
+                  role="switch"
+                  aria-checked={canView}
+                  className="relative w-[46px] h-[24px] rounded-[30px] flex items-center px-[3px] transition-colors shrink-0"
+                  style={{ background: canView ? "#35A7FF" : "#C2DBF8" }}
+                >
+                  <span
+                    className="w-[18px] h-[18px] rounded-full bg-white shadow transition-transform"
+                    style={{ transform: canView ? "translateX(22px)" : "translateX(0)" }}
+                  />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-cardbg">
+          <button onClick={onClose} className="h-[40px] px-5 rounded-[20px] border border-cardbg text-[14px] text-primary hover:bg-mainbg transition-colors">
+            Отмена
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="h-[40px] px-5 rounded-[20px] bg-cta text-white text-[14px] font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {saving ? "Сохранение…" : "Сохранить"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

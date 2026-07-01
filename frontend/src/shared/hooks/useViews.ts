@@ -4,15 +4,21 @@ import {
   createView,
   deletePage,
   deleteView,
+  getPage,
+  getPagePermissions,
   listPages,
   listViews,
   publishPage,
+  reorderPages,
   setDefaultView,
+  setPagePermissions,
   unpublishPage,
   updatePage,
   updateView,
   type PageCreate,
+  type PageNavReorderItem,
   type PageRead,
+  type PageRolePermission,
   type PageUpdate,
   type ViewCreate,
   type ViewUpdate,
@@ -116,5 +122,49 @@ export function useUnpublishPage(appId: string) {
   return useMutation({
     mutationFn: (pageId: string) => unpublishPage(appId, pageId),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: PAGES_KEY(appId) }); },
+  });
+}
+
+export function usePage(appId: string | undefined, pageId: string | undefined) {
+  return useQuery({
+    queryKey: ["page", appId ?? "", pageId ?? ""] as const,
+    queryFn: () => getPage(appId!, pageId!),
+    enabled: !!appId && !!pageId,
+  });
+}
+
+export function useReorderPages(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pages: PageNavReorderItem[]) => reorderPages(appId, pages),
+    onSuccess: (updated: PageRead[]) => {
+      qc.setQueryData(PAGES_KEY(appId), updated);
+    },
+  });
+}
+
+const PAGE_PERMS_KEY = (pageId: string) => ["page-permissions", pageId] as const;
+
+export function usePagePermissions(appId: string | undefined, pageId: string | undefined) {
+  return useQuery<PageRolePermission[]>({
+    queryKey: PAGE_PERMS_KEY(pageId ?? ""),
+    queryFn: () => getPagePermissions(appId!, pageId!),
+    enabled: !!appId && !!pageId,
+  });
+}
+
+export function useSetPagePermissions(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      pageId,
+      permissions,
+    }: {
+      pageId: string;
+      permissions: { role_id: string; can_view: boolean }[];
+    }) => setPagePermissions(appId, pageId, permissions),
+    onSuccess: (_, { pageId }) => {
+      void qc.invalidateQueries({ queryKey: PAGE_PERMS_KEY(pageId) });
+    },
   });
 }
