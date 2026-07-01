@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
@@ -9,6 +10,7 @@ import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { usePermissions, useReplacePermissions } from "@/shared/hooks/usePermissions";
 import type { FieldPermissionUpsert } from "@/shared/api/permissions";
+import { fetchLdapStatus, testLdapConnection } from "@/shared/api/auth";
 
 type SecuritySection =
   | "login"
@@ -226,11 +228,120 @@ function FiltersSection() {
 
 /* ── Auth section ── */
 function AuthSection() {
+  const { data: ldap, isLoading, isError } = useQuery({
+    queryKey: ["ldap-status"],
+    queryFn: fetchLdapStatus,
+    retry: 1,
+  });
+
+  const [testResult, setTestResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
+  const testMutation = useMutation({
+    mutationFn: testLdapConnection,
+    onSuccess: (res) => setTestResult(res),
+    onError: () => setTestResult({ ok: false, error: "Ошибка запроса к серверу" }),
+  });
+
   return (
     <div className="px-[40px] py-[25px]">
       <h2 className="text-[22px] font-bold text-primary mb-2">Аутентификация</h2>
-      <p className="text-[15px] text-primary/60 mb-6">Настройте параметры аутентификации пользователей.</p>
-      <div className="text-[15px] text-primary/40">Настройки по умолчанию.</div>
+      <p className="text-[15px] text-primary/60 mb-6">Настройка подключения к корпоративному LDAP / Active Directory.</p>
+
+      {isLoading && <div className="text-[15px] text-primary/40">Загрузка…</div>}
+      {isError && <div className="text-[14px] text-mistake">Не удалось получить конфигурацию LDAP. Проверьте права доступа.</div>}
+
+      {ldap && (
+        <div className="flex flex-col gap-4">
+          {/* Status banner */}
+          <div className={cn(
+            "flex items-center gap-3 px-5 py-3 rounded-[10px] border",
+            ldap.enabled
+              ? "bg-[#EBF4FF] border-cta/30"
+              : "bg-mainbg border-cardbg"
+          )}>
+            <span className={cn(
+              "w-2.5 h-2.5 rounded-full shrink-0",
+              ldap.enabled ? "bg-green-500" : "bg-gray-400"
+            )} />
+            <span className="text-[15px] font-medium text-primary">
+              LDAP {ldap.enabled ? "включён" : "отключён"}
+            </span>
+            {!ldap.enabled && (
+              <span className="text-[13px] text-primary/50 ml-1">
+                — задайте <code className="font-mono bg-white/60 px-1 rounded">LDAP_ENABLED=true</code> в переменных окружения сервера
+              </span>
+            )}
+          </div>
+
+          {/* Config fields */}
+          {ldap.enabled && (
+            <div className="bg-white rounded-[10px] border border-cardbg overflow-hidden">
+              {[
+                { label: "Сервер (URL)", value: ldap.url },
+                { label: "Base DN поиска", value: ldap.search_base },
+                { label: "Bind DN (сервисный аккаунт)", value: ldap.bind_dn },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center border-b last:border-0 border-cardbg px-5 py-3 gap-4">
+                  <span className="text-[13px] text-primary/60 w-[220px] shrink-0">{label}</span>
+                  <span className="text-[14px] font-mono text-primary">{value ?? "—"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Password note */}
+          {ldap.enabled && (
+            <p className="text-[12px] text-primary/40">
+              Пароль сервисного аккаунта (LDAP_BIND_PASSWORD) в целях безопасности не отображается.
+            </p>
+          )}
+
+          {/* Test connection */}
+          {ldap.enabled && (
+            <div className="flex flex-col gap-3 mt-2">
+              <button
+                type="button"
+                onClick={() => { setTestResult(null); testMutation.mutate(); }}
+                disabled={testMutation.isPending}
+                className="self-start flex items-center gap-2 px-5 h-[38px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active disabled:opacity-50 transition-colors"
+              >
+                {testMutation.isPending ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" />
+                    </svg>
+                    Проверка…
+                  </>
+                ) : "Проверить соединение"}
+              </button>
+
+              {testResult && (
+                <div className={cn(
+                  "flex items-start gap-3 px-4 py-3 rounded-[8px] text-[14px]",
+                  testResult.ok
+                    ? "bg-[#E6F9EF] text-green-700 border border-green-200"
+                    : "bg-[#FDECEC] text-mistake border border-red-200"
+                )}>
+                  <span className="mt-0.5 shrink-0">
+                    {testResult.ok ? "✓" : "✗"}
+                  </span>
+                  <span>{testResult.ok ? testResult.message : testResult.error}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* How-to hint */}
+          <div className="mt-2 p-4 bg-white rounded-[10px] border border-cardbg">
+            <p className="text-[13px] font-semibold text-primary mb-2">Как настроить LDAP</p>
+            <ol className="flex flex-col gap-1 text-[12px] text-primary/60 list-decimal list-inside leading-relaxed">
+              <li>Задайте переменные окружения в файле <code className="font-mono bg-mainbg px-1 rounded">.env</code> или в <code className="font-mono bg-mainbg px-1 rounded">docker-compose.server.yml</code></li>
+              <li><code className="font-mono bg-mainbg px-1 rounded">LDAP_ENABLED=true</code>, <code className="font-mono bg-mainbg px-1 rounded">LDAP_URL=ldap://dc.example.com</code></li>
+              <li><code className="font-mono bg-mainbg px-1 rounded">LDAP_BIND_DN</code>, <code className="font-mono bg-mainbg px-1 rounded">LDAP_BIND_PASSWORD</code>, <code className="font-mono bg-mainbg px-1 rounded">LDAP_SEARCH_BASE</code></li>
+              <li>Перезапустите сервер и нажмите «Проверить соединение»</li>
+            </ol>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -36,6 +36,28 @@ export async function login(payload: LoginPayload): Promise<TokenPair> {
   return data;
 }
 
+export async function ldapLogin(payload: { email: string; password: string }): Promise<TokenPair> {
+  const { data } = await apiClient.post<TokenPair>("/auth/ldap-login", payload);
+  return data;
+}
+
+export interface LdapStatus {
+  enabled: boolean;
+  url: string | null;
+  search_base: string | null;
+  bind_dn: string | null;
+}
+
+export async function fetchLdapStatus(): Promise<LdapStatus> {
+  const { data } = await apiClient.get<LdapStatus>("/auth/ldap-status");
+  return data;
+}
+
+export async function testLdapConnection(): Promise<{ ok: boolean; message?: string; error?: string }> {
+  const { data } = await apiClient.post<{ ok: boolean; message?: string; error?: string }>("/auth/ldap-test");
+  return data;
+}
+
 export async function logout(refreshToken: string): Promise<void> {
   await apiClient.post("/auth/logout", { refresh_token: refreshToken });
 }

@@ -2,21 +2,28 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import { useAuthStore } from "@/shared/auth/store";
+import { ldapLogin as apiLdapLogin, type TokenPair } from "@/shared/api/auth";
+import { setTokens } from "@/shared/auth/tokens";
 
-function extractError(err: unknown): string {
+function extractError(err: unknown, isLdap = false): string {
   if (isAxiosError(err)) {
     const detail = err.response?.data?.detail;
     if (typeof detail === "string") return detail;
-    if (err.response?.status === 401) return "Неверная почта или пароль";
+    if (err.response?.status === 401) return isLdap ? "Неверные корпоративные данные" : "Неверная почта или пароль";
+    if (err.response?.status === 403) return "Доступ заблокирован";
     if (!err.response) return "Сервер недоступен";
   }
   return "Не удалось войти. Попробуйте ещё раз";
 }
 
+type LoginMode = "standard" | "ldap";
+
 export function SignInPage() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const bootstrap = useAuthStore((s) => s.bootstrap);
 
+  const [mode, setMode] = useState<LoginMode>("standard");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
@@ -24,20 +31,33 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  function switchMode(m: LoginMode) {
+    setMode(m);
+    setError(null);
+    setTotpRequired(false);
+    setTotpCode("");
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await login({
-        email,
-        password,
-        totp_code: totpRequired && totpCode ? totpCode : undefined,
-      });
+      if (mode === "ldap") {
+        const tokens: TokenPair = await apiLdapLogin({ email, password });
+        setTokens(tokens.access_token, tokens.refresh_token);
+        await bootstrap();
+      } else {
+        await login({
+          email,
+          password,
+          totp_code: totpRequired && totpCode ? totpCode : undefined,
+        });
+      }
       navigate("/", { replace: true });
     } catch (err) {
-      const msg = extractError(err);
-      if (msg.toLowerCase().includes("totp")) {
+      const msg = extractError(err, mode === "ldap");
+      if (mode === "standard" && msg.toLowerCase().includes("totp")) {
         setTotpRequired(true);
       }
       setError(msg);
@@ -45,6 +65,9 @@ export function SignInPage() {
       setLoading(false);
     }
   }
+
+  const showTotp = mode === "standard" && totpRequired;
+  const cardHeight = showTotp ? 580 : 500;
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
@@ -57,7 +80,7 @@ export function SignInPage() {
       <form
         onSubmit={handleSubmit}
         className="relative bg-mainbg rounded-card border-2 border-primary"
-        style={{ width: 500, height: totpRequired ? 545 : 457 }}
+        style={{ width: 500, height: cardHeight }}
       >
         {/* Title */}
         <h1
@@ -67,16 +90,45 @@ export function SignInPage() {
           Вход
         </h1>
 
+        {/* Mode tabs */}
+        <div
+          className="absolute flex rounded-[10px] overflow-hidden border border-primary/20"
+          style={{ left: "calc(50% - 175px)", top: 80, width: 350, height: 36 }}
+        >
+          <button
+            type="button"
+            onClick={() => switchMode("standard")}
+            className={`flex-1 text-[13px] font-medium transition-colors ${
+              mode === "standard"
+                ? "bg-primary text-white"
+                : "bg-cardbg text-primary hover:bg-primary/10"
+            }`}
+          >
+            Пароль
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode("ldap")}
+            className={`flex-1 text-[13px] font-medium transition-colors ${
+              mode === "ldap"
+                ? "bg-primary text-white"
+                : "bg-cardbg text-primary hover:bg-primary/10"
+            }`}
+          >
+            Корпоративный (LDAP)
+          </button>
+        </div>
+
         {/* Email */}
         <div
           className="absolute flex flex-col gap-[5px]"
-          style={{ left: "calc(50% - 175px)", top: 110, width: 350 }}
+          style={{ left: "calc(50% - 175px)", top: 133, width: 350 }}
         >
           <label className="text-[22px] font-medium text-primary leading-[150%]">
-            Почта
+            {mode === "ldap" ? "Логин / Почта" : "Почта"}
           </label>
           <input
-            type="email"
+            type={mode === "ldap" ? "text" : "email"}
             required
             autoComplete="email"
             value={email}
@@ -89,7 +141,7 @@ export function SignInPage() {
         {/* Password */}
         <div
           className="absolute flex flex-col gap-[5px]"
-          style={{ left: "calc(50% - 175px)", top: 223, width: 350 }}
+          style={{ left: "calc(50% - 175px)", top: 246, width: 350 }}
         >
           <label className="text-[22px] font-medium text-primary leading-[150%]">
             Пароль
@@ -105,11 +157,11 @@ export function SignInPage() {
           />
         </div>
 
-        {/* TOTP (revealed only when the backend requires it) */}
-        {totpRequired && (
+        {/* TOTP (standard mode only, revealed when the backend requires it) */}
+        {showTotp && (
           <div
             className="absolute flex flex-col gap-[5px]"
-            style={{ left: "calc(50% - 175px)", top: 300, width: 350 }}
+            style={{ left: "calc(50% - 175px)", top: 320, width: 350 }}
           >
             <input
               type="text"
@@ -123,36 +175,49 @@ export function SignInPage() {
           </div>
         )}
 
-        {/* Error message — sits below the TOTP field when 2FA is shown so they
-            never overlap. */}
+        {/* LDAP hint */}
+        {mode === "ldap" && (
+          <p
+            className="absolute text-[12px] text-primary/50 text-center w-[350px]"
+            style={{ left: "calc(50% - 175px)", top: 320 }}
+          >
+            Используйте учётные данные корпоративного LDAP / Active Directory
+          </p>
+        )}
+
+        {/* Error message */}
         {error && (
           <p
             className="absolute text-[14px] text-mistake text-center w-[350px]"
-            style={{ left: "calc(50% - 175px)", top: totpRequired ? 360 : 283 }}
+            style={{ left: "calc(50% - 175px)", top: showTotp ? 378 : 348 }}
           >
             {error}
           </p>
         )}
 
-        {/* Forgot password link */}
-        <Link
-          to="/forgot-password"
-          className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
-          style={{ left: "calc(50% - 175px)", top: totpRequired ? 398 : 313 }}
-        >
-          Забыли пароль?
-        </Link>
+        {/* Forgot password link (standard only) */}
+        {mode === "standard" && (
+          <Link
+            to="/forgot-password"
+            className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
+            style={{ left: "calc(50% - 175px)", top: showTotp ? 418 : 378 }}
+          >
+            Забыли пароль?
+          </Link>
+        )}
 
-        {/* Sign-up link */}
-        <Link
-          to="/signup"
-          className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
-          style={{ left: "calc(50% - 56px + 75px)", top: totpRequired ? 398 : 313 }}
-        >
-          Ещё нет аккаунта?
-        </Link>
+        {/* Sign-up link (standard only) */}
+        {mode === "standard" && (
+          <Link
+            to="/signup"
+            className="absolute text-[12px] font-medium text-primary/75 hover:text-primary transition-colors"
+            style={{ left: "calc(50% - 56px + 75px)", top: showTotp ? 418 : 378 }}
+          >
+            Ещё нет аккаунта?
+          </Link>
+        )}
 
-        {/* Submit — filled blue, pill shape, white text */}
+        {/* Submit */}
         <button
           type="submit"
           disabled={loading}

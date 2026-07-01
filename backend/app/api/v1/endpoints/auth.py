@@ -4,6 +4,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthDep, DbDep
+from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -163,6 +164,35 @@ async def ldap_login(req: LdapLoginRequest, request: Request, db: DbDep) -> Toke
         )
     except AuthError as exc:
         raise _map_auth_error(exc) from exc
+
+
+@router.get("/ldap-status", summary="Return LDAP configuration status (no secrets)")
+async def ldap_status(current_user: AuthDep) -> dict:
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return {
+        "enabled": settings.LDAP_ENABLED,
+        "url": settings.LDAP_URL if settings.LDAP_ENABLED else None,
+        "search_base": settings.LDAP_SEARCH_BASE if settings.LDAP_ENABLED else None,
+        "bind_dn": settings.LDAP_BIND_DN if settings.LDAP_ENABLED else None,
+    }
+
+
+@router.post("/ldap-test", summary="Test LDAP connection with current settings")
+async def ldap_test(current_user: AuthDep) -> dict:
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    if not settings.LDAP_ENABLED:
+        return {"ok": False, "error": "LDAP не включён (LDAP_ENABLED=false)"}
+    try:
+        from app.core.ldap_auth import LdapAuthError, LdapClient
+        import ldap3  # type: ignore[import-untyped]
+        server = ldap3.Server(settings.LDAP_URL, get_info=ldap3.ALL, connect_timeout=5)
+        conn = ldap3.Connection(server, settings.LDAP_BIND_DN, settings.LDAP_BIND_PASSWORD, auto_bind=True)
+        conn.unbind()
+        return {"ok": True, "message": f"Соединение с {settings.LDAP_URL} установлено"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 # ---- Яндекс ID ----
