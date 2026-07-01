@@ -23,6 +23,14 @@ import {
   useAllSessions,
   useTerminateSession,
 } from "@/shared/hooks/useSessions";
+import {
+  useAllRoles,
+  useAbacRules,
+  useCreateAbacRule,
+  useUpdateAbacRule,
+  useDeleteAbacRule,
+} from "@/shared/hooks/useRbac";
+import type { AbacRuleCreate, AbacCondition } from "@/shared/api/roles";
 
 type SecuritySection =
   | "login"
@@ -31,7 +39,8 @@ type SecuritySection =
   | "password"
   | "sessions"
   | "options"
-  | "abac";
+  | "abac"
+  | "rbac";
 
 interface SecurityConfig {
   require_login?: boolean;
@@ -50,6 +59,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "login",    label: "Вход в систему",    icon: <LoginIcon /> },
   { id: "abac",     label: "Права полей",        icon: <ShieldIcon /> },
+  { id: "rbac",     label: "Правила доступа",   icon: <RbacIcon /> },
   { id: "filters",  label: "Защитные фильтры",  icon: <FilterIcon /> },
   { id: "auth",     label: "Аутентификация",     icon: <ClockIcon /> },
   { id: "password",  label: "Политика паролей",  icon: <KeyIcon /> },
@@ -143,6 +153,7 @@ export function SecurityPage() {
         )}
         {active === "login"    && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
         {active === "abac"     && <AbacSection appId={app?.id} />}
+        {active === "rbac"     && <RbacSection />}
         {active === "filters"  && <FiltersSection />}
         {active === "auth"     && <AuthSection />}
         {active === "password"  && <PasswordPolicySection />}
@@ -788,6 +799,362 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   );
 }
 
+/* ── RBAC: record-level ABAC rules ── */
+
+const OP_LABELS: Record<string, string> = {
+  eq: "=",
+  neq: "≠",
+  in: "входит в",
+  not_in: "не входит в",
+  contains: "содержит",
+};
+
+const OP_OPTIONS = [
+  { value: "eq", label: "= (равно)" },
+  { value: "neq", label: "≠ (не равно)" },
+  { value: "in", label: "входит в список" },
+  { value: "not_in", label: "не входит в список" },
+  { value: "contains", label: "содержит" },
+];
+
+const EFFECT_COLORS: Record<string, { bg: string; text: string }> = {
+  allow: { bg: "bg-[#E6F9EF]", text: "text-[#20BE4F]" },
+  deny:  { bg: "bg-[#FFF0F0]", text: "text-[#C22A2A]" },
+};
+
+function RbacSection() {
+  const { data: roles = [] } = useAllRoles();
+  const { data: rules = [], isLoading, refetch } = useAbacRules();
+  const createRule = useCreateAbacRule();
+  const updateRule = useUpdateAbacRule();
+  const deleteRule = useDeleteAbacRule();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editRule, setEditRule] = useState<string | null>(null);
+
+  // Form state for create
+  const [form, setForm] = useState<{
+    role_id: string;
+    resource_type: string;
+    resource_id: string;
+    effect: "allow" | "deny";
+    priority: number;
+    description: string;
+    conditions: AbacCondition[];
+  }>({
+    role_id: "",
+    resource_type: "",
+    resource_id: "",
+    effect: "allow",
+    priority: 0,
+    description: "",
+    conditions: [],
+  });
+
+  function resetForm() {
+    setForm({ role_id: "", resource_type: "", resource_id: "", effect: "allow", priority: 0, description: "", conditions: [] });
+  }
+
+  function addCondition() {
+    setForm((f) => ({
+      ...f,
+      conditions: [...f.conditions, { field: "", op: "eq", value: "" }],
+    }));
+  }
+
+  function updateCondition(i: number, patch: Partial<AbacCondition>) {
+    setForm((f) => {
+      const next = [...f.conditions];
+      next[i] = { ...next[i], ...patch };
+      return { ...f, conditions: next };
+    });
+  }
+
+  function removeCondition(i: number) {
+    setForm((f) => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
+  }
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.role_id || !form.resource_type) return;
+    const payload: AbacRuleCreate = {
+      role_id: form.role_id,
+      resource_type: form.resource_type,
+      resource_id: form.resource_id || undefined,
+      condition_json: form.conditions.filter((c) => c.field && c.value),
+      effect: form.effect,
+      priority: form.priority,
+      description: form.description || undefined,
+    };
+    createRule.mutate(payload, {
+      onSuccess: () => {
+        setCreateOpen(false);
+        resetForm();
+      },
+    });
+  }
+
+  const sortedRules = [...rules].sort((a, b) => b.priority - a.priority);
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-[22px] font-bold text-primary">Правила доступа к записям (ABAC)</h2>
+        <button
+          onClick={() => { resetForm(); setCreateOpen(true); }}
+          className="flex items-center gap-2 h-[36px] px-4 bg-cta text-white text-[13px] font-medium rounded-btn hover:bg-active transition-colors"
+        >
+          <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5">
+            <line x1="7" y1="1" x2="7" y2="13" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+            <line x1="1" y1="7" x2="13" y2="7" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          Добавить правило
+        </button>
+      </div>
+      <p className="text-[14px] text-primary/60 mb-6">
+        Правила определяют видимость и редактируемость записей на основе атрибутов (например, «пользователь видит только записи своего отдела»).
+      </p>
+
+      {/* Create modal */}
+      {createOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,32,95,0.35)" }}
+          onClick={() => setCreateOpen(false)}
+        >
+          <div
+            className="bg-white rounded-[20px] w-[580px] max-h-[90vh] overflow-y-auto flex flex-col"
+            style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[16px] sticky top-0 bg-white z-10 border-b border-cardbg">
+              <span className="text-[20px] font-bold text-primary">Новое правило ABAC</span>
+              <button onClick={() => setCreateOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors text-primary/40 text-[22px] leading-none">×</button>
+            </div>
+            <form onSubmit={handleCreate} className="flex flex-col gap-[16px] px-[30px] py-[20px] pb-[28px]">
+              {/* Role */}
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[13px] font-medium text-primary/60">Роль</label>
+                <select
+                  required
+                  value={form.role_id}
+                  onChange={(e) => setForm((f) => ({ ...f, role_id: e.target.value }))}
+                  className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta appearance-none"
+                >
+                  <option value="">— выберите роль —</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.display_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Resource type */}
+              <div className="flex gap-3">
+                <div className="flex flex-col gap-[6px] flex-1">
+                  <label className="text-[13px] font-medium text-primary/60">Тип ресурса (сущность)</label>
+                  <input
+                    required
+                    value={form.resource_type}
+                    onChange={(e) => setForm((f) => ({ ...f, resource_type: e.target.value }))}
+                    placeholder="например: order, contract"
+                    className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30"
+                  />
+                </div>
+                <div className="flex flex-col gap-[6px] w-[160px]">
+                  <label className="text-[13px] font-medium text-primary/60">ID ресурса <span className="text-primary/30">(необяз.)</span></label>
+                  <input
+                    value={form.resource_id}
+                    onChange={(e) => setForm((f) => ({ ...f, resource_id: e.target.value }))}
+                    placeholder="uuid"
+                    className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30"
+                  />
+                </div>
+              </div>
+
+              {/* Effect + Priority */}
+              <div className="flex gap-3">
+                <div className="flex flex-col gap-[6px] flex-1">
+                  <label className="text-[13px] font-medium text-primary/60">Эффект</label>
+                  <select
+                    value={form.effect}
+                    onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value as "allow" | "deny" }))}
+                    className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta appearance-none"
+                  >
+                    <option value="allow">Разрешить (allow)</option>
+                    <option value="deny">Запретить (deny)</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-[6px] w-[120px]">
+                  <label className="text-[13px] font-medium text-primary/60">Приоритет</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000}
+                    value={form.priority}
+                    onChange={(e) => setForm((f) => ({ ...f, priority: Number(e.target.value) }))}
+                    className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta"
+                  />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[13px] font-medium text-primary/60">Описание <span className="text-primary/30">(необязательно)</span></label>
+                <input
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Пользователь видит только заказы своего отдела"
+                  className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30"
+                />
+              </div>
+
+              {/* Conditions */}
+              <div className="flex flex-col gap-[8px]">
+                <div className="flex items-center justify-between">
+                  <label className="text-[13px] font-medium text-primary/60">Условия</label>
+                  <button type="button" onClick={addCondition}
+                    className="text-[12px] text-cta hover:underline">
+                    + добавить условие
+                  </button>
+                </div>
+                {form.conditions.length === 0 && (
+                  <p className="text-[12px] text-primary/40 bg-mainbg rounded-[8px] px-3 py-2">
+                    Без условий — правило применяется ко всем записям данного типа ресурса.
+                  </p>
+                )}
+                {form.conditions.map((cond, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      value={cond.field}
+                      onChange={(e) => updateCondition(i, { field: e.target.value })}
+                      placeholder="поле (department_id)"
+                      className="flex-1 h-[34px] px-2 bg-mainbg border border-cardbg rounded-[6px] text-[13px] text-primary outline-none focus:border-cta placeholder:text-primary/30"
+                    />
+                    <select
+                      value={cond.op}
+                      onChange={(e) => updateCondition(i, { op: e.target.value })}
+                      className="w-[130px] h-[34px] px-2 bg-mainbg border border-cardbg rounded-[6px] text-[13px] text-primary outline-none appearance-none"
+                    >
+                      {OP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <input
+                      value={cond.value}
+                      onChange={(e) => updateCondition(i, { value: e.target.value })}
+                      placeholder="${user.org_id}"
+                      className="flex-1 h-[34px] px-2 bg-mainbg border border-cardbg rounded-[6px] text-[13px] text-primary outline-none focus:border-cta placeholder:text-primary/30 font-mono"
+                    />
+                    <button type="button" onClick={() => removeCondition(i)}
+                      className="w-6 h-6 flex items-center justify-center text-primary/30 hover:text-[#C22A2A] transition-colors shrink-0">
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {form.conditions.length > 0 && (
+                  <p className="text-[11px] text-primary/40">
+                    Переменные: <code className="font-mono">{"${user.id}"}</code>, <code className="font-mono">{"${user.org_id}"}</code>, <code className="font-mono">{"${user.email}"}</code>
+                  </p>
+                )}
+              </div>
+
+              {createRule.isError && (
+                <p className="text-[13px] text-[#C22A2A] bg-[#FFF0F0] rounded-[8px] px-3 py-2">
+                  Ошибка создания правила
+                </p>
+              )}
+
+              <div className="flex gap-[10px] justify-end pt-[4px]">
+                <button type="button" onClick={() => setCreateOpen(false)}
+                  className="h-[40px] px-[20px] border-2 border-primary/20 rounded-[20px] text-[14px] text-primary hover:bg-mainbg transition-colors">
+                  Отмена
+                </button>
+                <button type="submit" disabled={createRule.isPending}
+                  className="h-[40px] px-[20px] bg-cta rounded-[20px] text-[14px] font-semibold text-white hover:bg-active transition-colors disabled:opacity-50">
+                  {createRule.isPending ? "Сохранение…" : "Создать правило"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rules list */}
+      {isLoading ? (
+        <div className="text-[14px] text-primary/40">Загрузка…</div>
+      ) : sortedRules.length === 0 ? (
+        <div className="bg-white rounded-[10px] border border-cardbg px-8 py-10 text-center text-[15px] text-primary/40">
+          Правил доступа пока нет. Нажмите «Добавить правило» для создания первого.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {sortedRules.map((rule) => {
+            const eff = EFFECT_COLORS[rule.effect] ?? EFFECT_COLORS.allow;
+            const roleLabel = roles.find((r) => r.id === rule.role_id)?.display_name ?? rule.role_id;
+            return (
+              <div
+                key={rule.id}
+                className="bg-white rounded-[10px] border border-cardbg px-5 py-4 flex items-start gap-4"
+              >
+                <div className="flex-1 min-w-0">
+                  {/* Header */}
+                  <div className="flex items-center gap-3 flex-wrap mb-2">
+                    <span className={cn("text-[11px] font-bold px-2.5 py-0.5 rounded-full", eff.bg, eff.text)}>
+                      {rule.effect === "allow" ? "РАЗРЕШИТЬ" : "ЗАПРЕТИТЬ"}
+                    </span>
+                    <span className="text-[13px] font-semibold text-primary bg-cta/10 px-2.5 py-0.5 rounded-full">
+                      {roleLabel}
+                    </span>
+                    <span className="text-[13px] text-primary/70">
+                      → <span className="font-mono font-medium">{rule.resource_type}</span>
+                      {rule.resource_id && <span className="text-primary/40"> [{rule.resource_id.slice(0, 8)}…]</span>}
+                    </span>
+                    <span className="text-[12px] text-primary/40 ml-auto">
+                      приоритет: {rule.priority}
+                    </span>
+                  </div>
+
+                  {/* Description */}
+                  {rule.description && (
+                    <p className="text-[13px] text-primary/70 mb-2">{rule.description}</p>
+                  )}
+
+                  {/* Conditions */}
+                  {rule.condition_json.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {rule.condition_json.map((c, i) => (
+                        <span key={i} className="text-[12px] bg-mainbg border border-cardbg rounded-[6px] px-2 py-0.5 font-mono">
+                          {c.field} {OP_LABELS[c.op] ?? c.op} {c.value}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-[12px] text-primary/40">без условий (применяется ко всем записям)</span>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => deleteRule.mutate(rule.id, { onSuccess: () => void refetch() })}
+                  disabled={deleteRule.isPending}
+                  className="shrink-0 text-[13px] text-primary/30 hover:text-[#C22A2A] transition-colors disabled:opacity-30 mt-0.5"
+                  title="Удалить правило"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+                    <path d="M3 4h10M6 4V2.5h4V4M5 4v8.5a.5.5 0 00.5.5h5a.5.5 0 00.5-.5V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="mt-4 text-[12px] text-primary/40">
+        Правила с большим приоритетом применяются первыми. При конфликте — запрет (deny) имеет приоритет над разрешением.
+      </p>
+    </div>
+  );
+}
+
 /* ── ABAC: field-level permissions ── */
 
 const ROLES = [
@@ -1034,6 +1401,15 @@ function SessionIcon() {
       <rect x="3" y="5" width="14" height="10" rx="2" stroke={stroke} strokeWidth="1.5" />
       <path d="M3 8h14" stroke={stroke} strokeWidth="1.5" />
       <circle cx="6.5" cy="12" r="1" fill={stroke} />
+    </svg>
+  );
+}
+
+function RbacIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <path d="M10 2L17 5v5c0 4-3 6.5-7 7.5C3 16.5 3 13 3 10V5z" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M7 10l2 2 4-4" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }

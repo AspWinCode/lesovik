@@ -8,8 +8,20 @@ from pydantic import BaseModel, EmailStr, Field
 class RoleRead(BaseModel):
     id: str
     display_name: str
+    description: str | None = None
+    is_system: bool = True
 
     model_config = {"from_attributes": True}
+
+
+class RoleCreate(BaseModel):
+    display_name: str = Field(min_length=2, max_length=128)
+    description: str | None = Field(default=None, max_length=512)
+
+
+class RoleUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=128)
+    description: str | None = Field(default=None, max_length=512)
 
 
 class UserRead(BaseModel):

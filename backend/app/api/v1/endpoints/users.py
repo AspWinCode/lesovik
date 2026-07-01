@@ -102,10 +102,10 @@ async def me(current_user: AuthDep, db: DbDep) -> UserRead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
 
 
-@router.get("/roles", response_model=list[RoleRead], tags=["roles"], summary="List all roles")
+@router.get("/roles", response_model=list[RoleRead], tags=["roles"], summary="List all roles (deprecated, use GET /roles)")
 async def list_roles(current_user: AuthDep, db: DbDep) -> list[RoleRead]:
-    roles = await UserService(db).get_roles()
-    return [RoleRead(id=r["id"], display_name=r["display_name"]) for r in roles]
+    from app.services.roles import RoleService as RS
+    return await RS(db).list_roles()
 
 
 @router.get("/{user_id}", response_model=UserRead, summary="Get user by ID")

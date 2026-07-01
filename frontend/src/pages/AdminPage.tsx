@@ -9,15 +9,17 @@ import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
 import { useHealth } from "@/shared/hooks/useHealth";
 import { useAuthStore } from "@/shared/auth/store";
 import { useAllSessions, useTerminateSession, useTerminateUserSessions } from "@/shared/hooks/useSessions";
+import { useAllRoles, useCreateRole, useDeleteRole } from "@/shared/hooks/useRbac";
 
 /* ── Types ── */
-type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "apps" | "databases" | "sessions";
+type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "roles" | "apps" | "databases" | "sessions";
 
 const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode; platformOnly?: boolean }[] = [
   { id: "home",      label: "Главная",        icon: <HomeIcon /> },
   { id: "orgs",      label: "Организации",    icon: <OrgsIcon />, platformOnly: true },
   { id: "users",     label: "Пользователи",   icon: <UsersIcon /> },
   { id: "groups",    label: "Группы",         icon: <GroupsIcon /> },
+  { id: "roles",     label: "Роли",           icon: <RolesNavIcon /> },
   { id: "apps",      label: "Приложения",     icon: <AppsIcon />, platformOnly: true },
   { id: "databases", label: "Базы данных",    icon: <DbIcon />, platformOnly: true },
   { id: "sessions",  label: "Сессии",         icon: <SessionsNavIcon /> },
@@ -1832,6 +1834,7 @@ export function AdminPage() {
     logs:      <AdminLogs />,
     users:     <AdminUsers />,
     groups:    <AdminGroups />,
+    roles:     <AdminRoles />,
     apps:      <AdminApps />,
     databases: <AdminDatabases />,
     sessions:  <AdminSessions />,
@@ -1855,6 +1858,237 @@ export function AdminPage() {
       >
         {contentMap[section]}
       </main>
+    </div>
+  );
+}
+
+/* ── Roles ── */
+function AdminRoles() {
+  const { data: roles = [], isLoading } = useAllRoles();
+  const createRole = useCreateRole();
+  const deleteRole = useDeleteRole();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+
+  const systemRoles = roles.filter((r) => r.is_system);
+  const customRoles = roles.filter((r) => !r.is_system);
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    createRole.mutate(
+      { display_name: newName.trim(), description: newDesc.trim() || undefined },
+      {
+        onSuccess: () => {
+          setCreateOpen(false);
+          setNewName("");
+          setNewDesc("");
+        },
+      }
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-[40px]">
+      {/* Create modal */}
+      {createOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,32,95,0.35)" }}
+          onClick={() => setCreateOpen(false)}
+        >
+          <div
+            className="bg-white rounded-[20px] w-[460px] flex flex-col"
+            style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[20px]">
+              <span className="text-[22px] font-bold text-primary">Создать роль</span>
+              <button
+                onClick={() => setCreateOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors text-primary/40 text-[22px] leading-none"
+              >×</button>
+            </div>
+            <form onSubmit={handleCreate} className="flex flex-col gap-[18px] px-[30px] pb-[28px]">
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[13px] font-medium text-primary/60">Название роли</label>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  required
+                  placeholder="Менеджер склада"
+                  className="h-[42px] px-[14px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30"
+                />
+              </div>
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[13px] font-medium text-primary/60">Описание <span className="text-primary/30">(необязательно)</span></label>
+                <textarea
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  rows={2}
+                  placeholder="Краткое описание роли и её назначения"
+                  className="px-[14px] py-[10px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30 resize-none"
+                />
+              </div>
+              {createRole.isError && (
+                <p className="text-[13px] text-[#C22A2A] bg-[#FFF0F0] rounded-[8px] px-3 py-2">
+                  Ошибка создания роли
+                </p>
+              )}
+              <div className="flex gap-[10px] justify-end pt-[4px]">
+                <button type="button" onClick={() => setCreateOpen(false)}
+                  className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors">
+                  Отмена
+                </button>
+                <button type="submit" disabled={createRole.isPending}
+                  className="h-[42px] px-[22px] bg-cta rounded-[20px] text-[15px] font-semibold text-white hover:bg-active transition-colors disabled:opacity-50">
+                  {createRole.isPending ? "Создание…" : "Создать"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,32,95,0.35)" }}
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div
+            className="bg-white rounded-[20px] w-[420px] p-[30px] flex flex-col gap-[20px]"
+            style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-[8px]">
+              <span className="text-[20px] font-bold text-primary">Удалить роль?</span>
+              <span className="text-[15px] text-primary/60">
+                Роль <strong className="text-primary">{deleteConfirm.name}</strong> будет удалена. Пользователи с этой ролью потеряют её.
+              </span>
+            </div>
+            <div className="flex gap-[10px] justify-end">
+              <button onClick={() => setDeleteConfirm(null)}
+                className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors">
+                Отмена
+              </button>
+              <button
+                onClick={() => deleteRole.mutate(deleteConfirm.id, { onSuccess: () => setDeleteConfirm(null) })}
+                disabled={deleteRole.isPending}
+                className="h-[42px] px-[22px] bg-[#C22A2A] rounded-[20px] text-[15px] font-semibold text-white hover:bg-[#A01E1E] transition-colors disabled:opacity-50"
+              >
+                {deleteRole.isPending ? "Удаление…" : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-[40px] font-bold text-primary leading-[150%]">Роли</h1>
+          <p className="text-[16px] text-primary/60 mt-1">
+            Системные роли встроены в платформу. Пользовательские роли можно создавать и удалять.
+          </p>
+        </div>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-2 h-[42px] px-6 bg-cta rounded-[20px] text-[16px] font-semibold text-white hover:bg-cta/90 transition-colors"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
+            <line x1="10" y1="3" x2="10" y2="17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+            <line x1="3" y1="10" x2="17" y2="10" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          Создать роль
+        </button>
+      </div>
+
+      {isLoading && <div className="text-primary/40 text-[15px]">Загрузка…</div>}
+
+      {/* System roles */}
+      {systemRoles.length > 0 && (
+        <div className="flex flex-col gap-[16px]">
+          <h2 className="text-[18px] font-semibold text-primary">Системные роли</h2>
+          <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-mainbg">
+                <tr>
+                  {["Роль", "ID", "Описание", "Тип"].map((h) => (
+                    <th key={h} className="text-left px-6 py-3 text-[13px] font-semibold text-primary">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {systemRoles.map((r) => (
+                  <tr key={r.id} className="border-t border-mainbg">
+                    <td className="px-6 py-3 text-[15px] font-semibold text-primary">{r.display_name}</td>
+                    <td className="px-6 py-3 text-[13px] text-primary/60 font-mono">{r.id}</td>
+                    <td className="px-6 py-3 text-[13px] text-primary/60">{r.description ?? "—"}</td>
+                    <td className="px-6 py-3">
+                      <span className="text-[11px] font-semibold bg-cta/10 text-cta px-2 py-0.5 rounded-full">
+                        системная
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Custom roles */}
+      <div className="flex flex-col gap-[16px]">
+        <h2 className="text-[18px] font-semibold text-primary">
+          Пользовательские роли
+          {customRoles.length > 0 && (
+            <span className="ml-2 text-[14px] font-normal text-primary/40">({customRoles.length})</span>
+          )}
+        </h2>
+        {customRoles.length === 0 ? (
+          <div className="bg-white rounded-[12px] border border-cardbg p-8 text-center text-[15px] text-primary/40">
+            Пользовательских ролей пока нет. Создайте первую роль для вашей организации.
+          </div>
+        ) : (
+          <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-mainbg">
+                <tr>
+                  {["Название", "ID", "Описание", "Тип", ""].map((h) => (
+                    <th key={h} className="text-left px-6 py-3 text-[13px] font-semibold text-primary">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {customRoles.map((r) => (
+                  <tr key={r.id} className="border-t border-mainbg hover:bg-mainbg/40">
+                    <td className="px-6 py-3 text-[15px] font-semibold text-primary">{r.display_name}</td>
+                    <td className="px-6 py-3 text-[12px] text-primary/50 font-mono">{r.id}</td>
+                    <td className="px-6 py-3 text-[13px] text-primary/60">{r.description ?? "—"}</td>
+                    <td className="px-6 py-3">
+                      <span className="text-[11px] font-semibold bg-[#20BE4F]/10 text-[#20BE4F] px-2 py-0.5 rounded-full">
+                        пользовательская
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 text-right">
+                      <button
+                        onClick={() => setDeleteConfirm({ id: r.id, name: r.display_name })}
+                        className="text-[13px] text-primary/40 hover:text-[#C22A2A] transition-colors"
+                      >
+                        Удалить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1928,6 +2162,15 @@ function DbIcon() {
       <ellipse cx="12" cy="6" rx="8" ry="3" stroke="#00205F" strokeWidth="2"/>
       <path d="M4 6 L4 18 C4 19.66 7.58 21 12 21 C16.42 21 20 19.66 20 18 L20 6" stroke="#00205F" strokeWidth="2"/>
       <path d="M4 12 C4 13.66 7.58 15 12 15 C16.42 15 20 13.66 20 12" stroke="#00205F" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function RolesNavIcon() {
+  return (
+    <svg viewBox="0 0 25 25" fill="none" className="w-full h-full">
+      <path d="M12.5 3L20 7v6c0 4.5-3.5 8-7.5 9C5 21 2 17.5 2 13V7z" stroke="#00205F" strokeWidth="2" strokeLinejoin="round"/>
+      <path d="M9 12l2.5 2.5 4-4" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
