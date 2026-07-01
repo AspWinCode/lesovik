@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AuthDep, DbDep
 from app.schemas.groups import GroupCreate, GroupDetailRead, GroupRead, GroupUpdate
+from app.services.audit import AuditService
 from app.services.groups import GroupConflictError, GroupNotFoundError, GroupService
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -25,7 +26,17 @@ async def list_groups(current_user: AuthDep, db: DbDep) -> list[GroupRead]:
 async def create_group(body: GroupCreate, current_user: AuthDep, db: DbDep) -> GroupDetailRead:
     _require_admin(current_user)
     try:
-        return await GroupService(db).create_group(body)
+        result = await GroupService(db).create_group(body)
+        await AuditService(db).log(
+            "group_created",
+            user_id=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+            resource_type="group",
+            resource_id=str(result.id),
+            level="info",
+            details={"name": result.name, "roles": [r.id for r in result.roles]},
+        )
+        return result
     except GroupConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -44,7 +55,24 @@ async def get_group(group_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> Gr
 async def update_group(group_id: uuid.UUID, body: GroupUpdate, current_user: AuthDep, db: DbDep) -> GroupDetailRead:
     _require_admin(current_user)
     try:
-        return await GroupService(db).update_group(group_id, body)
+        result = await GroupService(db).update_group(group_id, body)
+        changed: dict = {}
+        if body.name is not None:
+            changed["name"] = body.name
+        if body.description is not None:
+            changed["description"] = body.description
+        if body.role_ids is not None:
+            changed["roles"] = body.role_ids
+        await AuditService(db).log(
+            "group_updated",
+            user_id=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+            resource_type="group",
+            resource_id=str(group_id),
+            level="info",
+            details=changed,
+        )
+        return result
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found") from exc
     except GroupConflictError as exc:
@@ -55,7 +83,18 @@ async def update_group(group_id: uuid.UUID, body: GroupUpdate, current_user: Aut
 async def delete_group(group_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> None:
     _require_admin(current_user)
     try:
+        # Capture name before deletion
+        detail = await GroupService(db).get_group(group_id)
         await GroupService(db).delete_group(group_id)
+        await AuditService(db).log(
+            "group_deleted",
+            user_id=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+            resource_type="group",
+            resource_id=str(group_id),
+            level="warn",
+            details={"name": detail.name},
+        )
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found") from exc
 
@@ -65,6 +104,15 @@ async def add_member(group_id: uuid.UUID, user_id: uuid.UUID, current_user: Auth
     _require_admin(current_user)
     try:
         await GroupService(db).add_member(group_id, user_id)
+        await AuditService(db).log(
+            "group_member_added",
+            user_id=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+            resource_type="group",
+            resource_id=str(group_id),
+            level="info",
+            details={"member_user_id": str(user_id)},
+        )
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found") from exc
 
@@ -74,6 +122,15 @@ async def remove_member(group_id: uuid.UUID, user_id: uuid.UUID, current_user: A
     _require_admin(current_user)
     try:
         await GroupService(db).remove_member(group_id, user_id)
+        await AuditService(db).log(
+            "group_member_removed",
+            user_id=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+            resource_type="group",
+            resource_id=str(group_id),
+            level="info",
+            details={"member_user_id": str(user_id)},
+        )
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found") from exc
 
@@ -87,6 +144,15 @@ async def apply_roles(group_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> 
     _require_admin(current_user)
     try:
         count = await GroupService(db).apply_roles_to_members(group_id, granted_by=current_user.user_id)
+        await AuditService(db).log(
+            "group_roles_applied",
+            user_id=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+            resource_type="group",
+            resource_id=str(group_id),
+            level="warn",
+            details={"grants_added": count},
+        )
         return {"grants_added": count}
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found") from exc

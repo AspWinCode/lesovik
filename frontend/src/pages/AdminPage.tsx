@@ -305,15 +305,33 @@ function AdminDashboard() {
 }
 
 /* ── Logs ── */
+
+// Actions that belong to each tab
+const USER_ACTIONS = new Set([
+  "login", "login_ldap", "login_yandex",
+  "record_created", "record_updated", "record_deleted",
+]);
+const ADMIN_ACTIONS = new Set([
+  "user_created", "user_invited", "user_updated", "user_deactivated", "user_hard_deleted",
+  "org_created", "org_updated",
+  "group_created", "group_updated", "group_deleted",
+  "group_member_added", "group_member_removed", "group_roles_applied",
+]);
+
 const LOG_TABS = [
-  { id: "user",  label: "Действия пользователя" },
-  { id: "admin", label: "Действия администратора" },
+  { id: "all",   label: "Все события" },
+  { id: "user",  label: "Действия пользователей" },
+  { id: "admin", label: "Администрирование" },
+  { id: "warn",  label: "Важные события" },
 ];
 
 interface LogEntry {
+  id: string;
+  rawAction: string;
   time: string;
   user: string;
   action: string;
+  resource: string;
   level: "info" | "warn" | "error";
   ip: string;
   device: string;
@@ -326,98 +344,185 @@ const levelColors: Record<string, string> = {
   error: "text-[#C22A2A]",
 };
 
+const levelBg: Record<string, string> = {
+  info:  "bg-primary/10 text-primary",
+  warn:  "bg-[#FFA600]/15 text-[#FFA600]",
+  error: "bg-[#C22A2A]/15 text-[#C22A2A]",
+};
+
+const LEVEL_LABELS: Record<string, string> = {
+  info: "INFO",
+  warn: "WARN",
+  error: "ERROR",
+};
+
 const ACTION_LABELS: Record<string, string> = {
-  login:            "Вход в систему",
-  login_ldap:       "Вход через LDAP",
-  login_yandex:     "Вход через Яндекс ID",
-  user_created:     "Создание пользователя",
-  user_invited:     "Приглашение пользователя",
-  user_updated:     "Изменение пользователя",
-  user_deactivated: "Деактивация пользователя",
+  // Auth
+  login:                 "Вход в систему",
+  login_ldap:            "Вход через LDAP",
+  login_yandex:          "Вход через Яндекс ID",
+  // Users
+  user_created:          "Создание пользователя",
+  user_invited:          "Приглашение пользователя",
+  user_updated:          "Изменение пользователя",
+  user_deactivated:      "Деактивация пользователя",
+  user_hard_deleted:     "Удаление пользователя",
+  // Orgs
+  org_created:           "Создание организации",
+  org_updated:           "Изменение организации",
+  // Groups
+  group_created:         "Создание группы",
+  group_updated:         "Изменение группы",
+  group_deleted:         "Удаление группы",
+  group_member_added:    "Добавление в группу",
+  group_member_removed:  "Исключение из группы",
+  group_roles_applied:   "Применение ролей группы",
+  // Records
+  record_created:        "Создание записи",
+  record_updated:        "Изменение записи",
+  record_deleted:        "Удаление записи",
+};
+
+const RESOURCE_LABELS: Record<string, string> = {
+  user:         "Пользователь",
+  group:        "Группа",
+  organisation: "Организация",
+  record:       "Запись данных",
 };
 
 function AdminLogs() {
-  const [activeTab, setActiveTab] = useState("user");
+  const [activeTab, setActiveTab] = useState("all");
+  const [search, setSearch] = useState("");
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
-  const { data: rawLogs, isLoading } = useAuditLogs({ limit: 100 });
-  const user = useAuthStore((s) => s.user);
-  const isOrgAdmin = user?.roles.some((r) => r.id === "org_admin") &&
-    !user?.roles.some((r) => r.id === "platform_admin");
+  const { data: rawLogs, isLoading } = useAuditLogs({ limit: 500 });
+  const currentUser = useAuthStore((s) => s.user);
+  const isOrgAdmin = currentUser?.roles.some((r) => r.id === "org_admin") &&
+    !currentUser?.roles.some((r) => r.id === "platform_admin");
 
-  const logs: LogEntry[] = (rawLogs ?? []).map((e) => ({
-    time:   new Date(e.created_at).toLocaleString("ru", { dateStyle: "short", timeStyle: "short" }),
-    user:   e.actor_email ?? e.user_id ?? "—",
-    action: ACTION_LABELS[e.action] ?? e.action,
-    level:  e.level as "info" | "warn" | "error",
-    ip:     e.ip_address ?? "—",
-    device: e.user_agent ?? "—",
-    json:   JSON.stringify({ action: e.action, resource: e.resource_type, id: e.resource_id, ...e.details }, null, 2),
+  const allLogs: LogEntry[] = (rawLogs ?? []).map((e) => ({
+    id:        e.id,
+    rawAction: e.action,
+    time:      new Date(e.created_at).toLocaleString("ru", { dateStyle: "short", timeStyle: "short" }),
+    user:      e.actor_email ?? e.user_id ?? "—",
+    action:    ACTION_LABELS[e.action] ?? e.action,
+    resource:  (e.resource_type ? RESOURCE_LABELS[e.resource_type] ?? e.resource_type : "") +
+               (e.resource_id ? ` #${e.resource_id.slice(0, 8)}` : ""),
+    level:     e.level as "info" | "warn" | "error",
+    ip:        e.ip_address ?? "—",
+    device:    e.user_agent ?? "—",
+    json:      JSON.stringify({ action: e.action, resource: e.resource_type, id: e.resource_id, ...e.details }, null, 2),
   }));
+
+  const filteredByTab = allLogs.filter((log) => {
+    if (activeTab === "all")   return true;
+    if (activeTab === "user")  return USER_ACTIONS.has(log.rawAction);
+    if (activeTab === "admin") return ADMIN_ACTIONS.has(log.rawAction);
+    if (activeTab === "warn")  return log.level === "warn" || log.level === "error";
+    return true;
+  });
+
+  const logs = search.trim()
+    ? filteredByTab.filter((l) =>
+        l.user.toLowerCase().includes(search.toLowerCase()) ||
+        l.action.toLowerCase().includes(search.toLowerCase()) ||
+        l.resource.toLowerCase().includes(search.toLowerCase())
+      )
+    : filteredByTab;
+
+  const warnCount = allLogs.filter((l) => l.level === "warn" || l.level === "error").length;
 
   return (
     <div className="flex gap-[30px] items-start">
       {/* Left: list */}
-      <div className="flex flex-col gap-[40px] flex-1 min-w-0">
-        <div className="flex flex-col gap-[10px]">
+      <div className="flex flex-col gap-[30px] flex-1 min-w-0">
+        <div className="flex flex-col gap-[8px]">
           <h1 className="text-[40px] font-bold text-primary leading-[150%]">Журнал аудита</h1>
-          <p className="text-[24px] font-medium text-primary leading-[150%]">
-            История действий пользователей в системе
-          </p>
+          <p className="text-[18px] text-primary/60">Неизменяемая история всех действий в системе</p>
           {isOrgAdmin && (
-            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-[10px] px-4 py-2 self-start">
-              <span className="text-[14px] text-blue-700">
+            <div className="flex items-center gap-2 bg-cta/5 border border-cta/20 rounded-[10px] px-4 py-2 self-start mt-1">
+              <span className="text-[14px] text-cta">
                 Отображаются только действия пользователей вашей организации
               </span>
             </div>
           )}
         </div>
 
-        <div className="flex items-center bg-white rounded-tab p-[3.6px] gap-2 self-start">
-          {LOG_TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={cn(
-                "px-5 py-[3.6px] rounded-tab text-info text-primary transition-colors",
-                activeTab === t.id ? "bg-cardbg font-semibold" : "hover:bg-mainbg"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+        {/* Tabs + search */}
+        <div className="flex items-center gap-[16px]">
+          <div className="flex items-center bg-white rounded-tab p-[3.6px] gap-1 shrink-0">
+            {LOG_TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => { setActiveTab(t.id); setSelectedLog(null); }}
+                className={cn(
+                  "relative px-4 py-[3.6px] rounded-tab text-[14px] text-primary transition-colors",
+                  activeTab === t.id ? "bg-cardbg font-semibold" : "hover:bg-mainbg"
+                )}
+              >
+                {t.label}
+                {t.id === "warn" && warnCount > 0 && (
+                  <span className="ml-1.5 inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-[#FFA600] text-white text-[10px] font-bold">
+                    {warnCount > 99 ? "99+" : warnCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-[10px] flex-1 h-[38px] px-4 bg-white rounded-[20px] shadow-sm">
+            <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4 shrink-0 text-primary/40">
+              <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.8" />
+              <line x1="13.5" y1="13.5" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по пользователю, действию…"
+              className="flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-primary/30"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="text-primary/30 hover:text-primary text-[18px] leading-none">×</button>
+            )}
+          </div>
+
+          <span className="text-[13px] text-primary/40 shrink-0">{logs.length} записей</span>
         </div>
 
         <div className="bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)] overflow-hidden">
           <table className="w-full">
             <thead className="bg-mainbg">
               <tr>
-                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Время</th>
-                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Пользователь</th>
-                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Действие</th>
-                <th className="text-left px-6 py-3 text-info font-semibold text-primary">Уровень</th>
+                <th className="text-left px-6 py-3 text-[13px] font-semibold text-primary w-[130px]">Время</th>
+                <th className="text-left px-6 py-3 text-[13px] font-semibold text-primary">Пользователь</th>
+                <th className="text-left px-6 py-3 text-[13px] font-semibold text-primary">Действие</th>
+                <th className="text-left px-6 py-3 text-[13px] font-semibold text-primary">Объект</th>
+                <th className="text-left px-6 py-3 text-[13px] font-semibold text-primary w-[80px]">Уровень</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={4} className="px-6 py-4 text-center text-primary/50 text-[16px]">Загрузка…</td></tr>
+                <tr><td colSpan={5} className="px-6 py-4 text-center text-primary/50 text-[15px]">Загрузка…</td></tr>
               )}
               {!isLoading && logs.length === 0 && (
-                <tr><td colSpan={4} className="px-6 py-4 text-center text-primary/50 text-[16px]">Записей пока нет</td></tr>
+                <tr><td colSpan={5} className="px-6 py-4 text-center text-primary/50 text-[15px]">Записей не найдено</td></tr>
               )}
-              {logs.map((log, i) => (
+              {logs.map((log) => (
                 <tr
-                  key={i}
+                  key={log.id}
                   onClick={() => setSelectedLog(log === selectedLog ? null : log)}
                   className={cn(
                     "border-t border-mainbg cursor-pointer transition-colors",
                     log === selectedLog ? "bg-selected" : "hover:bg-mainbg/40"
                   )}
                 >
-                  <td className="px-6 py-3 text-meta text-primary font-mono">{log.time}</td>
-                  <td className="px-6 py-3 text-meta text-primary">{log.user}</td>
-                  <td className={cn("px-6 py-3 text-meta", levelColors[log.level])}>{log.action}</td>
-                  <td className={cn("px-6 py-3 text-meta font-semibold", levelColors[log.level])}>
-                    {log.level.toUpperCase()}
+                  <td className="px-6 py-3 text-[13px] text-primary/60 font-mono whitespace-nowrap">{log.time}</td>
+                  <td className="px-6 py-3 text-[14px] text-primary">{log.user}</td>
+                  <td className={cn("px-6 py-3 text-[14px] font-medium", levelColors[log.level])}>{log.action}</td>
+                  <td className="px-6 py-3 text-[13px] text-primary/50">{log.resource || "—"}</td>
+                  <td className="px-6 py-3">
+                    <span className={cn("text-[11px] font-bold px-2 py-0.5 rounded-full", levelBg[log.level])}>
+                      {LEVEL_LABELS[log.level]}
+                    </span>
                   </td>
                 </tr>
               ))}
