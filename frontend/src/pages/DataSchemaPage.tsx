@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { cn } from "@/lib/cn";
@@ -138,6 +139,8 @@ const FORMULA_GROUPS = ["Арифметика", "Логика", "Агрегат�
 export function DataSchemaPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const appsQ   = useApps();
   const activeApp = useActiveApp(appsQ.data?.items ?? []);
@@ -316,6 +319,21 @@ export function DataSchemaPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const appParam = searchParams.get("app");
+                      const url = `/database?entity=${activeEntity.id}${appParam ? `&app=${appParam}` : ""}`;
+                      navigate(url);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-cta border border-cta/30 rounded-[8px] hover:bg-[#EBF4FF] transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <ellipse cx="8" cy="4" rx="5" ry="2" />
+                      <path d="M3 4v8c0 1.1 2.24 2 5 2s5-.9 5-2V4" />
+                      <path d="M3 8c0 1.1 2.24 2 5 2s5-.9 5-2" />
+                    </svg>
+                    Перейти к данным
+                  </button>
                   <button
                     onClick={() => setEntityModal({ mode: "edit", entity: activeEntity })}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-primary border border-cardbg rounded-[8px] hover:bg-mainbg transition-colors"
