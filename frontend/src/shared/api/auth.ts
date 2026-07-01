@@ -48,6 +48,29 @@ export interface LdapStatus {
   bind_dn: string | null;
 }
 
+export interface PasswordPolicy {
+  min_length: number;
+  require_uppercase: boolean;
+  require_lowercase: boolean;
+  require_digit: boolean;
+  require_special: boolean;
+  max_age_days: number;
+  history_depth: number;
+  updated_at: string;
+}
+
+export type PasswordPolicyUpdate = Partial<Omit<PasswordPolicy, "updated_at">>;
+
+export async function fetchPasswordPolicy(): Promise<PasswordPolicy> {
+  const { data } = await apiClient.get<PasswordPolicy>("/auth/password-policy");
+  return data;
+}
+
+export async function updatePasswordPolicy(body: PasswordPolicyUpdate): Promise<PasswordPolicy> {
+  const { data } = await apiClient.put<PasswordPolicy>("/auth/password-policy", body);
+  return data;
+}
+
 export async function fetchLdapStatus(): Promise<LdapStatus> {
   const { data } = await apiClient.get<LdapStatus>("/auth/ldap-status");
   return data;

@@ -73,6 +73,10 @@ class AuthService:
             auth_attempts.labels(result="wrong_password").inc()
             raise AuthError("Invalid credentials")
 
+        # Check password expiry
+        if user.password_expires_at and datetime.now(UTC) > user.password_expires_at:
+            raise AuthError("Срок действия пароля истёк. Измените пароль.", status_code=403)
+
         if user.totp_enabled:
             if not req.totp_code:
                 auth_attempts.labels(result="totp_required").inc()
@@ -161,14 +165,28 @@ class AuthService:
     # Change password
     # ------------------------------------------------------------------
     async def change_password(self, user_id: uuid.UUID, req: ChangePasswordRequest) -> None:
+        from app.services.password_policy import PasswordPolicyService
+        from app.core.password_policy import PasswordPolicyError
+
         user = await self._get_active_user_by_id(user_id)
         if not user.password_hash or not verify_password(req.current_password, user.password_hash):
             raise AuthError("Current password is incorrect", status_code=403)
+
+        pps = PasswordPolicyService(self._db)
+        try:
+            await pps.validate(req.new_password)
+            await pps.check_history(user_id, req.new_password)
+        except PasswordPolicyError as exc:
+            raise AuthError(str(exc), status_code=422) from exc
+
+        new_hash = hash_password(req.new_password)
+        changed_at, expires_at = await pps.expiry_dates()
         await self._db.execute(
             update(User)
             .where(User.id == user_id)
-            .values(password_hash=hash_password(req.new_password))
+            .values(password_hash=new_hash, password_changed_at=changed_at, password_expires_at=expires_at)
         )
+        await pps.record(user_id, new_hash)
         await self.logout_all(user_id)
         logger.info("password_changed", user_id=str(user_id))
 
@@ -203,8 +221,8 @@ class AuthService:
         logger.info("password_reset_requested", user_id=str(user.id))
 
     async def reset_password(self, req: ResetPasswordRequest) -> None:
-        from datetime import timedelta
-        from app.core.password_policy import validate_password, PasswordPolicyError
+        from app.core.password_policy import PasswordPolicyError
+        from app.services.password_policy import PasswordPolicyService
 
         token_hash = _hash_token(req.token)
         result = await self._db.execute(
@@ -218,16 +236,21 @@ class AuthService:
         if reset_token is None:
             raise AuthError("Ссылка недействительна или истекла", status_code=400)
 
+        pps = PasswordPolicyService(self._db)
         try:
-            validate_password(req.new_password)
+            await pps.validate(req.new_password)
+            await pps.check_history(reset_token.user_id, req.new_password)
         except PasswordPolicyError as exc:
             raise AuthError(str(exc), status_code=422) from exc
 
+        new_hash = hash_password(req.new_password)
+        changed_at, expires_at = await pps.expiry_dates()
         await self._db.execute(
             update(User)
             .where(User.id == reset_token.user_id)
-            .values(password_hash=hash_password(req.new_password))
+            .values(password_hash=new_hash, password_changed_at=changed_at, password_expires_at=expires_at)
         )
+        await pps.record(reset_token.user_id, new_hash)
         await self._db.execute(
             update(PasswordResetToken)
             .where(PasswordResetToken.id == reset_token.id)

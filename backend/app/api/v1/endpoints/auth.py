@@ -11,6 +11,8 @@ from app.schemas.auth import (
     ForgotPasswordRequest,
     LdapLoginRequest,
     LoginRequest,
+    PasswordPolicyRead,
+    PasswordPolicyUpdate,
     RefreshRequest,
     ResetPasswordRequest,
     TOTPSetupResponse,
@@ -194,6 +196,24 @@ async def ldap_test(current_user: AuthDep) -> dict:
         return {"ok": True, "message": f"Соединение с {settings.LDAP_URL} установлено"}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+# ---- Password policy ----
+
+@router.get("/password-policy", response_model=PasswordPolicyRead, summary="Get current password policy")
+async def get_password_policy(db: DbDep) -> PasswordPolicyRead:
+    from app.services.password_policy import PasswordPolicyService
+    policy = await PasswordPolicyService(db).get()
+    return PasswordPolicyRead.model_validate(policy)
+
+
+@router.put("/password-policy", response_model=PasswordPolicyRead, summary="Update password policy (admin only)")
+async def update_password_policy(body: PasswordPolicyUpdate, current_user: AuthDep, db: DbDep) -> PasswordPolicyRead:
+    if not current_user.has_role("platform_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    from app.services.password_policy import PasswordPolicyService
+    policy = await PasswordPolicyService(db).update(body)
+    return PasswordPolicyRead.model_validate(policy)
 
 
 # ---- Яндекс ID ----

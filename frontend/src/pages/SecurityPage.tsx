@@ -10,12 +10,19 @@ import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { usePermissions, useReplacePermissions } from "@/shared/hooks/usePermissions";
 import type { FieldPermissionUpsert } from "@/shared/api/permissions";
-import { fetchLdapStatus, testLdapConnection } from "@/shared/api/auth";
+import {
+  fetchLdapStatus,
+  testLdapConnection,
+  fetchPasswordPolicy,
+  updatePasswordPolicy,
+  type PasswordPolicy,
+} from "@/shared/api/auth";
 
 type SecuritySection =
   | "login"
   | "filters"
   | "auth"
+  | "password"
   | "options"
   | "abac";
 
@@ -34,11 +41,12 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "login",   label: "Вход в систему",    icon: <LoginIcon /> },
-  { id: "abac",    label: "Права полей",        icon: <ShieldIcon /> },
-  { id: "filters", label: "Защитные фильтры",  icon: <FilterIcon /> },
-  { id: "auth",    label: "Аутентификация",     icon: <ClockIcon /> },
-  { id: "options", label: "Опции",              icon: <OptionsIcon /> },
+  { id: "login",    label: "Вход в систему",    icon: <LoginIcon /> },
+  { id: "abac",     label: "Права полей",        icon: <ShieldIcon /> },
+  { id: "filters",  label: "Защитные фильтры",  icon: <FilterIcon /> },
+  { id: "auth",     label: "Аутентификация",     icon: <ClockIcon /> },
+  { id: "password", label: "Политика паролей",  icon: <KeyIcon /> },
+  { id: "options",  label: "Опции",              icon: <OptionsIcon /> },
 ];
 
 export function SecurityPage() {
@@ -125,10 +133,11 @@ export function SecurityPage() {
             {error}
           </div>
         )}
-        {active === "login"   && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
-        {active === "abac"    && <AbacSection appId={app?.id} />}
-        {active === "filters" && <FiltersSection />}
-        {active === "auth"    && <AuthSection />}
+        {active === "login"    && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
+        {active === "abac"     && <AbacSection appId={app?.id} />}
+        {active === "filters"  && <FiltersSection />}
+        {active === "auth"     && <AuthSection />}
+        {active === "password" && <PasswordPolicySection />}
         {active === "options" && <OptionsSection sec={sec} patch={patch} />}
       </main>
 
@@ -343,6 +352,198 @@ function AuthSection() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ── Password policy section ── */
+function PasswordPolicySection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["password-policy"],
+    queryFn: fetchPasswordPolicy,
+    retry: 1,
+  });
+
+  const [draft, setDraft] = useState<PasswordPolicy | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (data && !draft) setDraft(data);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mutation = useMutation({
+    mutationFn: updatePasswordPolicy,
+    onSuccess: (updated) => {
+      setDraft(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    },
+  });
+
+  if (isLoading || !draft) {
+    return <div className="px-[40px] py-[25px] text-primary/40">Загрузка…</div>;
+  }
+
+  function patchDraft(partial: Partial<PasswordPolicy>) {
+    setDraft((d) => d ? { ...d, ...partial } : d);
+    setSaved(false);
+  }
+
+  const AGE_OPTIONS = [
+    { value: 0, label: "Без ограничений" },
+    { value: 30, label: "30 дней" },
+    { value: 60, label: "60 дней" },
+    { value: 90, label: "90 дней" },
+    { value: 180, label: "180 дней" },
+    { value: 365, label: "1 год" },
+  ];
+
+  const HISTORY_OPTIONS = [
+    { value: 0, label: "Не проверять" },
+    { value: 3, label: "3 пароля" },
+    { value: 5, label: "5 паролей" },
+    { value: 10, label: "10 паролей" },
+    { value: 24, label: "24 пароля" },
+  ];
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <h2 className="text-[22px] font-bold text-primary mb-2">Политика паролей</h2>
+      <p className="text-[15px] text-primary/60 mb-6">
+        Требования к паролям применяются при создании, смене и сбросе пароля.
+      </p>
+
+      <div className="flex flex-col gap-4 max-w-[680px]">
+
+        {/* Min length */}
+        <div className="bg-white rounded-[10px] border border-cardbg px-5 py-4 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-[15px] font-semibold text-primary">Минимальная длина</p>
+            <p className="text-[13px] text-primary/60 mt-0.5">Минимальное количество символов в пароле</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => patchDraft({ min_length: Math.max(6, draft.min_length - 1) })}
+              className="w-8 h-8 rounded-full border border-cardbg flex items-center justify-center text-primary hover:bg-mainbg text-[18px] leading-none"
+            >−</button>
+            <span className="w-10 text-center text-[18px] font-bold text-primary tabular-nums">
+              {draft.min_length}
+            </span>
+            <button
+              onClick={() => patchDraft({ min_length: Math.min(128, draft.min_length + 1) })}
+              className="w-8 h-8 rounded-full border border-cardbg flex items-center justify-center text-primary hover:bg-mainbg text-[18px] leading-none"
+            >+</button>
+          </div>
+        </div>
+
+        {/* Required character types */}
+        <div className="bg-white rounded-[10px] border border-cardbg overflow-hidden">
+          <div className="px-5 py-3 border-b border-cardbg">
+            <p className="text-[15px] font-semibold text-primary">Обязательные символы</p>
+          </div>
+          {([
+            { key: "require_uppercase" as const, label: "Заглавные буквы (A–Z, А–Я)" },
+            { key: "require_lowercase" as const, label: "Строчные буквы (a–z, а–я)" },
+            { key: "require_digit"     as const, label: "Цифры (0–9)" },
+            { key: "require_special"   as const, label: "Спецсимволы (!@#$%^&*…)" },
+          ] as const).map(({ key, label }, i, arr) => (
+            <div
+              key={key}
+              className={cn(
+                "flex items-center justify-between px-5 py-3 gap-6",
+                i < arr.length - 1 && "border-b border-cardbg"
+              )}
+            >
+              <span className="text-[14px] text-primary">{label}</span>
+              <Toggle value={draft[key]} onChange={(v) => patchDraft({ [key]: v })} />
+            </div>
+          ))}
+        </div>
+
+        {/* Password expiry */}
+        <div className="bg-white rounded-[10px] border border-cardbg px-5 py-4 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-[15px] font-semibold text-primary">Срок действия пароля</p>
+            <p className="text-[13px] text-primary/60 mt-0.5">
+              Пользователь будет обязан сменить пароль по истечении срока
+            </p>
+          </div>
+          <div className="relative shrink-0 w-[170px]">
+            <select
+              value={draft.max_age_days}
+              onChange={(e) => patchDraft({ max_age_days: Number(e.target.value) })}
+              className="w-full h-[36px] bg-mainbg border border-cardbg rounded-[8px] px-3 text-[14px] text-primary appearance-none outline-none focus:border-cta pr-8"
+            >
+              {AGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <svg viewBox="0 0 20 20" className="w-4 h-4 text-primary/40 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="currentColor">
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Password history */}
+        <div className="bg-white rounded-[10px] border border-cardbg px-5 py-4 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-[15px] font-semibold text-primary">История паролей</p>
+            <p className="text-[13px] text-primary/60 mt-0.5">
+              Запрет повторного использования последних N паролей
+            </p>
+          </div>
+          <div className="relative shrink-0 w-[170px]">
+            <select
+              value={draft.history_depth}
+              onChange={(e) => patchDraft({ history_depth: Number(e.target.value) })}
+              className="w-full h-[36px] bg-mainbg border border-cardbg rounded-[8px] px-3 text-[14px] text-primary appearance-none outline-none focus:border-cta pr-8"
+            >
+              {HISTORY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <svg viewBox="0 0 20 20" className="w-4 h-4 text-primary/40 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="currentColor">
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Preview */}
+        <div className="bg-[#EBF4FF] rounded-[10px] border border-cta/20 px-5 py-4">
+          <p className="text-[13px] font-semibold text-primary mb-2">Текущие требования к паролю</p>
+          <ul className="flex flex-col gap-1">
+            <PolicyHint ok={true} text={`Минимум ${draft.min_length} символов`} />
+            {draft.require_uppercase && <PolicyHint ok={true} text="Хотя бы одна заглавная буква" />}
+            {draft.require_lowercase && <PolicyHint ok={true} text="Хотя бы одна строчная буква" />}
+            {draft.require_digit     && <PolicyHint ok={true} text="Хотя бы одна цифра" />}
+            {draft.require_special   && <PolicyHint ok={true} text="Хотя бы один специальный символ" />}
+            {draft.max_age_days > 0  && <PolicyHint ok={true} text={`Смена пароля каждые ${draft.max_age_days} дней`} />}
+            {draft.history_depth > 0 && <PolicyHint ok={true} text={`Нельзя повторять последние ${draft.history_depth} паролей`} />}
+          </ul>
+        </div>
+
+        {/* Save */}
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={() => mutation.mutate(draft)}
+            disabled={mutation.isPending}
+            className="px-6 h-[40px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active disabled:opacity-50 transition-colors"
+          >
+            {mutation.isPending ? "Сохранение…" : "Сохранить политику"}
+          </button>
+          {saved && <span className="text-[13px] text-green-600">Сохранено</span>}
+          {mutation.isError && <span className="text-[13px] text-mistake">Ошибка сохранения</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PolicyHint({ ok, text }: { ok: boolean; text: string }) {
+  return (
+    <li className="flex items-center gap-2 text-[13px] text-primary/70">
+      <span className={cn("w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px]", ok ? "bg-green-500 text-white" : "bg-gray-300")}>✓</span>
+      {text}
+    </li>
   );
 }
 
@@ -629,6 +830,15 @@ function OptionsIcon() {
     <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
       <path d="M4 6h12M4 10h7M4 14h4" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="15" cy="10" r="2" stroke={stroke} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <circle cx="8" cy="9" r="4" stroke={stroke} strokeWidth="1.5" />
+      <path d="M12 12l5 5M14.5 14.5l1.5-1.5" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -64,6 +64,8 @@ class User(Base):
     totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -213,4 +215,38 @@ class GroupRole(Base):
     )
     role_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("identity.role.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class PasswordPolicy(Base):
+    __tablename__ = "password_policy"
+    __table_args__ = {"schema": "identity"}
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    min_length: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    require_uppercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_lowercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_digit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_special: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    max_age_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    history_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PasswordHistory(Base):
+    __tablename__ = "password_history"
+    __table_args__ = {"schema": "identity"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("identity.user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
