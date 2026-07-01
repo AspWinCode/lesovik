@@ -44,8 +44,16 @@ const POSITIONS = ["первый", "следующий", "средний", "по
 const EDITOR_TABS = ["Представления", "Правила формирования", "Дизайн"];
 
 type PageBlockType =
-  | "form" | "table" | "button" | "view" | "rich_text" | "metric" | "kpi"
-  | "chart" | "calendar" | "kanban" | "divider" | "iframe";
+  // Input
+  | "text_field" | "number_field" | "date_field" | "dropdown" | "toggle"
+  | "file_upload" | "lookup" | "form"
+  // Display
+  | "table" | "record_card" | "metric" | "kpi" | "chart" | "pivot"
+  | "calendar" | "kanban" | "gantt" | "tree" | "rich_text" | "view"
+  // Action
+  | "button" | "import" | "export"
+  // Container
+  | "modal" | "tabs" | "filter_panel" | "divider" | "iframe";
 
 interface PageBlock {
   id: string;
@@ -88,44 +96,90 @@ const OP_LABELS: Record<RuleCond["op"], string> = {
 
 const ACCENT_COLORS = ["#35A7FF", "#00205F", "#22C55E", "#F59E0B", "#EF4444", "#8B5CF6"];
 
-const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; group?: string }> = {
-  form:      { label: "Форма" },
-  table:     { label: "Таблица" },
-  button:    { label: "Кнопка" },
-  view:      { label: "Представление" },
-  rich_text: { label: "Текст" },
-  metric:    { label: "Метрика", desc: "Один числовой показатель", group: "Аналитика" },
-  kpi:       { label: "KPI", desc: "Показатель с динамикой", group: "Аналитика" },
-  chart:     { label: "График", desc: "Столбцы или линия по данным", group: "Аналитика" },
-  calendar:  { label: "Календарь", desc: "План и события по датам", group: "Данные" },
-  kanban:    { label: "Kanban", desc: "Доска по статусам", group: "Данные" },
-  divider:   { label: "Разделитель" },
-  iframe:    { label: "Фрейм" },
+const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; group: string }> = {
+  // Input
+  text_field:   { label: "Текстовое поле",    desc: "Строка, маска, валидация",             group: "Ввод" },
+  number_field: { label: "Числовое поле",     desc: "Число, валюта, единица измерения",     group: "Ввод" },
+  date_field:   { label: "Дата / Период",     desc: "Выбор даты или диапазона",             group: "Ввод" },
+  dropdown:     { label: "Выпадающий список", desc: "Статичный или динамический источник",  group: "Ввод" },
+  toggle:       { label: "Переключатель",     desc: "Булево значение Да / Нет",             group: "Ввод" },
+  file_upload:  { label: "Загрузка файла",    desc: "Файлы с контролем формата и размера",  group: "Ввод" },
+  lookup:       { label: "Справочник",        desc: "Ссылка на запись другой сущности",     group: "Ввод" },
+  form:         { label: "Форма ввода",       desc: "Группа полей для создания/редактирования записи", group: "Ввод" },
+  // Display
+  table:        { label: "Таблица",           desc: "Список записей с сортировкой и фильтром",         group: "Отображение" },
+  record_card:  { label: "Карточка записи",   desc: "Детальное отображение одной записи",  group: "Отображение" },
+  metric:       { label: "Метрика",           desc: "Числовой показатель",                 group: "Отображение" },
+  kpi:          { label: "KPI",              desc: "Показатель с трендом",                group: "Отображение" },
+  chart:        { label: "Диаграмма",         desc: "Bar, Line, Pie, Area, Waterfall",     group: "Отображение" },
+  pivot:        { label: "Сводная таблица",   desc: "Агрегация по строкам и столбцам",     group: "Отображение" },
+  calendar:     { label: "Календарь",         desc: "События на оси времени",              group: "Отображение" },
+  kanban:       { label: "Kanban-доска",      desc: "Карточки по статусу",                 group: "Отображение" },
+  gantt:        { label: "Gantt-диаграмма",   desc: "Задачи на оси времени",               group: "Отображение" },
+  tree:         { label: "Дерево данных",     desc: "Иерархическое отображение",           group: "Отображение" },
+  rich_text:    { label: "Текст",             desc: "Форматированный текст",               group: "Отображение" },
+  view:         { label: "Представление",     desc: "Встроенное представление",            group: "Отображение" },
+  // Action
+  button:       { label: "Кнопка",            desc: "Сохранение, переход, расчёт",         group: "Действие" },
+  import:       { label: "Блок импорта",      desc: "Загрузка данных из файла с маппингом", group: "Действие" },
+  export:       { label: "Блок экспорта",     desc: "Выгрузка в Excel, CSV, PDF",          group: "Действие" },
+  // Container
+  modal:        { label: "Модальное окно",    desc: "Всплывающий диалог с блоками",        group: "Контейнер" },
+  tabs:         { label: "Вкладки",           desc: "Группировка содержимого",             group: "Контейнер" },
+  filter_panel: { label: "Панель фильтров",   desc: "Набор условий для фильтрации",        group: "Контейнер" },
+  divider:      { label: "Разделитель",       desc: "Горизонтальная линия",                group: "Контейнер" },
+  iframe:       { label: "Фрейм",             desc: "Встроенная веб-страница",             group: "Контейнер" },
 };
 
-const ADDABLE_BLOCKS: { type: PageBlockType; label: string; desc?: string }[] = [
-  { type: "form",      label: "Форма" },
-  { type: "table",     label: "Таблица" },
-  { type: "kanban",    label: "Kanban" },
-  { type: "calendar",  label: "Календарь" },
-  { type: "chart",     label: "График" },
-  { type: "kpi",       label: "KPI" },
-  { type: "button",    label: "Кнопка" },
-  { type: "rich_text", label: "Текст" },
-  { type: "metric",    label: "Метрика" },
-  { type: "divider",   label: "Разделитель" },
-  { type: "iframe",    label: "Фрейм" },
+const BLOCK_GROUPS: { id: string; label: string; types: PageBlockType[] }[] = [
+  {
+    id: "input", label: "Ввод",
+    types: ["text_field", "number_field", "date_field", "dropdown", "toggle", "file_upload", "lookup", "form"],
+  },
+  {
+    id: "display", label: "Отображение",
+    types: ["table", "record_card", "metric", "kpi", "chart", "pivot", "calendar", "kanban", "gantt", "tree", "rich_text"],
+  },
+  {
+    id: "action", label: "Действие",
+    types: ["button", "import", "export"],
+  },
+  {
+    id: "container", label: "Контейнер",
+    types: ["modal", "tabs", "filter_panel", "divider", "iframe"],
+  },
 ];
 
+
 function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
-  if (type === "rich_text") return { text: "Текстовый блок" };
-  if (type === "metric")    return { value: "0", width: "third" };
-  if (type === "kpi")       return { value: "0", trend: "+0%", tone: "positive", width: "half" };
-  if (type === "chart")     return { chart_type: "bar", source: "records" };
-  if (type === "calendar")  return { date_field: "", title_field: "" };
-  if (type === "kanban")    return { group_by: "", card_title: "" };
-  if (type === "iframe")    return { src: "" };
-  if (type === "button")    return { width: "half" };
+  if (type === "rich_text")    return { text: "Текстовый блок" };
+  if (type === "metric")       return { value: "0", width: "third" };
+  if (type === "kpi")          return { value: "0", trend: "+0%", tone: "positive", width: "half" };
+  if (type === "chart")        return { chart_type: "bar", source: "records" };
+  if (type === "calendar")     return { date_field: "", title_field: "" };
+  if (type === "kanban")       return { group_by: "", card_title: "" };
+  if (type === "iframe")       return { src: "" };
+  if (type === "button")       return { width: "half", actionType: "url", href: "", label: "Кнопка" };
+  // Input blocks
+  if (type === "text_field")   return { label: "Текстовое поле", placeholder: "", mask: "", required: false, validation: "" };
+  if (type === "number_field") return { label: "Число", format: "number", currency: "RUB", unit: "", min: "", max: "", required: false };
+  if (type === "date_field")   return { label: "Дата", mode: "single", date_format: "DD.MM.YYYY", required: false };
+  if (type === "dropdown")     return { label: "Список", source: "static", options: "Вариант 1\nВариант 2", multiple: false, entity_id: "", display_field: "" };
+  if (type === "toggle")       return { label: "Вкл/Выкл", default_value: false };
+  if (type === "file_upload")  return { label: "Файл", accept: "*", max_size_mb: 10, multiple: false };
+  if (type === "lookup")       return { label: "Справочник", entity_id: "", display_field: "", multiple: false };
+  // Display
+  if (type === "record_card")  return { entity_id: "", fields: [] };
+  if (type === "pivot")        return { entity_id: "", row_field: "", col_field: "", value_field: "", agg: "count" };
+  if (type === "gantt")        return { entity_id: "", start_field: "", end_field: "", title_field: "" };
+  if (type === "tree")         return { entity_id: "", parent_field: "", label_field: "" };
+  // Action
+  if (type === "import")       return { entity_id: "", accept: ".xlsx,.csv", has_header: true };
+  if (type === "export")       return { entity_id: "", format: "xlsx", filename: "" };
+  // Container
+  if (type === "modal")        return { title: "Диалог", trigger_label: "Открыть", trigger_variant: "primary" };
+  if (type === "tabs")         return { tabs: [{ id: "tab1", label: "Вкладка 1" }, { id: "tab2", label: "Вкладка 2" }] };
+  if (type === "filter_panel") return { entity_id: "", fields: [], position: "top" };
   return {};
 }
 
@@ -573,6 +627,7 @@ export function ViewEditorPage() {
                 blocks={blocks}
                 fields={userFields}
                 pages={pages}
+                entities={entities}
                 onBlocksChange={handleBlocksChange}
                 onBlockChange={handleUpdateBlock}
                 onBlockConfigChange={handleUpdateBlockConfig}
@@ -2197,24 +2252,45 @@ function IframePreview({
 
 /* ── Sortable block row ── */
 const BLOCK_ICONS: Record<string, React.ReactNode> = {
-  form:      <FormIcon />,
-  table:     <TableIcon />,
-  button:    <ButtonBlockIcon />,
-  view:      <TableIcon />,
-  rich_text: <DetailsIcon />,
-  metric:    <ChartIcon />,
-  kpi:       <DashboardIcon />,
-  chart:     <ChartIcon />,
-  calendar:  <CalendarIcon />,
-  kanban:    <DeckIcon />,
-  divider:   <DashboardIcon />,
-  iframe:    <MapIcon />,
+  // Input
+  text_field:   <InputBlockIcon />,
+  number_field: <NumberBlockIcon />,
+  date_field:   <CalendarIcon />,
+  dropdown:     <SelectBlockIcon />,
+  toggle:       <ToggleBlockIcon />,
+  file_upload:  <FileBlockIcon />,
+  lookup:       <LookupBlockIcon />,
+  form:         <FormIcon />,
+  // Display
+  table:        <TableIcon />,
+  record_card:  <CardIcon />,
+  metric:       <ChartIcon />,
+  kpi:          <DashboardIcon />,
+  chart:        <ChartIcon />,
+  pivot:        <PivotBlockIcon />,
+  calendar:     <CalendarIcon />,
+  kanban:       <DeckIcon />,
+  gantt:        <GanttBlockIcon />,
+  tree:         <TreeBlockIcon />,
+  rich_text:    <DetailsIcon />,
+  view:         <TableIcon />,
+  // Action
+  button:       <ButtonBlockIcon />,
+  import:       <ImportBlockIcon />,
+  export:       <ExportBlockIcon />,
+  // Container
+  modal:        <ModalBlockIcon />,
+  tabs:         <TabsBlockIcon />,
+  filter_panel: <FilterBlockIcon />,
+  divider:      <DividerBlockIcon />,
+  iframe:       <MapIcon />,
 };
 
 function SortableBlockRow({
   block,
   fields,
   pages,
+  entities,
   onChange,
   onConfigChange,
   onDelete,
@@ -2222,6 +2298,7 @@ function SortableBlockRow({
   block: PageBlock;
   fields: FieldRead[];
   pages: import("@/shared/api/views").PageRead[];
+  entities: { id: string; display_name: string; fields: FieldRead[] }[];
   onChange: (patch: Partial<PageBlock>) => void;
   onConfigChange: (patch: Record<string, unknown>) => void;
   onDelete: () => void;
@@ -2263,7 +2340,7 @@ function SortableBlockRow({
           <TrashIcon />
         </button>
       </div>
-      <BlockInlineSettings block={block} fields={fields} pages={pages} onConfigChange={onConfigChange} />
+      <BlockInlineSettings block={block} fields={fields} pages={pages} entities={entities} onConfigChange={onConfigChange} />
     </div>
   );
 }
@@ -2272,14 +2349,26 @@ function BlockInlineSettings({
   block,
   fields,
   pages,
+  entities,
   onConfigChange,
 }: {
   block: PageBlock;
   fields: FieldRead[];
   pages: import("@/shared/api/views").PageRead[];
+  entities: { id: string; display_name: string; fields: FieldRead[] }[];
   onConfigChange: (patch: Record<string, unknown>) => void;
 }) {
   if (block.type === "divider" || block.type === "table" || block.type === "form") return null;
+
+  const entityOptions = [
+    { value: "", label: "— выберите сущность —" },
+    ...entities.map((e) => ({ value: e.id, label: e.display_name })),
+  ];
+
+  const entityFields = (entityId: string) => {
+    const ent = entities.find((e) => e.id === entityId);
+    return ent?.fields ?? [];
+  };
 
   return (
     <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-1 border-t border-mainbg mt-0">
@@ -2403,6 +2492,327 @@ function BlockInlineSettings({
           value={(block.config.src as string) ?? ""}
           onChange={(src) => onConfigChange({ src })}
         />
+      )}
+
+      {/* ── Input blocks ── */}
+      {(block.type === "text_field" || block.type === "number_field" || block.type === "date_field" ||
+        block.type === "dropdown" || block.type === "toggle" || block.type === "file_upload" || block.type === "lookup") && (
+        <ConfigInput
+          label="Подпись поля"
+          value={(block.config.label as string) ?? ""}
+          onChange={(label) => onConfigChange({ label })}
+        />
+      )}
+
+      {(block.type === "text_field") && (
+        <>
+          <ConfigInput
+            label="Подсказка"
+            value={(block.config.placeholder as string) ?? ""}
+            onChange={(placeholder) => onConfigChange({ placeholder })}
+          />
+          <ConfigInput
+            label="Маска"
+            value={(block.config.mask as string) ?? ""}
+            onChange={(mask) => onConfigChange({ mask })}
+            placeholder="+7 (___) ___-__-__"
+          />
+          <ConfigInput
+            label="Валидация (regex)"
+            value={(block.config.validation as string) ?? ""}
+            onChange={(validation) => onConfigChange({ validation })}
+            placeholder="^[a-zA-Z]+$"
+          />
+          <ConfigSegmented
+            label="Обязательное"
+            value={(block.config.required as boolean) ? "yes" : "no"}
+            options={[{ value: "yes", label: "Да" }, { value: "no", label: "Нет" }]}
+            onChange={(v) => onConfigChange({ required: v === "yes" })}
+          />
+        </>
+      )}
+
+      {block.type === "number_field" && (
+        <>
+          <ConfigSelect
+            label="Формат"
+            value={(block.config.format as string) ?? "number"}
+            options={[
+              { value: "number",   label: "Число" },
+              { value: "currency", label: "Валюта" },
+              { value: "percent",  label: "Процент" },
+            ]}
+            onChange={(format) => onConfigChange({ format })}
+          />
+          {block.config.format === "currency" && (
+            <ConfigSelect
+              label="Валюта"
+              value={(block.config.currency as string) ?? "RUB"}
+              options={[
+                { value: "RUB", label: "₽ Рубль" },
+                { value: "USD", label: "$ Доллар" },
+                { value: "EUR", label: "€ Евро" },
+              ]}
+              onChange={(currency) => onConfigChange({ currency })}
+            />
+          )}
+          <ConfigInput
+            label="Единица изм."
+            value={(block.config.unit as string) ?? ""}
+            onChange={(unit) => onConfigChange({ unit })}
+            placeholder="кг, м², шт."
+          />
+          <ConfigInput label="Мин" value={(block.config.min as string) ?? ""} onChange={(min) => onConfigChange({ min })} />
+          <ConfigInput label="Макс" value={(block.config.max as string) ?? ""} onChange={(max) => onConfigChange({ max })} />
+          <ConfigSegmented
+            label="Обязательное"
+            value={(block.config.required as boolean) ? "yes" : "no"}
+            options={[{ value: "yes", label: "Да" }, { value: "no", label: "Нет" }]}
+            onChange={(v) => onConfigChange({ required: v === "yes" })}
+          />
+        </>
+      )}
+
+      {block.type === "date_field" && (
+        <>
+          <ConfigSegmented
+            label="Режим"
+            value={(block.config.mode as string) ?? "single"}
+            options={[{ value: "single", label: "Дата" }, { value: "range", label: "Период" }]}
+            onChange={(mode) => onConfigChange({ mode })}
+          />
+          <ConfigSelect
+            label="Формат"
+            value={(block.config.date_format as string) ?? "DD.MM.YYYY"}
+            options={[
+              { value: "DD.MM.YYYY", label: "ДД.ММ.ГГГГ" },
+              { value: "YYYY-MM-DD", label: "ГГГГ-ММ-ДД" },
+              { value: "DD/MM/YYYY", label: "ДД/ММ/ГГГГ" },
+            ]}
+            onChange={(date_format) => onConfigChange({ date_format })}
+          />
+          <ConfigSegmented
+            label="Обязательное"
+            value={(block.config.required as boolean) ? "yes" : "no"}
+            options={[{ value: "yes", label: "Да" }, { value: "no", label: "Нет" }]}
+            onChange={(v) => onConfigChange({ required: v === "yes" })}
+          />
+        </>
+      )}
+
+      {block.type === "dropdown" && (
+        <>
+          <ConfigSegmented
+            label="Источник"
+            value={(block.config.source as string) ?? "static"}
+            options={[{ value: "static", label: "Список" }, { value: "entity", label: "Сущность" }]}
+            onChange={(source) => onConfigChange({ source })}
+          />
+          {(block.config.source === "static" || !block.config.source) && (
+            <div className="flex flex-col gap-[5px] col-span-2">
+              <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">Варианты (по одному на строку)</span>
+              <textarea
+                rows={3}
+                value={(block.config.options as string) ?? ""}
+                onChange={(e) => onConfigChange({ options: e.target.value })}
+                className="bg-cardbg rounded-[8px] px-3 py-2 text-[13px] text-primary outline-none border border-transparent focus:border-cta/40 resize-none"
+                placeholder={"Вариант 1\nВариант 2"}
+              />
+            </div>
+          )}
+          {block.config.source === "entity" && (
+            <>
+              <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+              <ConfigSelect
+                label="Поле-подпись"
+                value={(block.config.display_field as string) ?? ""}
+                options={fieldOptions(entityFields(block.config.entity_id as string), "— авто —")}
+                onChange={(display_field) => onConfigChange({ display_field })}
+              />
+            </>
+          )}
+          <ConfigSegmented
+            label="Множественный"
+            value={(block.config.multiple as boolean) ? "yes" : "no"}
+            options={[{ value: "no", label: "Нет" }, { value: "yes", label: "Да" }]}
+            onChange={(v) => onConfigChange({ multiple: v === "yes" })}
+          />
+        </>
+      )}
+
+      {block.type === "toggle" && (
+        <ConfigSegmented
+          label="По умолчанию"
+          value={(block.config.default_value as boolean) ? "on" : "off"}
+          options={[{ value: "off", label: "Выкл" }, { value: "on", label: "Вкл" }]}
+          onChange={(v) => onConfigChange({ default_value: v === "on" })}
+        />
+      )}
+
+      {block.type === "file_upload" && (
+        <>
+          <ConfigInput
+            label="Допустимые форматы"
+            value={(block.config.accept as string) ?? "*"}
+            onChange={(accept) => onConfigChange({ accept })}
+            placeholder=".pdf,.docx,.xlsx"
+          />
+          <ConfigInput
+            label="Макс. размер (МБ)"
+            value={String(block.config.max_size_mb ?? 10)}
+            onChange={(v) => onConfigChange({ max_size_mb: Number(v) || 10 })}
+          />
+          <ConfigSegmented
+            label="Множественный"
+            value={(block.config.multiple as boolean) ? "yes" : "no"}
+            options={[{ value: "no", label: "Нет" }, { value: "yes", label: "Да" }]}
+            onChange={(v) => onConfigChange({ multiple: v === "yes" })}
+          />
+        </>
+      )}
+
+      {block.type === "lookup" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSelect
+            label="Поле-подпись"
+            value={(block.config.display_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.entity_id as string), "— авто —")}
+            onChange={(display_field) => onConfigChange({ display_field })}
+          />
+          <ConfigSegmented
+            label="Множественный"
+            value={(block.config.multiple as boolean) ? "yes" : "no"}
+            options={[{ value: "no", label: "Нет" }, { value: "yes", label: "Да" }]}
+            onChange={(v) => onConfigChange({ multiple: v === "yes" })}
+          />
+        </>
+      )}
+
+      {/* ── Display: record card ── */}
+      {block.type === "record_card" && (
+        <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+      )}
+
+      {/* ── Display: pivot ── */}
+      {block.type === "pivot" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSelect label="Строки" value={(block.config.row_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— выберите —")} onChange={(row_field) => onConfigChange({ row_field })} />
+          <ConfigSelect label="Столбцы" value={(block.config.col_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— выберите —")} onChange={(col_field) => onConfigChange({ col_field })} />
+          <ConfigSelect label="Значение" value={(block.config.value_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— выберите —")} onChange={(value_field) => onConfigChange({ value_field })} />
+          <ConfigSelect
+            label="Агрегация"
+            value={(block.config.agg as string) ?? "count"}
+            options={[
+              { value: "count", label: "Кол-во" },
+              { value: "sum",   label: "Сумма" },
+              { value: "avg",   label: "Среднее" },
+              { value: "min",   label: "Минимум" },
+              { value: "max",   label: "Максимум" },
+            ]}
+            onChange={(agg) => onConfigChange({ agg })}
+          />
+        </>
+      )}
+
+      {/* ── Display: gantt ── */}
+      {block.type === "gantt" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSelect label="Заголовок" value={(block.config.title_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— авто —")} onChange={(title_field) => onConfigChange({ title_field })} />
+          <ConfigSelect label="Дата начала" value={(block.config.start_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— выберите —")} onChange={(start_field) => onConfigChange({ start_field })} />
+          <ConfigSelect label="Дата конца" value={(block.config.end_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— выберите —")} onChange={(end_field) => onConfigChange({ end_field })} />
+        </>
+      )}
+
+      {/* ── Display: tree ── */}
+      {block.type === "tree" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSelect label="Подпись" value={(block.config.label_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— авто —")} onChange={(label_field) => onConfigChange({ label_field })} />
+          <ConfigSelect label="Родитель" value={(block.config.parent_field as string) ?? ""} options={fieldOptions(entityFields(block.config.entity_id as string), "— выберите —")} onChange={(parent_field) => onConfigChange({ parent_field })} />
+        </>
+      )}
+
+      {/* ── Action: import ── */}
+      {block.type === "import" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigInput label="Форматы" value={(block.config.accept as string) ?? ".xlsx,.csv"} onChange={(accept) => onConfigChange({ accept })} placeholder=".xlsx,.csv" />
+          <ConfigSegmented
+            label="Заголовки"
+            value={(block.config.has_header as boolean) !== false ? "yes" : "no"}
+            options={[{ value: "yes", label: "Да" }, { value: "no", label: "Нет" }]}
+            onChange={(v) => onConfigChange({ has_header: v === "yes" })}
+          />
+        </>
+      )}
+
+      {/* ── Action: export ── */}
+      {block.type === "export" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSegmented
+            label="Формат"
+            value={(block.config.format as string) ?? "xlsx"}
+            options={[
+              { value: "xlsx", label: "Excel" },
+              { value: "csv",  label: "CSV" },
+              { value: "pdf",  label: "PDF" },
+            ]}
+            onChange={(format) => onConfigChange({ format })}
+          />
+          <ConfigInput label="Имя файла" value={(block.config.filename as string) ?? ""} onChange={(filename) => onConfigChange({ filename })} placeholder="report" />
+        </>
+      )}
+
+      {/* ── Container: modal ── */}
+      {block.type === "modal" && (
+        <>
+          <ConfigInput label="Заголовок" value={(block.config.title as string) ?? ""} onChange={(title) => onConfigChange({ title })} />
+          <ConfigInput label="Текст кнопки" value={(block.config.trigger_label as string) ?? ""} onChange={(trigger_label) => onConfigChange({ trigger_label })} />
+          <ConfigSegmented
+            label="Вид кнопки"
+            value={(block.config.trigger_variant as string) ?? "primary"}
+            options={[
+              { value: "primary",   label: "Осн." },
+              { value: "secondary", label: "Доп." },
+              { value: "link",      label: "Ссылка" },
+            ]}
+            onChange={(trigger_variant) => onConfigChange({ trigger_variant })}
+          />
+        </>
+      )}
+
+      {/* ── Container: tabs ── */}
+      {block.type === "tabs" && (
+        <div className="flex flex-col gap-[5px] col-span-2">
+          <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">Вкладки (по одному на строку)</span>
+          <textarea
+            rows={3}
+            value={((block.config.tabs as { label: string }[]) ?? []).map((t) => t.label).join("\n")}
+            onChange={(e) => {
+              const tabs = e.target.value.split("\n").filter(Boolean).map((label, i) => ({ id: `tab${i + 1}`, label }));
+              onConfigChange({ tabs });
+            }}
+            className="bg-cardbg rounded-[8px] px-3 py-2 text-[13px] text-primary outline-none border border-transparent focus:border-cta/40 resize-none"
+            placeholder={"Вкладка 1\nВкладка 2"}
+          />
+        </div>
+      )}
+
+      {/* ── Container: filter_panel ── */}
+      {block.type === "filter_panel" && (
+        <>
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSegmented
+            label="Положение"
+            value={(block.config.position as string) ?? "top"}
+            options={[{ value: "top", label: "Сверху" }, { value: "side", label: "Сбоку" }]}
+            onChange={(position) => onConfigChange({ position })}
+          />
+        </>
       )}
       {block.type === "button" && (
         <>
@@ -2594,6 +3004,7 @@ function BlockCanvas({
   blocks,
   fields,
   pages,
+  entities,
   onBlocksChange,
   onBlockChange,
   onBlockConfigChange,
@@ -2602,6 +3013,7 @@ function BlockCanvas({
   blocks: PageBlock[];
   fields: FieldRead[];
   pages: import("@/shared/api/views").PageRead[];
+  entities: { id: string; display_name: string; fields: FieldRead[] }[];
   onBlocksChange: (b: PageBlock[]) => void;
   onBlockChange: (id: string, patch: Partial<PageBlock>) => void;
   onBlockConfigChange: (id: string, patch: Record<string, unknown>) => void;
@@ -2630,6 +3042,7 @@ function BlockCanvas({
               block={block}
               fields={fields}
               pages={pages}
+              entities={entities}
               onChange={(patch) => onBlockChange(block.id, patch)}
               onConfigChange={(patch) => onBlockConfigChange(block.id, patch)}
               onDelete={() => onBlocksChange(blocks.filter((b) => b.id !== block.id))}
@@ -2658,53 +3071,71 @@ function BlockPickerModal({
   onAdd: (type: PageBlock["type"]) => void;
   onClose: () => void;
 }) {
-  const ICONS: Record<string, React.ReactNode> = {
-    form:      <FormIcon />,
-    table:     <TableIcon />,
-    button:    <ButtonBlockIcon />,
-    rich_text: <DetailsIcon />,
-    metric:    <ChartIcon />,
-    kpi:       <DashboardIcon />,
-    chart:     <ChartIcon />,
-    calendar:  <CalendarIcon />,
-    kanban:    <DeckIcon />,
-    divider:   <DashboardIcon />,
-    iframe:    <MapIcon />,
-  };
+  const [activeGroup, setActiveGroup] = useState("input");
+
+  const group = BLOCK_GROUPS.find((g) => g.id === activeGroup) ?? BLOCK_GROUPS[0];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="bg-white rounded-[10px] shadow-xl p-6 flex flex-col gap-4 min-w-[340px]"
+        className="bg-white rounded-[20px] shadow-[0_8px_40px_rgba(0,32,95,0.18)] flex overflow-hidden"
+        style={{ width: 720, maxHeight: "85vh" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="text-[20px] font-bold text-primary">Добавить блок</span>
-        <div className="flex flex-wrap gap-3 max-w-[480px]">
-          {ADDABLE_BLOCKS.map((b) => (
+        {/* Left: category tabs */}
+        <div className="w-[180px] shrink-0 bg-mainbg flex flex-col py-4 gap-1">
+          <p className="text-[11px] font-semibold text-primary/40 uppercase tracking-wider px-5 pb-2">Категория</p>
+          {BLOCK_GROUPS.map((g) => (
             <button
-              key={b.type}
-              onClick={() => { onAdd(b.type); onClose(); }}
-              className="flex flex-col items-start gap-[6px] w-[145px] min-h-[112px] bg-mainbg rounded-[8px] justify-center hover:bg-cardbg transition-colors border-2 border-transparent hover:border-cta p-3 text-left"
+              key={g.id}
+              onClick={() => setActiveGroup(g.id)}
+              className={cn(
+                "flex items-center gap-2 text-left px-5 py-2.5 text-[14px] font-medium transition-colors",
+                activeGroup === g.id ? "bg-white text-cta rounded-r-[10px]" : "text-primary/60 hover:text-primary",
+              )}
             >
-              <span className="w-[30px] h-[30px] text-primary">{ICONS[b.type]}</span>
-              <span className="text-[13px] text-primary font-semibold">{b.label}</span>
-              <span className="text-[11px] text-primary/50 leading-[1.25]">{b.desc}</span>
+              <span className="w-[18px] h-[18px] shrink-0">{GROUP_ICONS[g.id]}</span>
+              {g.label}
             </button>
           ))}
         </div>
-        <button
-          onClick={onClose}
-          className="text-[14px] text-primary/50 hover:text-primary self-end transition-colors"
-        >
-          Отмена
-        </button>
+
+        {/* Right: block grid */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-cardbg shrink-0">
+            <p className="text-[18px] font-semibold text-primary">{group.label}</p>
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg text-primary/40 hover:text-primary text-[20px] leading-none transition-colors">×</button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="grid grid-cols-3 gap-3">
+              {group.types.map((type) => {
+                const meta = BLOCK_TYPE_META[type];
+                return (
+                  <button
+                    key={type}
+                    onClick={() => { onAdd(type); onClose(); }}
+                    className="flex flex-col items-start gap-2 p-4 bg-mainbg rounded-[12px] text-left hover:bg-[#EBF4FF] hover:border-cta border-2 border-transparent transition-all"
+                  >
+                    <span className="w-7 h-7 text-primary/70">{BLOCK_ICONS[type] ?? <TableIcon />}</span>
+                    <span className="text-[13px] font-semibold text-primary leading-tight">{meta.label}</span>
+                    <span className="text-[11px] text-primary/50 leading-[1.3]">{meta.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+
+const GROUP_ICONS: Record<string, React.ReactNode> = {
+  input:     <InputBlockIcon />,
+  display:   <TableIcon />,
+  action:    <ButtonBlockIcon />,
+  container: <ModalBlockIcon />,
+};
 
 /* ── Small icons ── */
 function Chevron({ open }: { open: boolean }) {
@@ -2843,6 +3274,139 @@ function CardIcon() {
       <rect x="3" y="3" width="33" height="33" rx="4" stroke="currentColor" strokeWidth="3.25" />
       <circle cx="13" cy="13" r="3" fill="currentColor" />
       <path d="M5 30 L15 21 L23 28 L28 24 L34 30" stroke="currentColor" strokeWidth="3.25" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function InputBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="7" width="20" height="10" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <line x1="6" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+function NumberBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="7" width="20" height="10" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <text x="6" y="16" fontSize="8" fontWeight="600" fill="currentColor">123</text>
+    </svg>
+  );
+}
+function SelectBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="7" width="20" height="10" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M16 11 L19 12 L16 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function ToggleBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="8" width="20" height="8" rx="4" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="16" cy="12" r="3" fill="currentColor" />
+    </svg>
+  );
+}
+function FileBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M13 2v7h7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function LookupBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <line x1="8" y1="11" x2="14" y2="11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="11" y1="8" x2="11" y2="14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+function PivotBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="2" width="20" height="20" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="8" y1="2" x2="8" y2="22" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="10" y="10" width="4" height="4" fill="currentColor" opacity="0.4" />
+      <rect x="15" y="10" width="5" height="4" fill="currentColor" opacity="0.6" />
+    </svg>
+  );
+}
+function GanttBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <line x1="3" y1="6" x2="3" y2="20" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="4" y="5" width="10" height="3" rx="1.5" fill="currentColor" opacity="0.7" />
+      <rect x="7" y="10" width="13" height="3" rx="1.5" fill="currentColor" opacity="0.5" />
+      <rect x="4" y="15" width="7" height="3" rx="1.5" fill="currentColor" opacity="0.8" />
+    </svg>
+  );
+}
+function TreeBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="5" cy="14" r="2" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="19" cy="14" r="2" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="12" y1="6" x2="12" y2="10" stroke="currentColor" strokeWidth="1.4" />
+      <line x1="12" y1="10" x2="5" y2="12" stroke="currentColor" strokeWidth="1.4" />
+      <line x1="12" y1="10" x2="19" y2="12" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+function ImportBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <path d="M12 3v12M8 11l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 17v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+function ExportBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <path d="M12 15V3M8 7l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 17v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+function ModalBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="3" y="6" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="16" y1="8" x2="18" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function TabsBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <rect x="2" y="8" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="2" y="4" width="7" height="5" rx="1.5" fill="currentColor" opacity="0.8" />
+      <rect x="10" y="4" width="7" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.4" opacity="0.5" />
+    </svg>
+  );
+}
+function FilterBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <line x1="4" y1="6" x2="20" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <line x1="10" y1="18" x2="14" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+function DividerBlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
+      <line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2" />
     </svg>
   );
 }

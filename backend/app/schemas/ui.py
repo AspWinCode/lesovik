@@ -134,18 +134,38 @@ class ViewFieldConfigBulkUpdate(BaseModel):
 # ------------------------------------------------------------------
 
 class BlockType(str, Enum):
-    VIEW      = "view"
-    FORM      = "form"
-    TABLE     = "table"
-    KPI       = "kpi"
-    CHART     = "chart"
-    CALENDAR  = "calendar"
-    KANBAN    = "kanban"
-    BUTTON    = "button"
-    RICH_TEXT = "rich_text"
-    METRIC    = "metric"
-    DIVIDER   = "divider"
-    IFRAME    = "iframe"
+    # Input
+    TEXT_FIELD   = "text_field"
+    NUMBER_FIELD = "number_field"
+    DATE_FIELD   = "date_field"
+    DROPDOWN     = "dropdown"
+    TOGGLE       = "toggle"
+    FILE_UPLOAD  = "file_upload"
+    LOOKUP       = "lookup"
+    FORM         = "form"
+    # Display
+    TABLE        = "table"
+    RECORD_CARD  = "record_card"
+    METRIC       = "metric"
+    KPI          = "kpi"
+    CHART        = "chart"
+    PIVOT        = "pivot"
+    CALENDAR     = "calendar"
+    KANBAN       = "kanban"
+    GANTT        = "gantt"
+    TREE         = "tree"
+    RICH_TEXT    = "rich_text"
+    VIEW         = "view"
+    # Action
+    BUTTON       = "button"
+    IMPORT       = "import"
+    EXPORT       = "export"
+    # Container
+    MODAL        = "modal"
+    TABS         = "tabs"
+    FILTER_PANEL = "filter_panel"
+    DIVIDER      = "divider"
+    IFRAME       = "iframe"
 
 
 class PageBlock(BaseModel):
