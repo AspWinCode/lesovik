@@ -5,11 +5,15 @@ export function DotsMenu({
   className,
   onShare,
   onRename,
+  onClone,
+  onVersions,
   onDelete,
 }: {
   className?: string;
   onShare?: () => void;
   onRename?: () => void;
+  onClone?: () => void;
+  onVersions?: () => void;
   onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,27 +44,49 @@ export function DotsMenu({
       {open && (
         <div
           className="absolute right-0 top-6 z-40 bg-mainbg rounded-[10px]
-                     shadow-[0_4px_12px_rgba(0,32,95,0.15)] overflow-hidden min-w-[160px]"
+                     shadow-[0_4px_12px_rgba(0,32,95,0.15)] overflow-hidden min-w-[180px]"
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={() => { setOpen(false); onShare?.(); }}
-            className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
-          >
-            Поделиться
-          </button>
-          <button
-            onClick={() => { setOpen(false); onRename?.(); }}
-            className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
-          >
-            Переименовать
-          </button>
-          <button
-            onClick={() => { setOpen(false); onDelete?.(); }}
-            className="w-full text-left px-4 py-2 text-meta text-[#C22A2A] hover:bg-cardbg transition-colors"
-          >
-            Удалить
-          </button>
+          {onShare && (
+            <button
+              onClick={() => { setOpen(false); onShare(); }}
+              className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
+            >
+              Поделиться
+            </button>
+          )}
+          {onRename && (
+            <button
+              onClick={() => { setOpen(false); onRename(); }}
+              className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
+            >
+              Переименовать
+            </button>
+          )}
+          {onClone && (
+            <button
+              onClick={() => { setOpen(false); onClone(); }}
+              className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
+            >
+              Клонировать
+            </button>
+          )}
+          {onVersions && (
+            <button
+              onClick={() => { setOpen(false); onVersions(); }}
+              className="w-full text-left px-4 py-2 text-meta text-primary hover:bg-cardbg transition-colors"
+            >
+              История версий
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={() => { setOpen(false); onDelete(); }}
+              className="w-full text-left px-4 py-2 text-meta text-[#C22A2A] hover:bg-cardbg transition-colors"
+            >
+              Удалить
+            </button>
+          )}
         </div>
       )}
     </div>

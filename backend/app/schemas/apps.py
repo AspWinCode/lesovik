@@ -20,6 +20,7 @@ class AppRead(BaseModel):
     description: str | None
     icon: str | None
     color: str | None
+    category: str | None = None
     owner_id: uuid.UUID
     org_id: uuid.UUID | None = None
     is_published: bool
@@ -37,6 +38,7 @@ class AppCreate(BaseModel):
     description: str | None = None
     icon: str | None = Field(default=None, max_length=64)
     color: str | None = Field(default=None, max_length=32)
+    category: str | None = Field(default=None, max_length=64)
     settings: dict = Field(default_factory=dict)
 
 
@@ -45,6 +47,7 @@ class AppUpdate(BaseModel):
     description: str | None = None
     icon: str | None = None
     color: str | None = None
+    category: str | None = None
     settings: dict | None = None
 
 
@@ -57,3 +60,25 @@ class LockInfo(BaseModel):
     user_id: str
     holder_name: str
     acquired_at: datetime
+
+
+class AppCloneCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=256)
+    slug: str | None = Field(
+        default=None, min_length=2, max_length=128,
+        pattern=r"^[a-z0-9][a-z0-9\-_]*$",
+    )
+
+
+class AppSnapshotRead(BaseModel):
+    id: uuid.UUID
+    app_id: uuid.UUID
+    snapshot_num: int
+    created_by: uuid.UUID | None
+    comment: str | None
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class AppSnapshotCreate(BaseModel):
+    comment: str | None = Field(default=None, max_length=512)

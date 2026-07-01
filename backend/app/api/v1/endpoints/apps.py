@@ -8,7 +8,17 @@ from redis.asyncio import Redis
 from app.api.deps import AuthDep, DbDep
 from app.core.locks import EditLock, LockConflictError
 from app.core.redis import get_redis
-from app.schemas.apps import AppCreate, AppMemberAdd, AppMemberRead, AppRead, AppUpdate, LockInfo
+from app.schemas.apps import (
+    AppCloneCreate,
+    AppCreate,
+    AppMemberAdd,
+    AppMemberRead,
+    AppRead,
+    AppSnapshotCreate,
+    AppSnapshotRead,
+    AppUpdate,
+    LockInfo,
+)
 from app.schemas.common import CursorPage
 from app.services.apps import AppConflictError, AppNotFoundError, AppPermissionError, AppService
 
@@ -114,6 +124,83 @@ async def publish_app(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> Ap
     try:
         return await AppService(db).publish_app(
             app_id, actor_id=current_user.user_id,
+            is_admin=current_user.has_role("platform_admin"),
+        )
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+    except AppPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+# ---- Clone ----
+
+@router.post("/{app_id}/clone", response_model=AppRead, status_code=status.HTTP_201_CREATED)
+async def clone_app(
+    app_id: uuid.UUID, body: AppCloneCreate, current_user: AuthDep, db: DbDep
+) -> AppRead:
+    try:
+        return await AppService(db).clone_app(
+            app_id,
+            body,
+            owner_id=current_user.user_id,
+            org_id=current_user.org_id,
+            is_admin=current_user.has_role("platform_admin"),
+        )
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+    except AppConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except AppPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+# ---- Snapshots ----
+
+@router.get("/{app_id}/snapshots", response_model=list[AppSnapshotRead])
+async def list_snapshots(
+    app_id: uuid.UUID, current_user: AuthDep, db: DbDep
+) -> list[AppSnapshotRead]:
+    try:
+        return await AppService(db).list_snapshots(
+            app_id,
+            actor_id=current_user.user_id,
+            is_admin=current_user.has_role("platform_admin"),
+        )
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+    except AppPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.post("/{app_id}/snapshots", response_model=AppSnapshotRead, status_code=status.HTTP_201_CREATED)
+async def create_snapshot(
+    app_id: uuid.UUID, body: AppSnapshotCreate, current_user: AuthDep, db: DbDep
+) -> AppSnapshotRead:
+    try:
+        return await AppService(db).create_snapshot(
+            app_id,
+            body,
+            actor_id=current_user.user_id,
+            is_admin=current_user.has_role("platform_admin"),
+        )
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+    except AppPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{app_id}/snapshots/{snapshot_num}/rollback",
+    response_model=AppRead,
+)
+async def rollback_snapshot(
+    app_id: uuid.UUID, snapshot_num: int, current_user: AuthDep, db: DbDep
+) -> AppRead:
+    try:
+        return await AppService(db).rollback_snapshot(
+            app_id,
+            snapshot_num,
+            actor_id=current_user.user_id,
             is_admin=current_user.has_role("platform_admin"),
         )
     except AppNotFoundError as exc:

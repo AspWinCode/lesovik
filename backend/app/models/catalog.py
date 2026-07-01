@@ -33,6 +33,7 @@ class App(Base):
     )
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
@@ -47,6 +48,9 @@ class App(Base):
     )
     entities: Mapped[list["app.models.metamodel.Entity"]] = relationship(  # type: ignore[name-defined]
         "Entity", back_populates="app", cascade="all, delete-orphan"
+    )
+    snapshots: Mapped[list["AppSnapshot"]] = relationship(
+        "AppSnapshot", back_populates="app", cascade="all, delete-orphan"
     )
 
 
@@ -141,6 +145,34 @@ class ModuleDependency(Base):
         primary_key=True,
     )
     min_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AppSnapshot(Base):
+    """Point-in-time snapshot of an app's structure for rollback."""
+    __tablename__ = "app_snapshot"
+    __table_args__ = (
+        UniqueConstraint("app_id", "snapshot_num", name="uq_app_snapshot_num"),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    app_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("catalog.app.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    snapshot_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    app: Mapped["App"] = relationship("App", back_populates="snapshots")
 
 
 class AppModule(Base):

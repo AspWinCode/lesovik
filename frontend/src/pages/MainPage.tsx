@@ -13,24 +13,48 @@ import {
   NewAppModal,
   ShareModal,
   RolesModal,
+  CloneAppModal,
+  AppVersionsModal,
+  CreateFromTemplateModal,
 } from "@/components/modals/Modals";
-import { useApps, useCreateApp, useUpdateApp, useDeleteApp } from "@/shared/hooks/useApps";
+import {
+  useApps,
+  useCreateApp,
+  useUpdateApp,
+  useDeleteApp,
+  useCloneApp,
+} from "@/shared/hooks/useApps";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { usePages } from "@/shared/hooks/useViews";
 import { useRules } from "@/shared/hooks/useRules";
 import { useAuthStore } from "@/shared/auth/store";
+import { installTemplate } from "@/shared/api/templates";
 import type { App } from "@/shared/api/apps";
 
-type ModalType = "create" | "new-app" | "share" | "roles" | null;
+type ModalType =
+  | "create"
+  | "new-app"
+  | "from-template"
+  | "share"
+  | "roles"
+  | "clone"
+  | "versions"
+  | null;
 
 /** Map a backend App into the shape the ProjectCard expects. */
 function toProject(app: App, currentUserId?: string): Project {
+  const statusLabel = app.is_archived
+    ? "Архив"
+    : app.is_published
+    ? "Опубликовано"
+    : "Черновик";
+
   return {
     id: app.id,
     name: app.name,
     description: app.description ?? undefined,
     imageUrl: undefined,
-    status: app.is_published ? "Опубликовано" : "Прототип",
+    status: statusLabel,
     owner: currentUserId && app.owner_id === currentUserId ? "Я" : "—",
     lastModified: formatDistanceToNow(new Date(app.updated_at), {
       addSuffix: true,
@@ -96,6 +120,9 @@ export function MainPage() {
   const [topTab, setTopTab]            = useState<"apps" | "databases">("apps");
   const [selectedProject, setSelected] = useState<string | null>(null);
   const [modal, setModal]              = useState<ModalType>(null);
+  const [cloneTargetId, setCloneTargetId]     = useState<string | null>(null);
+  const [versionsTargetId, setVersionsTargetId] = useState<string | null>(null);
+  const [templateSubmitting, setTemplateSubmitting] = useState(false);
 
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
@@ -122,10 +149,12 @@ export function MainPage() {
     if (tab === "templates") { navigate("/templates"); return; }
     setSidebarTab(tab);
   }
+
   const { data, isLoading, isError, refetch } = useApps();
-  const createApp = useCreateApp();
-  const updateApp = useUpdateApp();
-  const deleteAppMutation = useDeleteApp();
+  const createApp          = useCreateApp();
+  const updateApp          = useUpdateApp();
+  const deleteAppMutation  = useDeleteApp();
+  const cloneAppMutation   = useCloneApp();
 
   const apps = data?.items ?? [];
 
@@ -150,13 +179,44 @@ export function MainPage() {
     if (selectedProject === appId) setSelected(null);
   }
 
+  function handleOpenClone(appId: string) {
+    setCloneTargetId(appId);
+    setModal("clone");
+  }
+
+  function handleOpenVersions(appId: string) {
+    setVersionsTargetId(appId);
+    setModal("versions");
+  }
+
+  async function handleCreateApp(name: string, category: string) {
+    await createApp.mutateAsync({ name, slug: slugify(name), category: category || null });
+    setModal(null);
+  }
+
+  async function handleCreateFromTemplate(name: string, templateId: string, category: string) {
+    setTemplateSubmitting(true);
+    try {
+      const app = await createApp.mutateAsync({ name, slug: slugify(name), category: category || null });
+      await installTemplate(app.id, templateId);
+      setModal(null);
+    } finally {
+      setTemplateSubmitting(false);
+    }
+  }
+
+  async function handleCloneApp(newName: string) {
+    if (!cloneTargetId) return;
+    await cloneAppMutation.mutateAsync({ appId: cloneTargetId, body: { name: newName } });
+    setModal(null);
+    setCloneTargetId(null);
+  }
+
   const isApps = topTab === "apps";
   const infoTitle = isApps ? "Информация о проекте" : "Информация о базе данных";
 
-  // Selection defaults to the first app once loaded.
   const effectiveSelected = selectedProject ?? projects[0]?.id ?? null;
   const selected = projects.find((p) => p.id === effectiveSelected);
-
   const { data: entitiesData } = useEntities(effectiveSelected ?? undefined);
   const { data: pagesData }    = usePages(effectiveSelected ?? undefined);
   const { data: rulesData }    = useRules(effectiveSelected ?? undefined);
@@ -204,11 +264,6 @@ export function MainPage() {
         { id: "t4", label: "Автоматизация", content: rules.length    ? `${rules.length} правил` : "Нет правил" },
       ];
 
-  async function handleCreateApp(name: string) {
-    await createApp.mutateAsync({ name, slug: slugify(name) });
-    setModal(null);
-  }
-
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar onGroupAddClick={() => setModal("roles")} />
@@ -237,7 +292,6 @@ export function MainPage() {
         </div>
 
         {/* Project cards row — scrollable */}
-        {/* outer wrapper clips the native scrollbar below the card area */}
         <div
           className="absolute overflow-hidden"
           style={{ left: 40, top: 86, width: 950, height: 292 }}
@@ -284,6 +338,8 @@ export function MainPage() {
                   onClick={() => setSelected(p.id)}
                   onShareClick={() => { setSelected(p.id); setModal("share"); }}
                   onRename={() => handleRenameApp(p.id, p.name)}
+                  onClone={() => handleOpenClone(p.id)}
+                  onVersions={() => handleOpenVersions(p.id)}
                   onDelete={() => handleDeleteApp(p.id)}
                 />
               ))}
@@ -296,7 +352,7 @@ export function MainPage() {
           </div>
         </div>
 
-        {/* Project row — left arrow (shown after scrolling) */}
+        {/* Project row — left arrow */}
         {!projectAtStart && (
           <button
             onClick={() => scrollProjects(-1)}
@@ -346,7 +402,7 @@ export function MainPage() {
           </div>
         </div>
 
-        {/* Info row — left arrow (shown after scrolling) */}
+        {/* Info row — left arrow */}
         {!infoAtStart && (
           <button
             onClick={() => scrollInfo(-1)}
@@ -393,10 +449,12 @@ export function MainPage() {
       />
 
       {/* Modals */}
-      {modal === "create"  && (
+      {modal === "create" && (
         <CreateProjectModal
           onClose={() => setModal(null)}
-          onAppOption={() => setModal("new-app")}
+          onBlank={() => setModal("new-app")}
+          onTemplate={() => setModal("from-template")}
+          onModules={() => { setModal(null); navigate("/templates"); }}
         />
       )}
       {modal === "new-app" && (
@@ -406,14 +464,36 @@ export function MainPage() {
           isSubmitting={createApp.isPending}
         />
       )}
-      {modal === "share"   && (
+      {modal === "from-template" && (
+        <CreateFromTemplateModal
+          onClose={() => setModal(null)}
+          onConfirm={handleCreateFromTemplate}
+          isSubmitting={templateSubmitting}
+        />
+      )}
+      {modal === "share" && (
         <ShareModal onClose={() => setModal(null)} appId={effectiveSelected} />
       )}
-      {modal === "roles"   && (
+      {modal === "roles" && (
         <RolesModal
           onClose={() => setModal(null)}
           projectName={selected?.name ?? "Дикая Сибирь"}
           appId={effectiveSelected}
+        />
+      )}
+      {modal === "clone" && cloneTargetId && (
+        <CloneAppModal
+          onClose={() => { setModal(null); setCloneTargetId(null); }}
+          onConfirm={handleCloneApp}
+          sourceName={apps.find((a) => a.id === cloneTargetId)?.name ?? ""}
+          isSubmitting={cloneAppMutation.isPending}
+        />
+      )}
+      {modal === "versions" && versionsTargetId && (
+        <AppVersionsModal
+          onClose={() => { setModal(null); setVersionsTargetId(null); }}
+          appId={versionsTargetId}
+          appName={apps.find((a) => a.id === versionsTargetId)?.name ?? ""}
         />
       )}
     </div>

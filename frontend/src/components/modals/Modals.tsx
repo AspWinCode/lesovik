@@ -1,8 +1,18 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { ru } from "date-fns/locale";
 import { cn } from "@/lib/cn";
 import { buildRuntimeUrl, buildEditorUrl } from "@/shared/lib/appLinks";
-import { useAppMembers, useAddAppMember, useRemoveAppMember } from "@/shared/hooks/useApps";
+import {
+  useAppMembers,
+  useAddAppMember,
+  useRemoveAppMember,
+  useAppSnapshots,
+  useCreateSnapshot,
+  useRollbackSnapshot,
+} from "@/shared/hooks/useApps";
 import { useUsers } from "@/shared/hooks/useUsers";
+import type { AppSnapshot } from "@/shared/api/apps";
 
 /* ─────────────────────────────────────────────────
    PRIMITIVES
@@ -96,10 +106,14 @@ function ModalButtons({
 
 export function CreateProjectModal({
   onClose,
-  onAppOption,
+  onBlank,
+  onTemplate,
+  onModules,
 }: {
   onClose: () => void;
-  onAppOption: () => void;
+  onBlank: () => void;
+  onTemplate: () => void;
+  onModules: () => void;
 }) {
   return (
     <Overlay onClose={onClose}>
@@ -113,17 +127,17 @@ export function CreateProjectModal({
         <div className="flex flex-col gap-5 mb-[30px]">
           <span className="text-[18px] font-bold text-primary">Приложение</span>
 
-          <button onClick={onAppOption} className="flex items-center gap-[17px] text-meta text-primary hover:text-cta transition-colors text-left">
-            <span className="w-[26px] h-[26px] shrink-0"><ArchiveIcon /></span>
-            <span>Начать существующими данными</span>
-          </button>
-          <button onClick={onAppOption} className="flex items-center gap-[32px] text-meta text-primary hover:text-cta transition-colors text-left">
-            <span className="w-[32px] h-[32px] shrink-0"><FolderDupIcon /></span>
-            <span>Начать с шаблона</span>
-          </button>
-          <button onClick={onAppOption} className="flex items-center gap-[19px] text-meta text-primary hover:text-cta transition-colors text-left">
+          <button onClick={onBlank} className="flex items-center gap-[19px] text-meta text-primary hover:text-cta transition-colors text-left">
             <span className="w-[28px] h-[28px] shrink-0"><FileIcon /></span>
             <span>Пустое приложение</span>
+          </button>
+          <button onClick={onTemplate} className="flex items-center gap-[32px] text-meta text-primary hover:text-cta transition-colors text-left">
+            <span className="w-[32px] h-[32px] shrink-0"><FolderDupIcon /></span>
+            <span>Из шаблона</span>
+          </button>
+          <button onClick={onModules} className="flex items-center gap-[17px] text-meta text-primary hover:text-cta transition-colors text-left">
+            <span className="w-[26px] h-[26px] shrink-0"><ArchiveIcon /></span>
+            <span>Из набора модулей</span>
           </button>
         </div>
 
@@ -131,7 +145,7 @@ export function CreateProjectModal({
         <div className="flex flex-col gap-5">
           <span className="text-[18px] font-bold text-primary">База данных</span>
 
-          <button onClick={onAppOption} className="flex items-center gap-[18px] text-meta text-primary hover:text-cta transition-colors text-left">
+          <button onClick={onBlank} className="flex items-center gap-[18px] text-meta text-primary hover:text-cta transition-colors text-left">
             <span className="w-[24px] h-[24px] shrink-0"><DbOutlineIcon /></span>
             <span>Новая база данных</span>
           </button>
@@ -299,7 +313,7 @@ export function NewAppModal({
   isSubmitting = false,
 }: {
   onClose: () => void;
-  onConfirm: (name: string) => void;
+  onConfirm: (name: string, category: string) => void;
   isSubmitting?: boolean;
 }) {
   const [appName, setAppName] = useState("New App");
@@ -386,8 +400,8 @@ export function NewAppModal({
         {/* Buttons */}
         <ModalButtons
           onCancel={onClose}
-          onConfirm={() => onConfirm(appName.trim())}
-          confirmLabel={isSubmitting ? "Создание…" : "Выберете свои данные"}
+          onConfirm={() => onConfirm(appName.trim(), category)}
+          confirmLabel={isSubmitting ? "Создание…" : "Создать приложение"}
           disabled={isSubmitting || appName.trim().length < 2}
         />
       </div>
@@ -1056,6 +1070,250 @@ export function FormulaAssistantModal({
           onCancel={onClose}
           onConfirm={() => onSave(expr)}
           confirmLabel="Сохранить"
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MODAL — Clone App
+───────────────────────────────────────────────── */
+
+export function CloneAppModal({
+  onClose,
+  onConfirm,
+  sourceName,
+  isSubmitting = false,
+}: {
+  onClose: () => void;
+  onConfirm: (name: string) => void;
+  sourceName: string;
+  isSubmitting?: boolean;
+}) {
+  const [name, setName] = useState(`${sourceName} (копия)`);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 505 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Клонировать приложение</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+        <p className="text-meta text-primary/70">
+          Будет создана полная копия «{sourceName}» — все таблицы, поля и правила.
+        </p>
+        <div className="flex flex-col gap-[10px]">
+          <label className="text-meta text-primary font-medium">Название клона</label>
+          <BlueField>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-transparent outline-none text-[18px] text-primary"
+              autoFocus
+            />
+          </BlueField>
+        </div>
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => onConfirm(name.trim())}
+          confirmLabel={isSubmitting ? "Клонирование…" : "Клонировать"}
+          disabled={isSubmitting || name.trim().length < 2}
+        />
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MODAL — App Version History
+───────────────────────────────────────────────── */
+
+export function AppVersionsModal({
+  onClose,
+  appId,
+  appName,
+}: {
+  onClose: () => void;
+  appId: string;
+  appName: string;
+}) {
+  const [comment, setComment] = useState("");
+  const { data: snapshots, isLoading } = useAppSnapshots(appId);
+  const createSnap = useCreateSnapshot();
+  const rollback = useRollbackSnapshot();
+
+  function handleCreate() {
+    createSnap.mutate(
+      { appId, comment: comment.trim() || null },
+      { onSuccess: () => setComment("") },
+    );
+  }
+
+  function handleRollback(snapshotNum: number) {
+    if (!window.confirm(`Откатить приложение к снимку #${snapshotNum}? Текущие данные будут заменены.`)) return;
+    rollback.mutate({ appId, snapshotNum }, { onSuccess: () => onClose() });
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 560 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">История версий — «{appName}»</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        {/* Create snapshot */}
+        <div className="flex gap-3 items-center">
+          <BlueField className="flex-1">
+            <input
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Комментарий (необязательно)"
+              className="w-full bg-transparent outline-none text-[16px] text-primary placeholder-primary/40"
+            />
+          </BlueField>
+          <button
+            onClick={handleCreate}
+            disabled={createSnap.isPending}
+            className="shrink-0 h-[41px] px-4 bg-cta rounded-btn text-white text-meta
+                       hover:bg-active transition-colors disabled:opacity-60"
+          >
+            {createSnap.isPending ? "Сохранение…" : "Создать снимок"}
+          </button>
+        </div>
+
+        {/* Snapshot list */}
+        <div className="flex flex-col gap-2 max-h-[320px] overflow-y-auto">
+          {isLoading && (
+            <p className="text-meta text-primary/50 text-center py-4">Загрузка…</p>
+          )}
+          {!isLoading && (!snapshots || snapshots.length === 0) && (
+            <p className="text-meta text-primary/50 text-center py-4">
+              Снимков пока нет. Создайте первый.
+            </p>
+          )}
+          {(snapshots ?? []).map((s: AppSnapshot) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between px-4 py-3 rounded-[10px] bg-cardbg"
+            >
+              <div className="flex flex-col">
+                <span className="text-[15px] font-semibold text-primary">
+                  Снимок #{s.snapshot_num}
+                </span>
+                {s.comment && (
+                  <span className="text-[13px] text-primary/60">{s.comment}</span>
+                )}
+                <span className="text-[12px] text-primary/40">
+                  {formatDistanceToNow(new Date(s.created_at), { addSuffix: true, locale: ru })}
+                </span>
+              </div>
+              <button
+                onClick={() => handleRollback(s.snapshot_num)}
+                disabled={rollback.isPending}
+                className="px-3 py-1 border-2 border-cta rounded-btn text-cta text-[13px]
+                           hover:bg-cta/10 transition-colors disabled:opacity-60"
+              >
+                Откатить
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-5 py-[3px] h-[34px] bg-cta border-2 border-cta rounded-btn
+                       text-white text-meta hover:bg-active transition-colors"
+          >
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MODAL — Create App From Template
+───────────────────────────────────────────────── */
+
+const TEMPLATE_LIST = [
+  { id: "empty",                name: "Пустое приложение",         desc: "Без модулей. Настройте всё вручную." },
+  { id: "trading_company",      name: "Торговая компания",          desc: "Предприятие, склад, заказы, финансы и аналитика." },
+  { id: "manufacturing_company",name: "Производственное предприятие",desc: "Предприятие, склад, производство, финансы." },
+  { id: "service_company",      name: "Сервисная компания",         desc: "Задачи, договоры, финансы, IT-поддержка." },
+  { id: "hr_department",        name: "HR-подразделение",           desc: "Предприятие, HR и задачи." },
+  { id: "document_flow",        name: "Документооборот",            desc: "Документы, договоры и справочники." },
+  { id: "financial_accounting", name: "Финансовый учёт",            desc: "Предприятие, финансы и аналитика." },
+];
+
+export function CreateFromTemplateModal({
+  onClose,
+  onConfirm,
+  isSubmitting = false,
+}: {
+  onClose: () => void;
+  onConfirm: (name: string, templateId: string, category: string) => void;
+  isSubmitting?: boolean;
+}) {
+  const [appName, setAppName] = useState("Новое приложение");
+  const [category, setCategory] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ width: 560 }} className="px-10 py-[30px] flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-primary">Создать из шаблона</h2>
+          <CloseBtn onClick={onClose} />
+        </div>
+
+        <div className="flex flex-col gap-[10px]">
+          <label className="text-meta text-primary font-medium">Название приложения</label>
+          <BlueField>
+            <input
+              value={appName}
+              onChange={(e) => setAppName(e.target.value)}
+              className="w-full bg-transparent outline-none text-[18px] text-primary"
+            />
+          </BlueField>
+        </div>
+
+        <div className="flex flex-col gap-[10px]">
+          <label className="text-meta text-primary font-medium">Категория</label>
+          <CategorySelect value={category} onChange={setCategory} />
+        </div>
+
+        <div className="flex flex-col gap-[10px]">
+          <label className="text-meta text-primary font-medium">Выберите шаблон</label>
+          <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto">
+            {TEMPLATE_LIST.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedTemplate(t.id)}
+                className={cn(
+                  "flex flex-col items-start px-4 py-3 rounded-[10px] text-left transition-colors border-2",
+                  selectedTemplate === t.id
+                    ? "border-cta bg-cta/10"
+                    : "border-transparent bg-cardbg hover:bg-mainbg",
+                )}
+              >
+                <span className={cn("text-[15px] font-semibold", selectedTemplate === t.id ? "text-cta" : "text-primary")}>
+                  {t.name}
+                </span>
+                <span className="text-[13px] text-primary/60 leading-tight">{t.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <ModalButtons
+          onCancel={onClose}
+          onConfirm={() => selectedTemplate && onConfirm(appName.trim(), selectedTemplate, category)}
+          confirmLabel={isSubmitting ? "Создание…" : "Создать"}
+          disabled={isSubmitting || appName.trim().length < 2 || !selectedTemplate}
         />
       </div>
     </Overlay>

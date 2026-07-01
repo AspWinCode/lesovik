@@ -41,6 +41,7 @@ function makeApp(partial: Partial<App> & Pick<App, "slug" | "name">): App {
     description: null,
     icon: null,
     color: null,
+    category: null,
     owner_id: MOCK_USER.id,
     is_published: false,
     is_archived: false,

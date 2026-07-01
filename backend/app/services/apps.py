@@ -1,14 +1,25 @@
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
 import structlog
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.catalog import App, AppMember
+from app.models.catalog import App, AppMember, AppSnapshot
 from app.models.identity import User
-from app.schemas.apps import AppCreate, AppMemberAdd, AppMemberRead, AppRead, AppUpdate
+from app.models.metamodel import Entity, Field, Relation
+from app.schemas.apps import (
+    AppCloneCreate,
+    AppCreate,
+    AppMemberAdd,
+    AppMemberRead,
+    AppRead,
+    AppSnapshotCreate,
+    AppSnapshotRead,
+    AppUpdate,
+)
 from app.schemas.common import CursorPage
 
 logger = structlog.get_logger(__name__)
@@ -39,6 +50,13 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
     return datetime.fromisoformat(ts), uuid.UUID(uid)
 
 
+def _slugify(name: str) -> str:
+    import re
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower().strip()).strip("-")
+    safe = base if len(base) >= 2 else f"app-{base}"
+    return f"{safe}-{uuid.uuid4().hex[:6]}"
+
+
 class AppService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -56,12 +74,10 @@ class AppService:
         stmt = select(App).order_by(App.created_at.asc(), App.id.asc())
 
         if is_platform_admin:
-            pass  # sees all apps on the platform
+            pass
         elif actor_org_id is not None:
-            # org members see only their org's apps
             stmt = stmt.where(App.org_id == actor_org_id)
         else:
-            # legacy: no org — fall back to owner/member check
             stmt = stmt.where(
                 or_(
                     App.owner_id == actor_id,
@@ -120,6 +136,7 @@ class AppService:
             description=data.description,
             icon=data.icon,
             color=data.color,
+            category=data.category,
             settings=data.settings,
             owner_id=owner_id,
             org_id=org_id,
@@ -127,7 +144,6 @@ class AppService:
         self._db.add(app)
         await self._db.flush()
 
-        # Owner is also a member with 'owner' role
         self._db.add(AppMember(app_id=app.id, user_id=owner_id, role="owner"))
         await self._db.flush()
 
@@ -149,6 +165,8 @@ class AppService:
             app.icon = data.icon
         if data.color is not None:
             app.color = data.color
+        if data.category is not None:
+            app.category = data.category
         if data.settings is not None:
             app.settings = data.settings
 
@@ -176,6 +194,290 @@ class AppService:
         await self._db.refresh(app, attribute_names=["updated_at"])
         logger.info("app_published", app_id=str(app_id))
         return AppRead.model_validate(app)
+
+    # ------------------------------------------------------------------
+    # Clone
+    # ------------------------------------------------------------------
+
+    async def clone_app(
+        self,
+        app_id: uuid.UUID,
+        data: AppCloneCreate,
+        owner_id: uuid.UUID,
+        org_id: uuid.UUID | None,
+        is_admin: bool,
+    ) -> AppRead:
+        source = await self._fetch_app_with_entities(app_id)
+        if not is_admin:
+            await self._require_member(app_id, owner_id)
+
+        slug = data.slug or _slugify(data.name)
+        existing = await self._db.execute(select(App).where(App.slug == slug))
+        if existing.scalar_one_or_none():
+            slug = f"{slug}-{uuid.uuid4().hex[:4]}"
+
+        new_app = App(
+            slug=slug,
+            name=data.name,
+            description=source.description,
+            icon=source.icon,
+            color=source.color,
+            category=source.category,
+            settings=source.settings,
+            owner_id=owner_id,
+            org_id=org_id,
+        )
+        self._db.add(new_app)
+        await self._db.flush()
+
+        self._db.add(AppMember(app_id=new_app.id, user_id=owner_id, role="owner"))
+
+        entity_id_map: dict[uuid.UUID, uuid.UUID] = {}
+        field_id_map: dict[uuid.UUID, uuid.UUID] = {}
+
+        for entity in source.entities:
+            new_entity_id = uuid.uuid4()
+            entity_id_map[entity.id] = new_entity_id
+
+            new_entity = Entity(
+                id=new_entity_id,
+                app_id=new_app.id,
+                slug=entity.slug,
+                display_name=entity.display_name,
+                name_plural=entity.name_plural,
+                description=entity.description,
+                icon=entity.icon,
+                color=entity.color,
+                settings=dict(entity.settings or {}),
+                is_system=entity.is_system,
+                field_order=[],
+            )
+            self._db.add(new_entity)
+            await self._db.flush()
+
+            new_field_ids: list[uuid.UUID] = []
+            for field in entity.fields:
+                new_field_id = uuid.uuid4()
+                field_id_map[field.id] = new_field_id
+                self._db.add(Field(
+                    id=new_field_id,
+                    entity_id=new_entity_id,
+                    app_id=new_app.id,
+                    name=field.name,
+                    display_name=field.display_name,
+                    field_type=field.field_type,
+                    is_required=field.is_required,
+                    is_unique=field.is_unique,
+                    is_system=field.is_system,
+                    is_indexed=field.is_indexed,
+                    default_value=dict(field.default_value) if field.default_value else None,
+                    validation_rules=dict(field.validation_rules or {}),
+                    field_options=dict(field.field_options or {}),
+                    display_order=field.display_order,
+                ))
+                new_field_ids.append(new_field_id)
+
+            # Remap field_order
+            remapped_order = [
+                str(field_id_map.get(uuid.UUID(fid), uuid.UUID(fid)))
+                for fid in (entity.field_order or [])
+                if isinstance(fid, str)
+            ]
+            new_entity.field_order = remapped_order or [str(fid) for fid in new_field_ids]
+
+        await self._db.flush()
+
+        # Clone relations
+        rel_result = await self._db.execute(
+            select(Relation).where(Relation.app_id == app_id)
+        )
+        for rel in rel_result.scalars().all():
+            new_from = entity_id_map.get(rel.from_entity_id)
+            new_to = entity_id_map.get(rel.to_entity_id)
+            if new_from and new_to:
+                self._db.add(Relation(
+                    app_id=new_app.id,
+                    from_entity_id=new_from,
+                    to_entity_id=new_to,
+                    relation_type=rel.relation_type,
+                    from_field_name=rel.from_field_name,
+                    to_field_name=rel.to_field_name,
+                    display_name=rel.display_name,
+                    settings=dict(rel.settings or {}),
+                ))
+
+        await self._db.flush()
+        logger.info("app_cloned", source_id=str(app_id), new_id=str(new_app.id))
+        return AppRead.model_validate(new_app)
+
+    # ------------------------------------------------------------------
+    # Snapshots
+    # ------------------------------------------------------------------
+
+    async def create_snapshot(
+        self,
+        app_id: uuid.UUID,
+        data: AppSnapshotCreate,
+        actor_id: uuid.UUID,
+        is_admin: bool,
+    ) -> AppSnapshotRead:
+        app = await self._fetch_app_with_entities(app_id)
+        if not is_admin:
+            await self._require_role(app_id, actor_id, {"owner", "admin"})
+
+        # Next sequential snapshot number for this app
+        num_result = await self._db.execute(
+            select(func.coalesce(func.max(AppSnapshot.snapshot_num), 0))
+            .where(AppSnapshot.app_id == app_id)
+        )
+        next_num = (num_result.scalar() or 0) + 1
+
+        snapshot_json: dict = {
+            "app": {
+                "name": app.name,
+                "description": app.description,
+                "icon": app.icon,
+                "color": app.color,
+                "category": app.category,
+                "settings": dict(app.settings or {}),
+            },
+            "entities": [
+                {
+                    "id": str(entity.id),
+                    "slug": entity.slug,
+                    "display_name": entity.display_name,
+                    "name_plural": entity.name_plural,
+                    "description": entity.description,
+                    "icon": entity.icon,
+                    "color": entity.color,
+                    "settings": dict(entity.settings or {}),
+                    "is_system": entity.is_system,
+                    "field_order": list(entity.field_order or []),
+                    "fields": [
+                        {
+                            "id": str(f.id),
+                            "name": f.name,
+                            "display_name": f.display_name,
+                            "field_type": f.field_type,
+                            "is_required": f.is_required,
+                            "is_unique": f.is_unique,
+                            "is_system": f.is_system,
+                            "is_indexed": f.is_indexed,
+                            "default_value": dict(f.default_value) if f.default_value else None,
+                            "validation_rules": dict(f.validation_rules or {}),
+                            "field_options": dict(f.field_options or {}),
+                            "display_order": f.display_order,
+                        }
+                        for f in entity.fields
+                    ],
+                }
+                for entity in app.entities
+            ],
+        }
+
+        snapshot = AppSnapshot(
+            app_id=app_id,
+            snapshot_num=next_num,
+            snapshot_json=snapshot_json,
+            created_by=actor_id,
+            comment=data.comment,
+        )
+        self._db.add(snapshot)
+        await self._db.flush()
+        logger.info("snapshot_created", app_id=str(app_id), snapshot_num=next_num)
+        return AppSnapshotRead.model_validate(snapshot)
+
+    async def list_snapshots(
+        self, app_id: uuid.UUID, actor_id: uuid.UUID, is_admin: bool
+    ) -> list[AppSnapshotRead]:
+        await self._fetch_app(app_id)
+        if not is_admin:
+            await self._require_member(app_id, actor_id)
+        result = await self._db.execute(
+            select(AppSnapshot)
+            .where(AppSnapshot.app_id == app_id)
+            .order_by(AppSnapshot.snapshot_num.desc())
+        )
+        return [AppSnapshotRead.model_validate(s) for s in result.scalars().all()]
+
+    async def rollback_snapshot(
+        self,
+        app_id: uuid.UUID,
+        snapshot_num: int,
+        actor_id: uuid.UUID,
+        is_admin: bool,
+    ) -> AppRead:
+        app = await self._fetch_app(app_id)
+        if not is_admin:
+            await self._require_role(app_id, actor_id, {"owner", "admin"})
+
+        snap_result = await self._db.execute(
+            select(AppSnapshot).where(
+                AppSnapshot.app_id == app_id,
+                AppSnapshot.snapshot_num == snapshot_num,
+            )
+        )
+        snapshot = snap_result.scalar_one_or_none()
+        if snapshot is None:
+            raise AppNotFoundError(f"Snapshot #{snapshot_num} not found for app {app_id}")
+
+        snap = snapshot.snapshot_json
+        app_data = snap.get("app", {})
+        app.name = app_data.get("name", app.name)
+        app.description = app_data.get("description", app.description)
+        app.icon = app_data.get("icon", app.icon)
+        app.color = app_data.get("color", app.color)
+        app.category = app_data.get("category", app.category)
+        app.settings = app_data.get("settings", app.settings)
+        app.version += 1
+
+        # Delete all current entities (cascades to fields via FK)
+        await self._db.execute(sa.delete(Entity).where(Entity.app_id == app_id))
+        await self._db.flush()
+
+        for entity_data in snap.get("entities", []):
+            new_entity = Entity(
+                id=uuid.UUID(entity_data["id"]),
+                app_id=app_id,
+                slug=entity_data["slug"],
+                display_name=entity_data["display_name"],
+                name_plural=entity_data.get("name_plural"),
+                description=entity_data.get("description"),
+                icon=entity_data.get("icon"),
+                color=entity_data.get("color"),
+                settings=dict(entity_data.get("settings") or {}),
+                is_system=entity_data.get("is_system", False),
+                field_order=list(entity_data.get("field_order") or []),
+            )
+            self._db.add(new_entity)
+            await self._db.flush()
+
+            for field_data in entity_data.get("fields", []):
+                self._db.add(Field(
+                    id=uuid.UUID(field_data["id"]),
+                    entity_id=new_entity.id,
+                    app_id=app_id,
+                    name=field_data["name"],
+                    display_name=field_data["display_name"],
+                    field_type=field_data["field_type"],
+                    is_required=field_data.get("is_required", False),
+                    is_unique=field_data.get("is_unique", False),
+                    is_system=field_data.get("is_system", False),
+                    is_indexed=field_data.get("is_indexed", False),
+                    default_value=field_data.get("default_value"),
+                    validation_rules=dict(field_data.get("validation_rules") or {}),
+                    field_options=dict(field_data.get("field_options") or {}),
+                    display_order=field_data.get("display_order", 0),
+                ))
+
+        await self._db.flush()
+        await self._db.refresh(app)
+        logger.info("app_rolled_back", app_id=str(app_id), to_snapshot=snapshot_num)
+        return AppRead.model_validate(app)
+
+    # ------------------------------------------------------------------
+    # Members
+    # ------------------------------------------------------------------
 
     async def list_members(
         self,
@@ -252,8 +554,22 @@ class AppService:
             await self._db.delete(member)
 
     # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
     async def _fetch_app(self, app_id: uuid.UUID) -> App:
         result = await self._db.execute(select(App).where(App.id == app_id))
+        app = result.scalar_one_or_none()
+        if app is None:
+            raise AppNotFoundError(str(app_id))
+        return app
+
+    async def _fetch_app_with_entities(self, app_id: uuid.UUID) -> App:
+        result = await self._db.execute(
+            select(App)
+            .where(App.id == app_id)
+            .options(selectinload(App.entities).selectinload(Entity.fields))
+        )
         app = result.scalar_one_or_none()
         if app is None:
             raise AppNotFoundError(str(app_id))
@@ -266,7 +582,6 @@ class AppService:
             )
         )
         if result.scalar_one_or_none() is None:
-            # 404 masking — don't reveal app existence to non-members
             raise AppNotFoundError(str(app_id))
 
     async def _require_role(
@@ -279,4 +594,6 @@ class AppService:
         )
         member = result.scalar_one_or_none()
         if member is None or member.role not in allowed:
-            raise AppPermissionError(f"Role {member.role if member else 'none'!r} not in {allowed}")
+            raise AppPermissionError(
+                f"Role {member.role if member else 'none'!r} not in {allowed}"
+            )

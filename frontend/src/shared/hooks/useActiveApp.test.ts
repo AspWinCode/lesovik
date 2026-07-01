@@ -10,6 +10,7 @@ function app(id: string, name: string): App {
     description: null,
     icon: null,
     color: null,
+    category: null,
     owner_id: "u1",
     is_published: false,
     is_archived: false,

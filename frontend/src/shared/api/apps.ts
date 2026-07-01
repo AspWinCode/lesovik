@@ -7,6 +7,7 @@ export interface App {
   description: string | null;
   icon: string | null;
   color: string | null;
+  category: string | null;
   owner_id: string;
   is_published: boolean;
   is_archived: boolean;
@@ -29,7 +30,31 @@ export interface AppCreate {
   description?: string | null;
   icon?: string | null;
   color?: string | null;
+  category?: string | null;
   settings?: Record<string, unknown>;
+}
+
+export interface AppUpdate {
+  name?: string;
+  description?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  category?: string | null;
+  settings?: Record<string, unknown>;
+}
+
+export interface AppCloneCreate {
+  name: string;
+  slug?: string | null;
+}
+
+export interface AppSnapshot {
+  id: string;
+  app_id: string;
+  snapshot_num: number;
+  created_by: string | null;
+  comment: string | null;
+  created_at: string;
 }
 
 export async function listApps(params?: {
@@ -38,14 +63,6 @@ export async function listApps(params?: {
 }): Promise<CursorPage<App>> {
   const { data } = await apiClient.get<CursorPage<App>>("/apps", { params });
   return data;
-}
-
-export interface AppUpdate {
-  name?: string;
-  description?: string | null;
-  icon?: string | null;
-  color?: string | null;
-  settings?: Record<string, unknown>;
 }
 
 export async function createApp(body: AppCreate): Promise<App> {
@@ -64,6 +81,26 @@ export async function deleteApp(appId: string): Promise<void> {
 
 export async function publishApp(appId: string): Promise<App> {
   const { data } = await apiClient.post<App>(`/apps/${appId}/publish`);
+  return data;
+}
+
+export async function cloneApp(appId: string, body: AppCloneCreate): Promise<App> {
+  const { data } = await apiClient.post<App>(`/apps/${appId}/clone`, body);
+  return data;
+}
+
+export async function listSnapshots(appId: string): Promise<AppSnapshot[]> {
+  const { data } = await apiClient.get<AppSnapshot[]>(`/apps/${appId}/snapshots`);
+  return data;
+}
+
+export async function createSnapshot(appId: string, comment?: string | null): Promise<AppSnapshot> {
+  const { data } = await apiClient.post<AppSnapshot>(`/apps/${appId}/snapshots`, { comment });
+  return data;
+}
+
+export async function rollbackSnapshot(appId: string, snapshotNum: number): Promise<App> {
+  const { data } = await apiClient.post<App>(`/apps/${appId}/snapshots/${snapshotNum}/rollback`);
   return data;
 }
 

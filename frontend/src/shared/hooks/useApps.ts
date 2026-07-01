@@ -1,5 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addAppMember, createApp, deleteApp, listAppMembers, listApps, publishApp, removeAppMember, updateApp, type AppCreate, type AppUpdate } from "../api/apps";
+import {
+  addAppMember,
+  cloneApp,
+  createApp,
+  createSnapshot,
+  deleteApp,
+  listAppMembers,
+  listApps,
+  listSnapshots,
+  publishApp,
+  removeAppMember,
+  rollbackSnapshot,
+  updateApp,
+  type AppCloneCreate,
+  type AppCreate,
+  type AppUpdate,
+} from "../api/apps";
 
 const APPS_KEY = ["apps"] as const;
 
@@ -39,6 +55,46 @@ export function usePublishApp() {
   return useMutation({
     mutationFn: (appId: string) => publishApp(appId),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: APPS_KEY }); },
+  });
+}
+
+export function useCloneApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ appId, body }: { appId: string; body: AppCloneCreate }) =>
+      cloneApp(appId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: APPS_KEY }); },
+  });
+}
+
+export function useAppSnapshots(appId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["app-snapshots", appId],
+    queryFn: () => listSnapshots(appId!),
+    enabled: !!appId,
+  });
+}
+
+export function useCreateSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ appId, comment }: { appId: string; comment?: string | null }) =>
+      createSnapshot(appId, comment),
+    onSuccess: (_, { appId }) => {
+      void qc.invalidateQueries({ queryKey: ["app-snapshots", appId] });
+    },
+  });
+}
+
+export function useRollbackSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ appId, snapshotNum }: { appId: string; snapshotNum: number }) =>
+      rollbackSnapshot(appId, snapshotNum),
+    onSuccess: (_, { appId }) => {
+      void qc.invalidateQueries({ queryKey: APPS_KEY });
+      void qc.invalidateQueries({ queryKey: ["app-snapshots", appId] });
+    },
   });
 }
 

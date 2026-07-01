@@ -19,10 +19,22 @@ interface ProjectCardProps {
   onClick?: () => void;
   onShareClick?: () => void;
   onRename?: () => void;
+  onClone?: () => void;
+  onVersions?: () => void;
   onDelete?: () => void;
 }
 
-export function ProjectCard({ project, variant, isSelected, onClick, onShareClick, onRename, onDelete }: ProjectCardProps) {
+export function ProjectCard({
+  project,
+  variant,
+  isSelected,
+  onClick,
+  onShareClick,
+  onRename,
+  onClone,
+  onVersions,
+  onDelete,
+}: ProjectCardProps) {
   const isApps = variant === "apps";
 
   return (
@@ -41,7 +53,13 @@ export function ProjectCard({ project, variant, isSelected, onClick, onShareClic
         {/* Header: name + dots */}
         <div className="flex items-center justify-between px-[30px] h-[30px] shrink-0">
           <span className="text-card-h text-primary flex-1 truncate">{project.name}</span>
-          <DotsMenu onShare={onShareClick} onRename={onRename} onDelete={onDelete} />
+          <DotsMenu
+            onShare={onShareClick}
+            onRename={onRename}
+            onClone={onClone}
+            onVersions={onVersions}
+            onDelete={onDelete}
+          />
         </div>
 
         {/* Body */}
@@ -60,7 +78,6 @@ export function ProjectCard({ project, variant, isSelected, onClick, onShareClic
                   className="w-full h-full object-cover"
                 />
               ) : (
-                /* phone outline placeholder */
                 <div className="w-full h-full flex items-center justify-center">
                   <svg viewBox="0 0 40 70" fill="none" className="w-[40px] h-[60px] opacity-30">
                     <rect x="2" y="2" width="36" height="66" rx="6" stroke="#00205F" strokeWidth="2"/>
@@ -71,10 +88,9 @@ export function ProjectCard({ project, variant, isSelected, onClick, onShareClic
             </div>
           )}
 
-          {/* Right column: description (apps) or tablesCount (databases) + stats */}
+          {/* Right column: description + stats */}
           <div className="flex flex-col justify-between flex-1 min-w-0">
 
-            {/* Top: description or tables */}
             {isApps && project.description && (
               <p className="text-meta text-primary leading-[120%] line-clamp-4">
                 {project.description}
@@ -86,7 +102,6 @@ export function ProjectCard({ project, variant, isSelected, onClick, onShareClic
               </span>
             )}
 
-            {/* Bottom: status / owner / date */}
             <div className="flex flex-col gap-[5px]">
               <span className="text-meta text-primary">Статус: {project.status}</span>
               <span className="text-meta text-primary">Владелец: {project.owner}</span>
