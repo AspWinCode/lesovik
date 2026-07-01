@@ -21,6 +21,12 @@ from app.schemas.entities import (
 logger = structlog.get_logger(__name__)
 
 
+def _reverse_relation_type(relation_type: str) -> str:
+    return {"one_to_one": "one_to_one", "one_to_many": "many_to_one", "many_to_many": "many_to_many"}.get(
+        relation_type, relation_type
+    )
+
+
 class EntityNotFoundError(Exception):
     pass
 
@@ -303,13 +309,9 @@ class EntityService:
     async def create_relation(
         self, app_id: uuid.UUID, data: RelationCreate
     ) -> RelationRead:
-        # Verify both entities belong to this app
-        for eid in (data.from_entity_id, data.to_entity_id):
-            result = await self._db.execute(
-                select(Entity).where(Entity.id == eid, Entity.app_id == app_id)
-            )
-            if result.scalar_one_or_none() is None:
-                raise EntityNotFoundError(str(eid))
+        # Fetch both entities (validates they belong to this app)
+        from_entity = await self._fetch_entity(app_id, data.from_entity_id)
+        to_entity = await self._fetch_entity(app_id, data.to_entity_id)
 
         relation = Relation(
             app_id=app_id,
@@ -323,6 +325,32 @@ class EntityService:
         )
         self._db.add(relation)
         await self._db.flush()
+
+        # Auto-create relation field on from_entity
+        await self._upsert_relation_field(
+            entity=from_entity,
+            app_id=app_id,
+            field_name=data.from_field_name,
+            display_name=data.display_name or to_entity.display_name,
+            target_entity_id=data.to_entity_id,
+            relation_type=data.relation_type.value,
+            relation_id=str(relation.id),
+        )
+
+        # Auto-create reverse field on to_entity when to_field_name is provided
+        # (required for many_to_many, optional for others)
+        if data.to_field_name:
+            reverse_type = _reverse_relation_type(data.relation_type.value)
+            await self._upsert_relation_field(
+                entity=to_entity,
+                app_id=app_id,
+                field_name=data.to_field_name,
+                display_name=from_entity.display_name,
+                target_entity_id=data.from_entity_id,
+                relation_type=reverse_type,
+                relation_id=str(relation.id),
+            )
+
         logger.info("relation_created", relation_id=str(relation.id), app_id=str(app_id))
         return RelationRead.model_validate(relation)
 
@@ -333,7 +361,72 @@ class EntityService:
         relation = result.scalar_one_or_none()
         if relation is None:
             raise EntityNotFoundError(str(relation_id))
+
+        # Remove all relation-type fields that were auto-created for this relation
+        fields_result = await self._db.execute(
+            select(Field).where(Field.app_id == app_id, Field.field_type == "relation")
+        )
+        for field in fields_result.scalars():
+            if field.field_options.get("relation_id") == str(relation_id):
+                entity_result = await self._db.execute(
+                    select(Entity)
+                    .where(Entity.id == field.entity_id)
+                    .options(selectinload(Entity.fields))
+                )
+                entity = entity_result.scalar_one_or_none()
+                if entity:
+                    entity.field_order = [
+                        fid for fid in entity.field_order if fid != str(field.id)
+                    ]
+                await self._db.delete(field)
+        await self._db.flush()
         await self._db.delete(relation)
+        await self._db.flush()
+
+    # ------------------------------------------------------------------
+    async def _upsert_relation_field(
+        self,
+        entity: Entity,
+        app_id: uuid.UUID,
+        field_name: str,
+        display_name: str,
+        target_entity_id: uuid.UUID,
+        relation_type: str,
+        relation_id: str,
+    ) -> None:
+        """Create (or skip if exists) a relation-type field on entity."""
+        existing = await self._db.execute(
+            select(Field).where(
+                Field.entity_id == entity.id, Field.name == field_name
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return
+
+        max_order_res = await self._db.execute(
+            select(Field.display_order)
+            .where(Field.entity_id == entity.id)
+            .order_by(Field.display_order.desc())
+            .limit(1)
+        )
+        max_order = max_order_res.scalar_one_or_none() or 0
+
+        field = Field(
+            entity_id=entity.id,
+            app_id=app_id,
+            name=field_name,
+            display_name=display_name,
+            field_type="relation",
+            field_options={
+                "target_entity_id": str(target_entity_id),
+                "relation_type": relation_type,
+                "relation_id": relation_id,
+            },
+            display_order=max_order + 1,
+        )
+        self._db.add(field)
+        await self._db.flush()
+        entity.field_order = [*entity.field_order, str(field.id)]
         await self._db.flush()
 
     # ------------------------------------------------------------------

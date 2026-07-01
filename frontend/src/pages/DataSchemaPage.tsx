@@ -1577,49 +1577,74 @@ function RelationModal({
   onCreate: (d: RelationCreate) => void;
   saving: boolean;
 }) {
-  const [toEntityId, setToEntityId]     = useState("");
-  const [relationType, setRelationType] = useState<RelationType>("one_to_many");
+  const [toEntityId, setToEntityId]       = useState("");
+  const [relationType, setRelationType]   = useState<RelationType>("one_to_many");
+  const [displayName, setDisplayName]     = useState("");
   const [fromFieldName, setFromFieldName] = useState("");
-  const [toFieldName, setToFieldName]   = useState("");
-  const [displayName, setDisplayName]   = useState("");
+  const [toFieldName, setToFieldName]     = useState("");
+  const [customFields, setCustomFields]   = useState(false);
 
   const fromEntity = entities.find((e) => e.id === fromEntityId);
   const toEntity   = entities.find((e) => e.id === toEntityId);
 
+  // Auto-suggest field names based on relation type and selected entity slug
+  const suggestedFrom = toEntity
+    ? relationType === "many_to_many"
+      ? toEntity.slug
+      : `${toEntity.slug}_id`
+    : "";
+  const suggestedTo = fromEntity
+    ? relationType === "many_to_many"
+      ? fromEntity.slug
+      : `${fromEntity.slug}_id`
+    : "";
+
+  const effectiveFromField = customFields ? fromFieldName : suggestedFrom;
+  const effectiveToField   = customFields ? toFieldName   : (relationType === "many_to_many" ? suggestedTo : toFieldName);
+
+  const handleEntityChange = (id: string) => {
+    setToEntityId(id);
+    setFromFieldName("");
+    setToFieldName("");
+  };
+
+  const handleTypeChange = (t: RelationType) => {
+    setRelationType(t);
+    setFromFieldName("");
+    setToFieldName("");
+  };
+
   const handleSubmit = () => {
-    if (!toEntityId || !fromFieldName.trim()) return;
+    if (!toEntityId || !effectiveFromField.trim()) return;
+    // many_to_many always needs reverse field
+    const reverseField = relationType === "many_to_many"
+      ? (effectiveToField || suggestedTo)
+      : (effectiveToField || undefined);
     onCreate({
       from_entity_id: fromEntityId,
       to_entity_id: toEntityId,
       relation_type: relationType,
-      from_field_name: fromFieldName,
-      to_field_name: toFieldName || undefined,
+      from_field_name: effectiveFromField,
+      to_field_name: reverseField,
       display_name: displayName || undefined,
     });
   };
 
+  const RELATION_DESCRIPTIONS: Record<RelationType, string> = {
+    one_to_one:   "Каждая запись A связана ровно с одной записью B",
+    one_to_many:  "Одна запись A связана с несколькими записями B",
+    many_to_many: "Любая запись A может быть связана с любым числом записей B",
+  };
+
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-white rounded-[20px] shadow-2xl w-[480px]">
+      <div className="bg-white rounded-[20px] shadow-2xl w-[520px]">
         <div className="px-6 pt-6 pb-4 border-b border-cardbg">
           <h3 className="text-[18px] font-bold text-primary">Добавить связь</h3>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
-          {/* Visual relation preview */}
-          <div className="flex items-center gap-3 px-4 py-3 bg-mainbg rounded-[10px] border border-cardbg">
-            <span className="text-[13px] font-medium text-primary">
-              {fromEntity?.icon ?? "📋"} {fromEntity?.display_name ?? "…"}
-            </span>
-            <span className="px-2 py-0.5 bg-cta text-white text-[11px] font-bold rounded font-mono">
-              {RELATION_BADGE[relationType]}
-            </span>
-            <span className="text-[13px] font-medium text-primary">
-              {toEntity ? `${toEntity.icon ?? "📋"} ${toEntity.display_name}` : "Выберите сущность"}
-            </span>
-          </div>
-
-          {/* Relation type */}
+        <div className="px-6 py-5 space-y-5">
+          {/* Тип связи */}
           <div>
             <label className="block text-[12px] font-semibold text-primary/60 mb-2 uppercase tracking-wider">
               Тип связи
@@ -1628,26 +1653,34 @@ function RelationModal({
               {(["one_to_one", "one_to_many", "many_to_many"] as RelationType[]).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setRelationType(t)}
+                  onClick={() => handleTypeChange(t)}
                   className={cn(
-                    "py-2 px-3 rounded-[8px] border text-[13px] font-medium transition-all",
+                    "py-3 px-3 rounded-[10px] border text-center transition-all",
                     relationType === t
-                      ? "border-cta bg-[#EBF4FF] text-cta"
-                      : "border-cardbg text-primary/60 hover:border-cta/50",
+                      ? "border-cta bg-[#EBF4FF]"
+                      : "border-cardbg hover:border-cta/50",
                   )}
                 >
-                  <div className="font-mono font-bold text-[14px] mb-0.5">{RELATION_BADGE[t]}</div>
-                  <div className="text-[11px]">{RELATION_LABELS[t]}</div>
+                  <RelationDiagram type={t} active={relationType === t} />
+                  <div className={cn("font-mono font-bold text-[13px] mt-1.5", relationType === t ? "text-cta" : "text-primary/60")}>
+                    {RELATION_BADGE[t]}
+                  </div>
+                  <div className={cn("text-[11px] mt-0.5", relationType === t ? "text-cta/80" : "text-primary/40")}>
+                    {RELATION_LABELS[t]}
+                  </div>
                 </button>
               ))}
             </div>
+            <p className="mt-2 text-[12px] text-primary/50 px-1">
+              {RELATION_DESCRIPTIONS[relationType]}
+            </p>
           </div>
 
-          {/* To entity */}
+          {/* Связанная сущность */}
           <FormField label="Связанная сущность *">
             <select
               value={toEntityId}
-              onChange={(e) => setToEntityId(e.target.value)}
+              onChange={(e) => handleEntityChange(e.target.value)}
               className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
             >
               <option value="">Выберите сущность…</option>
@@ -1659,27 +1692,37 @@ function RelationModal({
             </select>
           </FormField>
 
-          {/* Field names */}
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Поле (эта сущность) *">
-              <input
-                value={fromFieldName}
-                onChange={(e) => setFromFieldName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                placeholder="related_id"
-                className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
-              />
-            </FormField>
-            <FormField label="Поле (связанная)">
-              <input
-                value={toFieldName}
-                onChange={(e) => setToFieldName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                placeholder="optional"
-                className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
-              />
-            </FormField>
-          </div>
+          {/* Визуальная схема связи */}
+          {toEntity && (
+            <div className="bg-mainbg rounded-[10px] border border-cardbg px-4 py-3">
+              <div className="flex items-center gap-2 text-[13px]">
+                <span className="font-medium text-primary">
+                  {fromEntity?.icon ?? "📋"} {fromEntity?.display_name}
+                </span>
+                <span className="font-mono text-[11px] text-primary/40 bg-white px-1.5 py-0.5 rounded border border-cardbg">
+                  {effectiveFromField || suggestedFrom || "…"}
+                </span>
+                <svg viewBox="0 0 32 10" className="w-8 text-primary/30" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M0 5h28M24 2l4 3-4 3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                {relationType === "many_to_many" && (
+                  <span className="font-mono text-[11px] text-primary/40 bg-white px-1.5 py-0.5 rounded border border-cardbg">
+                    {effectiveToField || suggestedTo || "…"}
+                  </span>
+                )}
+                <span className="font-medium text-primary">
+                  {toEntity.icon ?? "📋"} {toEntity.display_name}
+                </span>
+              </div>
+              <p className="text-[11px] text-primary/40 mt-1.5">
+                {relationType === "many_to_many"
+                  ? `Поля «${effectiveFromField || suggestedFrom}» и «${effectiveToField || suggestedTo}» будут созданы автоматически`
+                  : `Поле «${effectiveFromField || suggestedFrom}» будет создано автоматически`}
+              </p>
+            </div>
+          )}
 
-          {/* Display name */}
+          {/* Название */}
           <FormField label="Название связи">
             <input
               value={displayName}
@@ -1688,15 +1731,64 @@ function RelationModal({
               className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
             />
           </FormField>
+
+          {/* Кастомные имена полей */}
+          <div>
+            <button
+              onClick={() => setCustomFields((v) => !v)}
+              className="flex items-center gap-1.5 text-[12px] text-primary/50 hover:text-cta transition-colors"
+            >
+              <svg
+                viewBox="0 0 12 12"
+                className={cn("w-3 h-3 transition-transform", customFields && "rotate-90")}
+                fill="currentColor"
+              >
+                <path d="M3 2l5 4-5 4V2z" />
+              </svg>
+              Изменить имена полей
+            </button>
+            {customFields && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <FormField label={`Поле на «${fromEntity?.display_name ?? "…"}»`}>
+                  <input
+                    value={fromFieldName || suggestedFrom}
+                    onChange={(e) =>
+                      setFromFieldName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+                    }
+                    placeholder={suggestedFrom}
+                    className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
+                  />
+                </FormField>
+                {relationType !== "one_to_one" && (
+                  <FormField
+                    label={
+                      relationType === "many_to_many"
+                        ? `Поле на «${toEntity?.display_name ?? "…"}»`
+                        : "Обратное поле (опц.)"
+                    }
+                  >
+                    <input
+                      value={toFieldName || (relationType === "many_to_many" ? suggestedTo : "")}
+                      onChange={(e) =>
+                        setToFieldName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+                      }
+                      placeholder={relationType === "many_to_many" ? suggestedTo : "—"}
+                      className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
+                    />
+                  </FormField>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="px-6 pb-6 flex justify-end gap-2">
+        <div className="px-6 pb-6 flex justify-end gap-2 border-t border-cardbg pt-4">
           <button onClick={onClose} className="px-4 py-2 text-[13px] text-primary/60 hover:text-primary">
             Отмена
           </button>
           <button
             onClick={handleSubmit}
-            disabled={saving || !toEntityId || !fromFieldName.trim()}
+            disabled={saving || !toEntityId || !effectiveFromField}
             className="px-5 py-2 bg-cta text-white text-[13px] font-medium rounded-[10px] hover:bg-active disabled:opacity-50"
           >
             {saving ? "Создание…" : "Создать связь"}
@@ -1704,6 +1796,46 @@ function RelationModal({
         </div>
       </div>
     </ModalOverlay>
+  );
+}
+
+// ─────────────────────────────────────────────
+// RelationDiagram — mini SVG icon per type
+// ─────────────────────────────────────────────
+
+function RelationDiagram({ type, active }: { type: RelationType; active: boolean }) {
+  const c = active ? "#00205F" : "#CBD5E1";
+  if (type === "one_to_one") return (
+    <svg viewBox="0 0 40 16" className="w-10 h-4 mx-auto">
+      <rect x="1" y="4" width="10" height="8" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <path d="M12 8h16" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="12" y1="6" x2="12" y2="10" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="28" y1="6" x2="28" y2="10" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="29" y="4" width="10" height="8" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+    </svg>
+  );
+  if (type === "one_to_many") return (
+    <svg viewBox="0 0 40 20" className="w-10 h-5 mx-auto">
+      <rect x="1" y="6" width="10" height="8" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <path d="M12 10h10" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="12" y1="8" x2="12" y2="12" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M22 10l-4-4M22 10l-4 4" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="23" y="1" width="10" height="6" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <rect x="23" y="9" width="10" height="6" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <path d="M22 4h1M22 12h1" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+  return (
+    <svg viewBox="0 0 40 20" className="w-10 h-5 mx-auto">
+      <rect x="1" y="1" width="10" height="6" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <rect x="1" y="9" width="10" height="6" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <path d="M11 4h7M11 12h7" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M18 4l-3-3M18 4l-3 3M18 12l-3-3M18 12l-3 3" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M22 4h7M22 12h7" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M22 4l3-3M22 4l3 3M22 12l3-3M22 12l3 3" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+      <rect x="29" y="1" width="10" height="6" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+      <rect x="29" y="9" width="10" height="6" rx="2" fill={c} opacity="0.2" stroke={c} strokeWidth="1.2" />
+    </svg>
   );
 }
 
