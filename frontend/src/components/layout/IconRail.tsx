@@ -39,7 +39,7 @@ const items: { id: RailModule; label: string; icon: React.ReactNode }[] = [
 const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   home: "/",
   constructor: "/views",
-  data: "/database",      // реальные данные (записи)
+  data: "/schema",        // конструктор сущностей и схема данных
   automation: "/bot",
   analytics: "/intel",    // AI / Intelligence
   notifications: "/admin",// административная панель
