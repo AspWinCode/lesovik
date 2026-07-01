@@ -41,6 +41,22 @@ export async function ldapLogin(payload: { email: string; password: string }): P
   return data;
 }
 
+export interface SessionPolicy {
+  timeout_minutes: number;
+  max_concurrent_sessions: number;
+  updated_at: string;
+}
+
+export async function fetchSessionPolicy(): Promise<SessionPolicy> {
+  const { data } = await apiClient.get<SessionPolicy>("/auth/session-policy");
+  return data;
+}
+
+export async function updateSessionPolicy(body: Partial<Omit<SessionPolicy, "updated_at">>): Promise<SessionPolicy> {
+  const { data } = await apiClient.put<SessionPolicy>("/auth/session-policy", body);
+  return data;
+}
+
 export interface LdapStatus {
   enabled: boolean;
   url: string | null;

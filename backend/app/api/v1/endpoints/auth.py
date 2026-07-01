@@ -15,6 +15,8 @@ from app.schemas.auth import (
     PasswordPolicyUpdate,
     RefreshRequest,
     ResetPasswordRequest,
+    SessionPolicyRead,
+    SessionPolicyUpdate,
     TOTPSetupResponse,
     TOTPVerifyRequest,
     TokenPair,
@@ -214,6 +216,24 @@ async def update_password_policy(body: PasswordPolicyUpdate, current_user: AuthD
     from app.services.password_policy import PasswordPolicyService
     policy = await PasswordPolicyService(db).update(body)
     return PasswordPolicyRead.model_validate(policy)
+
+
+# ---- Session policy ----
+
+@router.get("/session-policy", response_model=SessionPolicyRead, summary="Get current session policy")
+async def get_session_policy(db: DbDep) -> SessionPolicyRead:
+    from app.services.session_policy import SessionPolicyService
+    policy = await SessionPolicyService(db).get()
+    return SessionPolicyRead.model_validate(policy)
+
+
+@router.put("/session-policy", response_model=SessionPolicyRead, summary="Update session policy (admin only)")
+async def update_session_policy(body: SessionPolicyUpdate, current_user: AuthDep, db: DbDep) -> SessionPolicyRead:
+    if not current_user.has_role("platform_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    from app.services.session_policy import SessionPolicyService
+    policy = await SessionPolicyService(db).update(body)
+    return SessionPolicyRead.model_validate(policy)
 
 
 # ---- Яндекс ID ----

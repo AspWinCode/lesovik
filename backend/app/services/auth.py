@@ -134,7 +134,20 @@ class AuthService:
             token_refreshes.labels(result="revoked").inc()
             raise AuthError("Refresh token not found or revoked")
 
-        # Rotate: revoke old, issue new pair
+        # Check inactivity timeout
+        from app.services.session_policy import SessionPolicyService
+        from datetime import timedelta
+        policy = await SessionPolicyService(self._db).get()
+        if policy.timeout_minutes > 0:
+            last = db_token.last_activity_at or db_token.created_at
+            deadline = last + timedelta(minutes=policy.timeout_minutes)
+            if datetime.now(UTC) > deadline:
+                db_token.revoked = True
+                await self._db.flush()
+                token_refreshes.labels(result="idle_timeout").inc()
+                raise AuthError("Session expired due to inactivity", status_code=401)
+
+        # Rotate: revoke old, issue new pair; update activity
         db_token.revoked = True
         await self._db.flush()
 
@@ -302,16 +315,14 @@ class AuthService:
         user_agent: str | None = None,
         ip: str | None = None,
     ) -> TokenPair:
-        raw_refresh = secrets.token_urlsafe(64)
+        from app.services.session_policy import SessionPolicyService
+
+        now = datetime.now(UTC)
         access = create_access_token(user.id, user.role_ids, org_id=user.org_id)
         refresh = create_refresh_token(user.id)
 
-        # Store hashed refresh token
-        expires_at = datetime.now(UTC).replace(
-            microsecond=0
-        ).__class__.fromtimestamp(
-            datetime.now(UTC).timestamp() + settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-            tz=UTC,
+        expires_at = datetime.fromtimestamp(
+            now.timestamp() + settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, tz=UTC
         )
         db_token = RefreshToken(
             user_id=user.id,
@@ -319,9 +330,31 @@ class AuthService:
             expires_at=expires_at,
             user_agent=user_agent,
             ip_address=ip,
+            last_activity_at=now,
         )
         self._db.add(db_token)
         await self._db.flush()
+
+        # Enforce concurrent session limit (revoke oldest if over limit)
+        policy = await SessionPolicyService(self._db).get()
+        if policy.max_concurrent_sessions > 0:
+            stmt = (
+                select(RefreshToken)
+                .where(
+                    RefreshToken.user_id == user.id,
+                    RefreshToken.revoked.is_(False),
+                    RefreshToken.expires_at > now,
+                )
+                .order_by(RefreshToken.created_at.asc())
+            )
+            result = await self._db.execute(stmt)
+            active = result.scalars().all()
+            # active includes the newly added token (already flushed)
+            overflow = len(active) - policy.max_concurrent_sessions
+            for old_tok in active[:overflow]:
+                old_tok.revoked = True
+            if overflow > 0:
+                await self._db.flush()
 
         return TokenPair(
             access_token=access,

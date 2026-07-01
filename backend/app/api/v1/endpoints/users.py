@@ -7,6 +7,7 @@ from app.core.config import settings
 
 from app.api.deps import AuthDep, DbDep
 from app.schemas.common import CursorPage
+from app.schemas.auth import SessionRead
 from app.schemas.users import (
     AuditLogRead,
     InviteUserRequest,
@@ -16,6 +17,7 @@ from app.schemas.users import (
     UserRead,
     UserUpdate,
 )
+from app.services.session_policy import SessionPolicyService
 from app.services.users import UserConflictError, UserNotFoundError, UserService
 
 logger = structlog.get_logger(__name__)
@@ -154,6 +156,24 @@ async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> N
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
+@router.get("/{user_id}/sessions", response_model=list[SessionRead], summary="List active sessions for a user")
+async def list_user_sessions(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> list[SessionRead]:
+    if user_id != current_user.user_id and not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return await SessionPolicyService(db).list_sessions(user_id=user_id)
+
+
+@router.delete(
+    "/{user_id}/sessions",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Terminate all sessions for a user (admin)",
+)
+async def terminate_user_sessions(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> None:
+    if user_id != current_user.user_id and not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    await SessionPolicyService(db).terminate_all_for_user(user_id)
+
+
 @router.delete(
     "/{user_id}/hard",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -172,6 +192,30 @@ async def hard_delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.get("/sessions", response_model=list[SessionRead], summary="List all active sessions (admin)")
+async def list_all_sessions(
+    current_user: AuthDep,
+    db: DbDep,
+    limit: int = Query(default=200, ge=1, le=500),
+) -> list[SessionRead]:
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return await SessionPolicyService(db).list_sessions(limit=limit)
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Force-terminate a specific session (admin)",
+)
+async def terminate_session(session_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> None:
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    ok = await SessionPolicyService(db).terminate(session_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found or already revoked")
 
 
 @router.get("/audit-logs", response_model=list[AuditLogRead], summary="Get audit log (admin only)")

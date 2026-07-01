@@ -17,12 +17,19 @@ import {
   updatePasswordPolicy,
   type PasswordPolicy,
 } from "@/shared/api/auth";
+import {
+  useSessionPolicy,
+  useUpdateSessionPolicy,
+  useAllSessions,
+  useTerminateSession,
+} from "@/shared/hooks/useSessions";
 
 type SecuritySection =
   | "login"
   | "filters"
   | "auth"
   | "password"
+  | "sessions"
   | "options"
   | "abac";
 
@@ -45,8 +52,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: "abac",     label: "Права полей",        icon: <ShieldIcon /> },
   { id: "filters",  label: "Защитные фильтры",  icon: <FilterIcon /> },
   { id: "auth",     label: "Аутентификация",     icon: <ClockIcon /> },
-  { id: "password", label: "Политика паролей",  icon: <KeyIcon /> },
-  { id: "options",  label: "Опции",              icon: <OptionsIcon /> },
+  { id: "password",  label: "Политика паролей",  icon: <KeyIcon /> },
+  { id: "sessions",  label: "Сессии",            icon: <SessionIcon /> },
+  { id: "options",   label: "Опции",             icon: <OptionsIcon /> },
 ];
 
 export function SecurityPage() {
@@ -137,7 +145,8 @@ export function SecurityPage() {
         {active === "abac"     && <AbacSection appId={app?.id} />}
         {active === "filters"  && <FiltersSection />}
         {active === "auth"     && <AuthSection />}
-        {active === "password" && <PasswordPolicySection />}
+        {active === "password"  && <PasswordPolicySection />}
+        {active === "sessions"  && <SessionsSection />}
         {active === "options" && <OptionsSection sec={sec} patch={patch} />}
       </main>
 
@@ -547,6 +556,182 @@ function PolicyHint({ ok, text }: { ok: boolean; text: string }) {
   );
 }
 
+/* ── Sessions section ── */
+function SessionsSection() {
+  const { data: policy, isLoading: policyLoading } = useSessionPolicy();
+  const [draft, setDraft] = useState<{ timeout_minutes: number; max_concurrent_sessions: number } | null>(null);
+  const [saved, setSaved] = useState(false);
+  const updatePolicy = useUpdateSessionPolicy();
+
+  useEffect(() => {
+    if (policy && !draft) setDraft({ timeout_minutes: policy.timeout_minutes, max_concurrent_sessions: policy.max_concurrent_sessions });
+  }, [policy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { data: sessions = [], isLoading: sessionsLoading, refetch } = useAllSessions();
+  const terminate = useTerminateSession();
+
+  const TIMEOUT_OPTIONS = [
+    { value: 15, label: "15 минут" },
+    { value: 30, label: "30 минут" },
+    { value: 60, label: "1 час" },
+    { value: 120, label: "2 часа" },
+    { value: 480, label: "8 часов" },
+    { value: 0, label: "Без ограничений" },
+  ];
+
+  const CONCURRENT_OPTIONS = [
+    { value: 0, label: "Без ограничений" },
+    { value: 1, label: "1 сессия" },
+    { value: 2, label: "2 сессии" },
+    { value: 3, label: "3 сессии" },
+    { value: 5, label: "5 сессий" },
+    { value: 10, label: "10 сессий" },
+  ];
+
+  function fmtDate(iso: string | null): string {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function fmtAgent(ua: string | null): string {
+    if (!ua) return "—";
+    if (ua.includes("Chrome")) return "Chrome";
+    if (ua.includes("Firefox")) return "Firefox";
+    if (ua.includes("Safari")) return "Safari";
+    if (ua.includes("Edge")) return "Edge";
+    return ua.slice(0, 30);
+  }
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <h2 className="text-[22px] font-bold text-primary mb-2">Сессии</h2>
+      <p className="text-[15px] text-primary/60 mb-6">Управление таймаутом бездействия и активными сессиями пользователей.</p>
+
+      <div className="flex flex-col gap-6 max-w-[800px]">
+
+        {/* Policy settings */}
+        {!policyLoading && draft && (
+          <div className="bg-white rounded-[10px] border border-cardbg overflow-hidden">
+            <div className="px-5 py-3 border-b border-cardbg flex items-center justify-between">
+              <p className="text-[15px] font-semibold text-primary">Параметры сессий</p>
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-4 border-b border-cardbg gap-6">
+              <div>
+                <p className="text-[14px] font-medium text-primary">Таймаут бездействия</p>
+                <p className="text-[12px] text-primary/50 mt-0.5">Сессия завершается при отсутствии активности</p>
+              </div>
+              <div className="relative w-[170px] shrink-0">
+                <select
+                  value={draft.timeout_minutes}
+                  onChange={(e) => setDraft((d) => d ? { ...d, timeout_minutes: Number(e.target.value) } : d)}
+                  className="w-full h-[36px] bg-mainbg border border-cardbg rounded-[8px] px-3 text-[14px] text-primary appearance-none outline-none focus:border-cta pr-8"
+                >
+                  {TIMEOUT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <svg viewBox="0 0 20 20" className="w-4 h-4 text-primary/40 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="currentColor">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-4 gap-6">
+              <div>
+                <p className="text-[14px] font-medium text-primary">Максимум одновременных сессий</p>
+                <p className="text-[12px] text-primary/50 mt-0.5">При превышении — старейшая сессия завершается</p>
+              </div>
+              <div className="relative w-[170px] shrink-0">
+                <select
+                  value={draft.max_concurrent_sessions}
+                  onChange={(e) => setDraft((d) => d ? { ...d, max_concurrent_sessions: Number(e.target.value) } : d)}
+                  className="w-full h-[36px] bg-mainbg border border-cardbg rounded-[8px] px-3 text-[14px] text-primary appearance-none outline-none focus:border-cta pr-8"
+                >
+                  {CONCURRENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <svg viewBox="0 0 20 20" className="w-4 h-4 text-primary/40 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="currentColor">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-cardbg flex items-center gap-3">
+              <button
+                onClick={() => { updatePolicy.mutate(draft); setSaved(false); updatePolicy.mutateAsync(draft).then(() => setSaved(true)).catch(() => null); }}
+                disabled={updatePolicy.isPending}
+                className="px-5 h-[36px] bg-cta text-white text-[13px] font-medium rounded-btn hover:bg-active disabled:opacity-50 transition-colors"
+              >
+                {updatePolicy.isPending ? "Сохранение…" : "Сохранить"}
+              </button>
+              {saved && <span className="text-[13px] text-green-600">Сохранено</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Active sessions list */}
+        <div className="bg-white rounded-[10px] border border-cardbg overflow-hidden">
+          <div className="px-5 py-3 border-b border-cardbg flex items-center justify-between">
+            <p className="text-[15px] font-semibold text-primary">
+              Активные сессии
+              {sessions.length > 0 && <span className="ml-2 text-[13px] font-normal text-primary/50">({sessions.length})</span>}
+            </p>
+            <button
+              onClick={() => void refetch()}
+              className="text-[13px] text-cta hover:underline"
+            >
+              Обновить
+            </button>
+          </div>
+
+          {sessionsLoading ? (
+            <div className="px-5 py-4 text-[14px] text-primary/40">Загрузка…</div>
+          ) : sessions.length === 0 ? (
+            <div className="px-5 py-4 text-[14px] text-primary/40">Нет активных сессий</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="bg-mainbg border-b border-cardbg">
+                    <th className="text-left px-4 py-2 font-semibold text-primary/60">Пользователь</th>
+                    <th className="text-left px-4 py-2 font-semibold text-primary/60">IP</th>
+                    <th className="text-left px-4 py-2 font-semibold text-primary/60">Браузер</th>
+                    <th className="text-left px-4 py-2 font-semibold text-primary/60">Активность</th>
+                    <th className="text-left px-4 py-2 font-semibold text-primary/60">Создана</th>
+                    <th className="px-4 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s, i) => (
+                    <tr key={s.id} className={cn("border-b last:border-0 border-cardbg", i % 2 === 0 ? "bg-white" : "bg-mainbg/30")}>
+                      <td className="px-4 py-2.5">
+                        <div className="font-medium text-primary">{s.user_name ?? "—"}</div>
+                        <div className="text-[11px] text-primary/50">{s.user_email ?? ""}</div>
+                      </td>
+                      <td className="px-4 py-2.5 text-primary/70 font-mono">{s.ip_address ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-primary/70">{fmtAgent(s.user_agent)}</td>
+                      <td className="px-4 py-2.5 text-primary/70">{fmtDate(s.last_activity_at)}</td>
+                      <td className="px-4 py-2.5 text-primary/70">{fmtDate(s.created_at)}</td>
+                      <td className="px-4 py-2.5">
+                        <button
+                          onClick={() => terminate.mutate(s.id)}
+                          disabled={terminate.isPending}
+                          className="text-[12px] text-mistake hover:underline disabled:opacity-40"
+                        >
+                          Завершить
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Options section ── */
 function OptionsSection({ sec, patch }: {
   sec: SecurityConfig;
@@ -839,6 +1024,16 @@ function KeyIcon() {
     <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
       <circle cx="8" cy="9" r="4" stroke={stroke} strokeWidth="1.5" />
       <path d="M12 12l5 5M14.5 14.5l1.5-1.5" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SessionIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <rect x="3" y="5" width="14" height="10" rx="2" stroke={stroke} strokeWidth="1.5" />
+      <path d="M3 8h14" stroke={stroke} strokeWidth="1.5" />
+      <circle cx="6.5" cy="12" r="1" fill={stroke} />
     </svg>
   );
 }

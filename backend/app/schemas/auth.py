@@ -79,3 +79,32 @@ class PasswordPolicyUpdate(BaseModel):
     require_special: bool | None = None
     max_age_days: int | None = Field(default=None, ge=0, le=3650)
     history_depth: int | None = Field(default=None, ge=0, le=24)
+
+
+class SessionPolicyRead(BaseModel):
+    timeout_minutes: int
+    max_concurrent_sessions: int
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SessionPolicyUpdate(BaseModel):
+    timeout_minutes: int | None = Field(default=None, ge=1, le=10080)   # max 7 days
+    max_concurrent_sessions: int | None = Field(default=None, ge=0, le=100)  # 0 = unlimited
+
+
+import uuid as _uuid  # noqa: E402
+
+class SessionRead(BaseModel):
+    id: _uuid.UUID
+    user_id: _uuid.UUID
+    user_email: str | None = None
+    user_name: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    created_at: datetime
+    last_activity_at: datetime | None = None
+    expires_at: datetime
+
+    model_config = {"from_attributes": True}

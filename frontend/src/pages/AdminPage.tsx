@@ -8,9 +8,10 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useOrgs, useCreateOrg, useUpdateOrg } from "@/shared/hooks/useOrgs";
 import { useHealth } from "@/shared/hooks/useHealth";
 import { useAuthStore } from "@/shared/auth/store";
+import { useAllSessions, useTerminateSession, useTerminateUserSessions } from "@/shared/hooks/useSessions";
 
 /* ── Types ── */
-type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "apps" | "databases";
+type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "apps" | "databases" | "sessions";
 
 const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode; platformOnly?: boolean }[] = [
   { id: "home",      label: "Главная",        icon: <HomeIcon /> },
@@ -19,6 +20,7 @@ const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode;
   { id: "groups",    label: "Группы",         icon: <GroupsIcon /> },
   { id: "apps",      label: "Приложения",     icon: <AppsIcon />, platformOnly: true },
   { id: "databases", label: "Базы данных",    icon: <DbIcon />, platformOnly: true },
+  { id: "sessions",  label: "Сессии",         icon: <SessionsNavIcon /> },
   { id: "logs",      label: "Журнал аудита",  icon: <LogsIcon /> },
 ];
 
@@ -1832,6 +1834,7 @@ export function AdminPage() {
     groups:    <AdminGroups />,
     apps:      <AdminApps />,
     databases: <AdminDatabases />,
+    sessions:  <AdminSessions />,
   };
 
   return (
@@ -1926,5 +1929,125 @@ function DbIcon() {
       <path d="M4 6 L4 18 C4 19.66 7.58 21 12 21 C16.42 21 20 19.66 20 18 L20 6" stroke="#00205F" strokeWidth="2"/>
       <path d="M4 12 C4 13.66 7.58 15 12 15 C16.42 15 20 13.66 20 12" stroke="#00205F" strokeWidth="2"/>
     </svg>
+  );
+}
+
+function SessionsNavIcon() {
+  return (
+    <svg viewBox="0 0 25 25" fill="none" className="w-full h-full">
+      <rect x="3" y="6" width="19" height="13" rx="2" stroke="#00205F" strokeWidth="2"/>
+      <path d="M3 10h19" stroke="#00205F" strokeWidth="1.5"/>
+      <circle cx="7" cy="15" r="1.5" fill="#00205F"/>
+      <circle cx="12.5" cy="15" r="1.5" fill="#00205F"/>
+    </svg>
+  );
+}
+
+/* ── Admin sessions ── */
+function AdminSessions() {
+  const { data: sessions = [], isLoading, refetch } = useAllSessions();
+  const terminate = useTerminateSession();
+  const terminateAll = useTerminateUserSessions();
+
+  function fmtDate(iso: string | null): string {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", year: "2-digit",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  function fmtAgent(ua: string | null): string {
+    if (!ua) return "—";
+    if (ua.includes("Chrome")) return "Chrome";
+    if (ua.includes("Firefox")) return "Firefox";
+    if (ua.includes("Safari")) return "Safari";
+    if (ua.includes("Edge")) return "Edge";
+    return ua.slice(0, 28);
+  }
+
+  // Group by user for "terminate all" action
+  const byUser = sessions.reduce<Record<string, string>>((acc, s) => {
+    if (!acc[s.user_id]) acc[s.user_id] = s.user_email ?? s.user_id;
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-[26px] font-semibold text-primary">Активные сессии</h2>
+          <p className="text-[14px] text-primary/50 mt-1">
+            {sessions.length} активных сессий · {Object.keys(byUser).length} пользователей
+          </p>
+        </div>
+        <button
+          onClick={() => void refetch()}
+          className="flex items-center gap-2 px-4 h-[38px] border border-cardbg rounded-btn text-[14px] text-primary hover:bg-mainbg transition-colors"
+        >
+          <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none">
+            <path d="M4 10a6 6 0 016-6 6 6 0 014.5 2M16 10a6 6 0 01-6 6 6 6 0 01-4.5-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <path d="M14.5 6V2.5M14.5 2.5H11M14.5 2.5l-2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Обновить
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-primary/40 text-[15px]">Загрузка сессий…</div>
+      ) : sessions.length === 0 ? (
+        <div className="bg-white rounded-[12px] border border-cardbg px-8 py-12 text-center text-[15px] text-primary/40">
+          Нет активных сессий
+        </div>
+      ) : (
+        <div className="bg-white rounded-[12px] border border-cardbg overflow-hidden">
+          <table className="w-full text-[14px]">
+            <thead>
+              <tr className="bg-mainbg border-b border-cardbg">
+                <th className="text-left px-5 py-3 font-semibold text-primary/60">Пользователь</th>
+                <th className="text-left px-5 py-3 font-semibold text-primary/60">IP-адрес</th>
+                <th className="text-left px-5 py-3 font-semibold text-primary/60">Браузер</th>
+                <th className="text-left px-5 py-3 font-semibold text-primary/60">Последняя активность</th>
+                <th className="text-left px-5 py-3 font-semibold text-primary/60">Создана</th>
+                <th className="px-5 py-3 text-right font-semibold text-primary/60">Действие</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s, i) => (
+                <tr key={s.id} className={cn("border-b last:border-0 border-cardbg", i % 2 !== 0 && "bg-mainbg/20")}>
+                  <td className="px-5 py-3">
+                    <div className="font-medium text-primary">{s.user_name ?? "—"}</div>
+                    <div className="text-[12px] text-primary/50">{s.user_email ?? ""}</div>
+                  </td>
+                  <td className="px-5 py-3 font-mono text-primary/70">{s.ip_address ?? "—"}</td>
+                  <td className="px-5 py-3 text-primary/70">{fmtAgent(s.user_agent)}</td>
+                  <td className="px-5 py-3 text-primary/70">{fmtDate(s.last_activity_at)}</td>
+                  <td className="px-5 py-3 text-primary/70">{fmtDate(s.created_at)}</td>
+                  <td className="px-5 py-3 text-right">
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => terminate.mutate(s.id)}
+                        disabled={terminate.isPending}
+                        className="text-[13px] text-mistake hover:underline disabled:opacity-40"
+                      >
+                        Завершить
+                      </button>
+                      <button
+                        onClick={() => terminateAll.mutate(s.user_id)}
+                        disabled={terminateAll.isPending}
+                        className="text-[13px] text-primary/50 hover:text-mistake hover:underline disabled:opacity-40"
+                        title="Завершить все сессии пользователя"
+                      >
+                        Все сессии
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

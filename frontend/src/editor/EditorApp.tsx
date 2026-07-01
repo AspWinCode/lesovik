@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { StatusBanner } from "../shared/components/StatusBanner";
+import { IdleWarningModal } from "@/shared/components/IdleWarningModal";
 import { ScaleToFit } from "@/shared/components/ScaleToFit";
 import { RequireAuth } from "@/shared/auth/RequireAuth";
 import { useAuthStore } from "@/shared/auth/store";
@@ -52,6 +53,7 @@ export function EditorApp() {
   return (
     <BrowserRouter basename="/editor">
       <StatusBanner />
+      <IdleWarningModal />
       <Routes>
         {/* Public */}
         <Route path="/landing" element={<LandingPage />} />

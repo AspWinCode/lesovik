@@ -141,6 +141,7 @@ class RefreshToken(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -215,6 +216,18 @@ class GroupRole(Base):
     )
     role_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("identity.role.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class SessionPolicy(Base):
+    __tablename__ = "session_policy"
+    __table_args__ = {"schema": "identity"}
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    max_concurrent_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
