@@ -6,7 +6,8 @@ export type FieldType =
   | "date" | "datetime" | "time"
   | "select" | "multi_select"
   | "file" | "image" | "relation"
-  | "formula" | "url" | "email" | "phone"
+  | "formula" | "currency" | "signature"
+  | "url" | "email" | "phone"
   | "json" | "lookup";
 
 export interface FieldRead {
@@ -23,6 +24,7 @@ export interface FieldRead {
   default_value: unknown | null;
   validation_rules: Record<string, unknown>;
   field_options: Record<string, unknown>;
+  formula_definition: Record<string, unknown> | null;
   display_order: number;
   created_at: string;
   updated_at: string;
@@ -74,6 +76,7 @@ export interface FieldCreate {
   default_value?: unknown | null;
   validation_rules?: Record<string, unknown>;
   field_options?: Record<string, unknown>;
+  formula_definition?: Record<string, unknown> | null;
 }
 
 export interface FieldUpdate {
@@ -84,6 +87,7 @@ export interface FieldUpdate {
   default_value?: unknown | null;
   validation_rules?: Record<string, unknown>;
   field_options?: Record<string, unknown>;
+  formula_definition?: Record<string, unknown> | null;
 }
 
 export async function listEntities(appId: string): Promise<EntityRead[]> {

@@ -188,6 +188,7 @@ function makeField(
   return {
     is_required: false, is_unique: false, is_system: false, is_indexed: false,
     default_value: null, validation_rules: {}, field_options: {},
+    formula_definition: null,
     created_at: now, updated_at: now,
     ...partial,
   };
@@ -739,7 +740,7 @@ export const handlers = [
       name: body.name, display_name: body.display_name,
       field_type: body.field_type as FieldRead["field_type"],
       is_required: false, is_unique: false, is_system: false, is_indexed: false,
-      default_value: null, validation_rules: {}, field_options: {},
+      default_value: null, validation_rules: {}, field_options: {}, formula_definition: null,
       display_order: entity.fields.length,
       created_at: now, updated_at: now,
     };

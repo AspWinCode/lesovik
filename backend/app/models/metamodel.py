@@ -25,6 +25,8 @@ class FieldType(str, Enum):
     IMAGE = "image"
     RELATION = "relation"
     FORMULA = "formula"
+    CURRENCY = "currency"
+    SIGNATURE = "signature"
     URL = "url"
     EMAIL = "email"
     PHONE = "phone"
@@ -113,6 +115,8 @@ class Field(Base):
     validation_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # Type-specific options: {"choices": [...]} for select, {"target_entity_id": "..."} for relation
     field_options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # For formula fields: stores the expression AST + text representation
+    formula_definition: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

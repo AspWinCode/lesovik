@@ -77,7 +77,7 @@ class EntityService:
         self._db.add(entity)
         await self._db.flush()
 
-        # Create system fields: id, created_at, updated_at
+        # Create system fields: id, created_at, updated_at, author, is_deleted
         system_fields = [
             Field(
                 entity_id=entity.id,
@@ -94,7 +94,7 @@ class EntityService:
                 entity_id=entity.id,
                 app_id=app_id,
                 name="created_at",
-                display_name="Created At",
+                display_name="Дата создания",
                 field_type="datetime",
                 is_system=True,
                 is_required=True,
@@ -104,11 +104,31 @@ class EntityService:
                 entity_id=entity.id,
                 app_id=app_id,
                 name="updated_at",
-                display_name="Updated At",
+                display_name="Дата изменения",
                 field_type="datetime",
                 is_system=True,
                 is_required=True,
                 display_order=2,
+            ),
+            Field(
+                entity_id=entity.id,
+                app_id=app_id,
+                name="author_id",
+                display_name="Автор",
+                field_type="text",
+                is_system=True,
+                is_required=False,
+                display_order=3,
+            ),
+            Field(
+                entity_id=entity.id,
+                app_id=app_id,
+                name="is_deleted",
+                display_name="Статус удаления",
+                field_type="boolean",
+                is_system=True,
+                is_required=True,
+                display_order=4,
             ),
         ]
         for f in system_fields:
@@ -186,6 +206,7 @@ class EntityService:
             default_value=data.default_value,
             validation_rules=data.validation_rules,
             field_options=data.field_options,
+            formula_definition=data.formula_definition,
             display_order=max_order + 1,
         )
         self._db.add(field)
@@ -223,6 +244,8 @@ class EntityService:
             field.validation_rules = data.validation_rules
         if data.field_options is not None:
             field.field_options = data.field_options
+        if data.formula_definition is not None:
+            field.formula_definition = data.formula_definition
 
         await self._db.flush()
         await self._db.refresh(field, attribute_names=["updated_at"])

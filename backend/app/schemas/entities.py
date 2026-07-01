@@ -21,6 +21,7 @@ class FieldRead(BaseModel):
     default_value: Any | None
     validation_rules: dict
     field_options: dict
+    formula_definition: dict | None = None
     display_order: int
     created_at: datetime
     updated_at: datetime
@@ -37,6 +38,7 @@ class FieldCreate(BaseModel):
     default_value: Any | None = None
     validation_rules: dict = Field(default_factory=dict)
     field_options: dict = Field(default_factory=dict)
+    formula_definition: dict | None = None
 
 
 class FieldUpdate(BaseModel):
@@ -47,6 +49,7 @@ class FieldUpdate(BaseModel):
     default_value: Any | None = None
     validation_rules: dict | None = None
     field_options: dict | None = None
+    formula_definition: dict | None = None
 
 
 class FieldReorderRequest(BaseModel):
