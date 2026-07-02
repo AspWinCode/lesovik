@@ -2332,6 +2332,14 @@ function SortableBlockRow({
         <span className="text-[12px] text-primary/40 shrink-0">
           {BLOCK_TYPE_META[block.type]?.label}
         </span>
+        {!!block.config.visibility_condition && (
+          <span title="Есть условие видимости" className="shrink-0">
+            <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cta" stroke="currentColor" strokeWidth="1.6">
+              <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
+              <circle cx="8" cy="8" r="2" />
+            </svg>
+          </span>
+        )}
         <button
           onClick={onDelete}
           className="shrink-0 hover:bg-red-50 rounded-full p-1 transition-colors"
@@ -2358,7 +2366,7 @@ function BlockInlineSettings({
   entities: { id: string; display_name: string; fields: FieldRead[] }[];
   onConfigChange: (patch: Record<string, unknown>) => void;
 }) {
-  if (block.type === "divider" || block.type === "table" || block.type === "form") return null;
+  if (block.type === "divider") return null;
 
   const entityOptions = [
     { value: "", label: "— выберите сущность —" },
@@ -2370,8 +2378,12 @@ function BlockInlineSettings({
     return ent?.fields ?? [];
   };
 
+  const visibilityCond = (block.config.visibility_condition ?? null) as VisibilityCond | null;
+
   return (
-    <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-1 border-t border-mainbg mt-0">
+    <div className="flex flex-col">
+      {block.type !== "table" && block.type !== "form" && (
+      <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-1 border-t border-mainbg mt-0">
       {block.type === "rich_text" && (
         <>
           <ConfigInput
@@ -2893,6 +2905,246 @@ function BlockInlineSettings({
           ]}
           onChange={(width) => onConfigChange({ width })}
         />
+      )}
+      </div>
+      )}
+      {block.type === "table" && (
+        <TableBlockSettings
+          entityId={(block.config.entity_id as string) ?? ""}
+          entities={entities}
+          onConfigChange={onConfigChange}
+        />
+      )}
+      {block.type === "form" && (
+        <FormBlockSettings
+          entityId={(block.config.entity_id as string) ?? ""}
+          entities={entities}
+          fieldConditions={(block.config.field_conditions as Record<string, VisibilityCond | null>) ?? {}}
+          onConfigChange={onConfigChange}
+        />
+      )}
+      <VisibilitySection
+        fields={fields}
+        condition={visibilityCond}
+        onChange={(cond) => onConfigChange({ visibility_condition: cond ?? undefined })}
+      />
+    </div>
+  );
+}
+
+/* ── Visibility condition type ── */
+type VisibilityCond = { field: string; op: string; value: string };
+
+/* ── Visibility section (shared by all non-divider blocks) ── */
+function VisibilitySection({
+  fields,
+  condition,
+  onChange,
+}: {
+  fields: FieldRead[];
+  condition: VisibilityCond | null;
+  onChange: (c: VisibilityCond | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const OPS = [
+    { value: "eq",        label: "равно" },
+    { value: "neq",       label: "не равно" },
+    { value: "contains",  label: "содержит" },
+    { value: "empty",     label: "пусто" },
+    { value: "not_empty", label: "не пусто" },
+    { value: "gt",        label: ">" },
+    { value: "lt",        label: "<" },
+  ];
+  const needsValue = condition && !["empty", "not_empty"].includes(condition.op);
+
+  function enable() {
+    if (!condition && fields.length > 0) {
+      onChange({ field: fields[0].name, op: "eq", value: "" });
+    }
+    setOpen(true);
+  }
+
+  return (
+    <div className="border-t border-mainbg">
+      <button
+        onClick={() => (open ? setOpen(false) : enable())}
+        className="flex items-center justify-between w-full px-5 py-[10px] text-[13px] text-primary/60 hover:text-primary transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6">
+            <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
+            <circle cx="8" cy="8" r="2" />
+          </svg>
+          Условие видимости
+          {condition && (
+            <span className="px-1.5 py-0.5 bg-cta/10 text-cta text-[11px] rounded-[4px] font-medium">Активно</span>
+          )}
+        </span>
+        <svg viewBox="0 0 16 16" fill="none" className={cn("w-3.5 h-3.5 transition-transform", open && "rotate-180")} stroke="currentColor" strokeWidth="1.6">
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-5 pb-4 flex flex-col gap-2">
+          {fields.length === 0 ? (
+            <p className="text-[13px] text-primary/40 italic">Сначала привяжите таблицу данных к странице.</p>
+          ) : (
+            <>
+              <p className="text-[12px] text-primary/50">Блок показывается если:</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={condition?.field ?? fields[0].name}
+                  onChange={(e) => onChange({ field: e.target.value, op: condition?.op ?? "eq", value: condition?.value ?? "" })}
+                  className="h-[30px] bg-cardbg rounded-[6px] px-2 text-[13px] text-primary outline-none"
+                >
+                  {fields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+                </select>
+                <select
+                  value={condition?.op ?? "eq"}
+                  onChange={(e) => onChange({ field: condition?.field ?? fields[0].name, op: e.target.value, value: condition?.value ?? "" })}
+                  className="h-[30px] bg-cardbg rounded-[6px] px-2 text-[13px] text-primary outline-none"
+                >
+                  {OPS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {needsValue && (
+                  <input
+                    value={condition?.value ?? ""}
+                    onChange={(e) => onChange({ field: condition!.field, op: condition!.op, value: e.target.value })}
+                    className="h-[30px] flex-1 min-w-[80px] bg-cardbg rounded-[6px] px-2 text-[13px] text-primary outline-none"
+                    placeholder="значение"
+                  />
+                )}
+                <button
+                  onClick={() => { onChange(null); setOpen(false); }}
+                  title="Убрать условие"
+                  className="w-6 h-6 flex items-center justify-center rounded-full text-primary/40 hover:bg-red-50 hover:text-red-500 transition-colors text-[16px] leading-none"
+                >×</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Table block settings ── */
+function TableBlockSettings({
+  entityId,
+  entities,
+  onConfigChange,
+}: {
+  entityId: string;
+  entities: { id: string; display_name: string; fields: FieldRead[] }[];
+  onConfigChange: (patch: Record<string, unknown>) => void;
+}) {
+  const entityOptions = [
+    { value: "", label: "— выберите сущность —" },
+    ...entities.map((e) => ({ value: e.id, label: e.display_name })),
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-3 border-t border-mainbg">
+      <ConfigSelect
+        label="Источник данных"
+        value={entityId}
+        options={entityOptions}
+        onChange={(entity_id) => onConfigChange({ entity_id })}
+      />
+    </div>
+  );
+}
+
+/* ── Form block settings ── */
+function FormBlockSettings({
+  entityId,
+  entities,
+  fieldConditions,
+  onConfigChange,
+}: {
+  entityId: string;
+  entities: { id: string; display_name: string; fields: FieldRead[] }[];
+  fieldConditions: Record<string, VisibilityCond | null>;
+  onConfigChange: (patch: Record<string, unknown>) => void;
+}) {
+  const entityOptions = [
+    { value: "", label: "— выберите сущность —" },
+    ...entities.map((e) => ({ value: e.id, label: e.display_name })),
+  ];
+  const entity = entities.find((e) => e.id === entityId);
+  const userFields = (entity?.fields ?? []).filter((f) => !f.is_system);
+
+  const OPS = [
+    { value: "eq",        label: "=" },
+    { value: "neq",       label: "≠" },
+    { value: "empty",     label: "пусто" },
+    { value: "not_empty", label: "≠ пусто" },
+  ];
+
+  function setFieldCond(fieldName: string, cond: VisibilityCond | null) {
+    const updated: Record<string, VisibilityCond | null> = { ...fieldConditions, [fieldName]: cond };
+    if (cond === null) delete updated[fieldName];
+    onConfigChange({ field_conditions: updated });
+  }
+
+  return (
+    <div className="flex flex-col border-t border-mainbg">
+      <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 py-3">
+        <ConfigSelect
+          label="Источник данных"
+          value={entityId}
+          options={entityOptions}
+          onChange={(entity_id) => onConfigChange({ entity_id })}
+        />
+      </div>
+      {userFields.length > 0 && (
+        <div className="px-5 pb-4 flex flex-col gap-1">
+          <p className="text-[11px] font-medium text-primary/50 uppercase tracking-wide mb-1">Видимость полей формы</p>
+          {userFields.map((f) => {
+            const cond = fieldConditions[f.name] ?? null;
+            const otherFields = userFields.filter((ff) => ff.name !== f.name);
+            return (
+              <div key={f.id} className="flex items-center gap-2 py-1.5 border-b border-mainbg last:border-0">
+                <span className="text-[13px] text-primary w-[110px] shrink-0 truncate" title={f.display_name}>{f.display_name}</span>
+                {cond ? (
+                  <div className="flex items-center gap-1 flex-1 flex-wrap">
+                    <span className="text-[11px] text-primary/40">если</span>
+                    <select
+                      value={cond.field}
+                      onChange={(e) => setFieldCond(f.name, { ...cond, field: e.target.value })}
+                      className="h-[24px] bg-cardbg rounded-[4px] px-1.5 text-[12px] text-primary outline-none"
+                    >
+                      {otherFields.map((ff) => <option key={ff.id} value={ff.name}>{ff.display_name}</option>)}
+                    </select>
+                    <select
+                      value={cond.op}
+                      onChange={(e) => setFieldCond(f.name, { ...cond, op: e.target.value })}
+                      className="h-[24px] bg-cardbg rounded-[4px] px-1.5 text-[12px] text-primary outline-none"
+                    >
+                      {OPS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    {!["empty", "not_empty"].includes(cond.op) && (
+                      <input
+                        value={cond.value}
+                        onChange={(e) => setFieldCond(f.name, { ...cond, value: e.target.value })}
+                        className="h-[24px] w-[70px] bg-cardbg rounded-[4px] px-1.5 text-[12px] text-primary outline-none"
+                        placeholder="значение"
+                      />
+                    )}
+                    <button onClick={() => setFieldCond(f.name, null)} className="text-primary/30 hover:text-red-400 text-[14px] ml-0.5">×</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setFieldCond(f.name, { field: otherFields[0]?.name ?? "", op: "eq", value: "" })}
+                    className="text-[11px] text-cta/70 hover:text-cta transition-colors"
+                  >
+                    + условие
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
