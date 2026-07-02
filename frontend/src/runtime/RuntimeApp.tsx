@@ -5,7 +5,8 @@ import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, type PageRead } from "@/shared/api/views";
 import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
-import { listRecords, createRecord, type RecordRead } from "@/shared/api/records";
+import { listRecords, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
+import { apiClient } from "@/shared/api/client";
 
 interface PageBlock {
   id: string;
@@ -312,8 +313,10 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
           accent={accent}
           colors={colors}
           columnWidth={columnWidth}
+          appId={appId}
           onRowClick={onRowClick}
           activeRecordId={activeRecordId}
+          onRecordUpdated={() => recordsQuery.refetch()}
         />
       )}
       {blocks.length > 0 && (
@@ -628,6 +631,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   onSuccess: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  const [fileValues, setFileValues] = useState<Record<string, File>>({});
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
 
   async function handleSubmit(e: React.FormEvent) {
@@ -637,11 +641,24 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
     try {
       const payload: Record<string, unknown> = {};
       cols.forEach((f) => {
+        if (f.field_type === "file") return;
         const v = values[f.name];
         if (v !== undefined && v !== "") payload[f.name] = v;
       });
-      await createRecord(appId, entity.id, { payload });
+      const created = await createRecord(appId, entity.id, { payload });
+
+      for (const [fieldName, file] of Object.entries(fileValues)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        await apiClient.post(
+          `/apps/${appId}/entities/${entity.id}/records/${created.id}/files?field_name=${encodeURIComponent(fieldName)}`,
+          fd,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        );
+      }
+
       setValues({});
+      setFileValues({});
       setStatus("success");
       onSuccess();
       setTimeout(() => setStatus("idle"), 3000);
@@ -677,6 +694,23 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
                   onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.checked ? "true" : "false" }))}
                   style={{ width: 20, height: 20, cursor: "pointer" }}
                 />
+              ) : f.field_type === "file" ? (
+                <div>
+                  <input
+                    type="file"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setFileValues((v) => ({ ...v, [f.name]: file }));
+                      else setFileValues((v) => { const n = { ...v }; delete n[f.name]; return n; });
+                    }}
+                    style={{ fontSize: 13, color: colors.text }}
+                  />
+                  {fileValues[f.name] && (
+                    <span style={{ fontSize: 11, color: colors.textMuted, marginTop: 2, display: "block" }}>
+                      {fileValues[f.name].name} ({(fileValues[f.name].size / 1024).toFixed(0)} KB)
+                    </span>
+                  )}
+                </div>
               ) : (
                 <input
                   type={f.field_type === "number" ? "number" : f.field_type === "date" ? "date" : "text"}
@@ -715,7 +749,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   );
 }
 
-function DataView({ viewType, entity, cols, records, accent, colors, columnWidth, onRowClick, activeRecordId }: {
+function DataView({ viewType, entity, cols, records, accent, colors, columnWidth, appId, onRowClick, activeRecordId, onRecordUpdated }: {
   viewType: string;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -723,12 +757,50 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   accent: string;
   colors: AppColors;
   columnWidth?: string;
+  appId: string;
   onRowClick?: (entityId: string, recordId: string) => void;
   activeRecordId?: string | null;
+  onRecordUpdated?: () => void;
 }) {
+  const qc = useQueryClient();
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterText, setFilterText] = useState("");
+  const [editRowId, setEditRowId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  function startEdit(rec: RecordRead) {
+    const vals: Record<string, string> = {};
+    cols.forEach((f) => { vals[f.name] = rec.payload[f.name] != null ? String(rec.payload[f.name]) : ""; });
+    setEditValues(vals);
+    setEditRowId(rec.id);
+  }
+
+  async function saveEdit() {
+    if (!editRowId || !entity) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      cols.forEach((f) => {
+        const v = editValues[f.name];
+        if (v !== undefined) {
+          if (f.field_type === "number" || f.field_type === "decimal") payload[f.name] = v === "" ? null : Number(v);
+          else if (f.field_type === "boolean") payload[f.name] = v === "true";
+          else payload[f.name] = v === "" ? null : v;
+        }
+      });
+      await updateRecord(appId, entity.id, editRowId, { payload });
+      qc.invalidateQueries({ queryKey: ["rt-records", appId, entity.id] });
+      onRecordUpdated?.();
+    } finally {
+      setSaving(false);
+      setEditRowId(null);
+      setEditValues({});
+    }
+  }
+
+  function cancelEdit() { setEditRowId(null); setEditValues({}); }
 
   const colPadding = columnWidth === "Узкая" ? "5px 8px" : columnWidth === "Широкая" ? "10px 20px" : "8px 12px";
   const colMinWidth = columnWidth === "Узкая" ? 60 : columnWidth === "Широкая" ? 160 : 100;
@@ -809,29 +881,70 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                     </span>
                   </th>
                 ))}
+                <th style={{ padding: colPadding, width: 40 }} />
               </tr>
             </thead>
             <tbody>
-              {sorted.map((rec) => (
-                <tr
-                  key={rec.id}
-                  onClick={canDrill ? () => onRowClick!(entity!.id, rec.id) : undefined}
-                  style={{
-                    borderBottom: `1px solid ${colors.border}`,
-                    cursor: canDrill ? "pointer" : "default",
-                    background: rec.id === activeRecordId ? colors.navActive : undefined,
-                  }}
-                  onMouseEnter={(e) => { if (canDrill) (e.currentTarget as HTMLTableRowElement).style.background = colors.border; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = rec.id === activeRecordId ? colors.navActive : ""; }}
-                >
-                  {cols.map((f) => (
-                    <td key={f.id} style={{ padding: colPadding, whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
-                  ))}
-                  {canDrill && <td style={{ padding: colPadding, color: colors.textMuted, width: 24 }}>›</td>}
-                </tr>
-              ))}
+              {sorted.map((rec) => {
+                const isEditing = editRowId === rec.id;
+                return (
+                  <tr
+                    key={rec.id}
+                    onClick={!isEditing && canDrill ? () => onRowClick!(entity!.id, rec.id) : undefined}
+                    style={{
+                      borderBottom: `1px solid ${colors.border}`,
+                      cursor: !isEditing && canDrill ? "pointer" : "default",
+                      background: isEditing ? colors.navActive : rec.id === activeRecordId ? colors.navActive : undefined,
+                    }}
+                    onMouseEnter={(e) => { if (!isEditing && canDrill) (e.currentTarget as HTMLTableRowElement).style.background = colors.border; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isEditing || rec.id === activeRecordId ? colors.navActive : ""; }}
+                  >
+                    {cols.map((f) => (
+                      <td key={f.id} style={{ padding: colPadding, whiteSpace: "nowrap" }}>
+                        {isEditing ? (
+                          <input
+                            value={editValues[f.name] ?? ""}
+                            onChange={(e) => setEditValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ height: 26, padding: "0 6px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
+                          />
+                        ) : (
+                          formatCell(rec.payload[f.name], f)
+                        )}
+                      </td>
+                    ))}
+                    <td style={{ padding: colPadding, width: 40 }} onClick={(e) => e.stopPropagation()}>
+                      {isEditing ? (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            disabled={saving}
+                            onClick={() => void saveEdit()}
+                            style={{ height: 22, padding: "0 6px", fontSize: 11, background: accent, color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                          >
+                            {saving ? "…" : "✓"}
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            style={{ height: 22, padding: "0 6px", fontSize: 11, background: colors.border, color: colors.text, border: "none", borderRadius: 4, cursor: "pointer" }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => startEdit(rec)}
+                          title="Редактировать"
+                          style={{ height: 22, padding: "0 6px", fontSize: 11, background: "transparent", color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: 4, cursor: "pointer", opacity: 0.6 }}
+                        >
+                          ✎
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {sorted.length === 0 && (
-                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>
+                <tr><td colSpan={cols.length + 1} style={{ padding: 14, color: colors.textMuted }}>
                   {filterText ? "Ничего не найдено" : "Нет записей"}
                 </td></tr>
               )}
@@ -963,7 +1076,11 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
     return <DetailView title={title} cols={cols} records={records} accent={accent} initialRecordId={activeRecordId} />;
   }
 
-  if (viewType === "gantt" || viewType === "chart") {
+  if (viewType === "chart") {
+    return <ChartView title={title} cols={cols} records={records} accent={accent} colors={colors} />;
+  }
+
+  if (viewType === "gantt") {
     return <GanttView title={title} cols={cols} records={records} accent={accent} />;
   }
 
@@ -1036,6 +1153,62 @@ function DetailView({ title, cols, records, accent, initialRecordId }: {
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+/* ── Chart view: horizontal bar chart ── */
+function ChartView({ title, cols, records, accent, colors }: {
+  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string; colors: AppColors;
+}) {
+  const catField = cols.find((f) => f.field_type === "select" || f.field_type === "text" || f.field_type === "relation");
+  const numField = cols.find((f) => f.field_type === "number" || f.field_type === "decimal");
+
+  if (!catField) {
+    return (
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 24, background: colors.surface, color: colors.textMuted, textAlign: "center" }}>
+        Для диаграммы нужно поле типа «Список» или «Текст».
+      </section>
+    );
+  }
+
+  type Bucket = { label: string; value: number };
+  const bucketMap = new Map<string, Bucket>();
+  records.forEach((r) => {
+    const label = String(r.payload[catField.name] ?? "—") || "—";
+    const num = numField ? Number(r.payload[numField.name] ?? 0) || 0 : 1;
+    if (!bucketMap.has(label)) bucketMap.set(label, { label, value: 0 });
+    bucketMap.get(label)!.value += num;
+  });
+  const buckets = [...bucketMap.values()].sort((a, b) => b.value - a.value).slice(0, 20);
+  const maxVal = Math.max(...buckets.map((b) => b.value), 1);
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>
+        {title}
+      </div>
+      <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {buckets.map((b) => (
+          <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+            <div style={{ width: 120, flexShrink: 0, textAlign: "right", color: colors.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={b.label}>
+              {b.label}
+            </div>
+            <div style={{ flex: 1, height: 22, background: colors.bg, borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ width: `${(b.value / maxVal) * 100}%`, height: "100%", background: accent, borderRadius: 4, minWidth: 4, transition: "width 0.3s" }} />
+            </div>
+            <div style={{ width: 40, flexShrink: 0, color: colors.text, fontWeight: 600, fontSize: 12 }}>
+              {b.value % 1 === 0 ? b.value : b.value.toFixed(1)}
+            </div>
+          </div>
+        ))}
+        {buckets.length === 0 && <span style={{ color: colors.textMuted }}>Нет данных</span>}
+        <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 4 }}>
+          {numField ? `Сумма: ${numField.display_name}` : "Количество записей"}
+          {" · "}
+          Группировка: {catField.display_name}
+        </div>
+      </div>
     </section>
   );
 }
