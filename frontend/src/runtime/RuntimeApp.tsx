@@ -284,7 +284,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
 
   const recordsQuery = useQuery({
     queryKey: ["rt-records", appId, entity?.id],
-    queryFn: () => listRecords(appId, entity!.id, { limit: 50 }),
+    queryFn: () => listRecords(appId, entity!.id, { limit: 200 }),
     enabled: !!entity,
   });
   const records = recordsQuery.data?.items ?? [];
@@ -667,7 +667,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
         <p style={{ color: colors.textMuted, fontSize: 14 }}>Таблица не выбрана.</p>
       ) : (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {cols.slice(0, 8).map((f) => (
+          {cols.map((f) => (
             <label key={f.id} style={{ display: "flex", flexDirection: inline ? "row" : "column", alignItems: inline ? "center" : "stretch", gap: inline ? 12 : 4, fontSize: 13, color: colors.textMuted }}>
               <span style={{ flexShrink: 0, minWidth: inline ? 120 : undefined }}>{f.display_name}{f.is_required && " *"}</span>
               {f.field_type === "boolean" ? (
@@ -726,6 +726,10 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   onRowClick?: (entityId: string, recordId: string) => void;
   activeRecordId?: string | null;
 }) {
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [filterText, setFilterText] = useState("");
+
   const colPadding = columnWidth === "Узкая" ? "5px 8px" : columnWidth === "Широкая" ? "10px 20px" : "8px 12px";
   const colMinWidth = columnWidth === "Узкая" ? 60 : columnWidth === "Широкая" ? 160 : 100;
   const canDrill = !!onRowClick && !!entity;
@@ -739,23 +743,76 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   if (!entity) return noEntity;
 
   if (viewType === "table") {
+    const q = filterText.toLowerCase();
+    const filtered = q
+      ? records.filter((r) => cols.some((f) => String(r.payload[f.name] ?? "").toLowerCase().includes(q)))
+      : records;
+
+    const sorted = sortField
+      ? [...filtered].sort((a, b) => {
+          const av = String(a.payload[sortField] ?? "");
+          const bv = String(b.payload[sortField] ?? "");
+          return sortDir === "asc" ? av.localeCompare(bv, "ru") : bv.localeCompare(av, "ru");
+        })
+      : filtered;
+
+    function toggleSort(fieldName: string) {
+      if (sortField === fieldName) {
+        if (sortDir === "asc") setSortDir("desc");
+        else { setSortField(null); setSortDir("asc"); }
+      } else {
+        setSortField(fieldName);
+        setSortDir("asc");
+      }
+    }
+
     return (
       <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
-        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", color: colors.text }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", alignItems: "center", color: colors.text }}>
           <span>{title}</span>
-          <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ position: "relative" }}>
+              <input
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                placeholder="Поиск..."
+                style={{
+                  height: 28, paddingLeft: 28, paddingRight: 8, fontSize: 12,
+                  border: `1px solid ${colors.border}`, borderRadius: 6,
+                  background: colors.surface, color: colors.text, outline: "none",
+                  width: 160,
+                }}
+              />
+              <svg viewBox="0 0 16 16" fill="none" stroke={colors.textMuted} strokeWidth="1.6"
+                style={{ position: "absolute", left: 7, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
+                <circle cx="6.5" cy="6.5" r="4" /><path d="M10.5 10.5l3 3" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 12 }}>
+              {sorted.length}{filterText ? `/${records.length}` : ""} записей
+            </span>
+          </div>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
                 {cols.map((f) => (
-                  <th key={f.id} style={{ textAlign: "left", padding: colPadding, fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap", minWidth: colMinWidth }}>{f.display_name}</th>
+                  <th
+                    key={f.id}
+                    onClick={() => toggleSort(f.name)}
+                    style={{ textAlign: "left", padding: colPadding, fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap", minWidth: colMinWidth, cursor: "pointer", userSelect: "none" }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {f.display_name}
+                      {sortField === f.name ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                    </span>
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {records.map((rec) => (
+              {sorted.map((rec) => (
                 <tr
                   key={rec.id}
                   onClick={canDrill ? () => onRowClick!(entity!.id, rec.id) : undefined}
@@ -773,8 +830,10 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                   {canDrill && <td style={{ padding: colPadding, color: colors.textMuted, width: 24 }}>›</td>}
                 </tr>
               ))}
-              {records.length === 0 && (
-                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
+              {sorted.length === 0 && (
+                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>
+                  {filterText ? "Ничего не найдено" : "Нет записей"}
+                </td></tr>
               )}
             </tbody>
           </table>
