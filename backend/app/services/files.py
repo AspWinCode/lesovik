@@ -16,7 +16,7 @@ from app.schemas.records import RecordFileRead
 
 logger = structlog.get_logger(__name__)
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 BLOCKED_EXTENSIONS = {".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".js", ".jar"}
 
 
