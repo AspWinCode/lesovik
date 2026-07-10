@@ -95,6 +95,14 @@ export interface ApprovalDecisionRequest {
   comment?: string | null;
 }
 
+export interface EscalationLevelDef {
+  level: 1 | 2;
+  delay_seconds: number;
+  assignee_type: "user" | "group" | null;
+  assignee_id: string | null;
+  message: string | null;
+}
+
 export interface StateDefRead {
   id: string;
   workflow_id: string;
@@ -106,6 +114,7 @@ export interface StateDefRead {
   on_enter_actions: Record<string, unknown>[];
   on_exit_actions: Record<string, unknown>[];
   sla_breach_actions: Record<string, unknown>[];
+  escalation_levels: EscalationLevelDef[];
   assignee_type: "user" | "group" | "role" | null;
   assignee_id: string | null;
   approval_chain_id: string | null;
@@ -126,6 +135,7 @@ export interface StateDefUpdate {
   is_terminal?: boolean;
   color?: string | null;
   sla_seconds?: number | null;
+  escalation_levels?: EscalationLevelDef[];
   assignee_type?: "user" | "group" | "role" | null;
   assignee_id?: string | null;
 }
@@ -143,6 +153,7 @@ export interface WorkflowInstanceRead {
   completed_at: string | null;
   assigned_user_id: string | null;
   assigned_group_id: string | null;
+  escalation_level: number | null;
 }
 
 export interface AssignInstanceRequest {

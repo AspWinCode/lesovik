@@ -135,6 +135,7 @@ class StateDefRead(BaseModel):
     on_enter_actions: list[dict[str, Any]]
     on_exit_actions: list[dict[str, Any]]
     sla_breach_actions: list[dict[str, Any]]
+    escalation_levels: list[dict[str, Any]]
     color: str | None
     assignee_type: str | None
     assignee_id: str | None
@@ -152,6 +153,7 @@ class StateDefCreate(BaseModel):
     on_enter_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     on_exit_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     sla_breach_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    escalation_levels: list[dict[str, Any]] = Field(default_factory=list, max_length=2)
     color: str | None = None
     assignee_type: str | None = None
     assignee_id: str | None = None
@@ -165,6 +167,7 @@ class StateDefUpdate(BaseModel):
     on_enter_actions: list[dict[str, Any]] | None = None
     on_exit_actions: list[dict[str, Any]] | None = None
     sla_breach_actions: list[dict[str, Any]] | None = None
+    escalation_levels: list[dict[str, Any]] | None = None
     color: str | None = None
     assignee_type: str | None = None
     assignee_id: str | None = None
@@ -225,6 +228,7 @@ class WorkflowInstanceRead(BaseModel):
     completed_at: datetime | None
     assigned_user_id: uuid.UUID | None
     assigned_group_id: uuid.UUID | None
+    escalation_level: int | None
     model_config = {"from_attributes": True}
 
 

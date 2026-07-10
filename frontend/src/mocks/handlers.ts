@@ -466,14 +466,14 @@ function buildWorkflows(appId: string): WorkflowDefRead[] {
   const wf2Id = `wf-${appId}-2`;
 
   statesByWorkflow[wf1Id] = [
-    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
-    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
-    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
   ];
   statesByWorkflow[wf2Id] = [
-    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
-    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
-    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
   ];
   chainsByWorkflow[wf1Id] = [];
   chainsByWorkflow[wf2Id] = [];
@@ -1048,7 +1048,7 @@ export const handlers = [
       name: body.name, display_name: body.display_name,
       is_terminal: body.is_terminal ?? false, color: body.color ?? null,
       sla_seconds: body.sla_seconds ?? null,
-      on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [],
+      on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], escalation_levels: [],
       assignee_type: (body.assignee_type as StateDefRead["assignee_type"]) ?? null,
       assignee_id: body.assignee_id ?? null,
       approval_chain_id: body.approval_chain_id ?? null,

@@ -47,6 +47,7 @@ class StateDef(Base):
     on_enter_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     on_exit_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     sla_breach_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    escalation_levels: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     color: Mapped[str | None] = mapped_column(sa.String(32))
     assignee_type: Mapped[str | None] = mapped_column(sa.String(16))
     assignee_id: Mapped[str | None] = mapped_column(sa.String(128))
@@ -105,6 +106,7 @@ class WorkflowInstance(Base):
     completed_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime(timezone=True))
     assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     assigned_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    escalation_level: Mapped[int | None] = mapped_column(sa.Integer)
 
 
 class ApprovalChainDef(Base):

@@ -62,6 +62,7 @@ class StateSpec:
     on_enter_actions: list[dict[str, Any]]
     on_exit_actions: list[dict[str, Any]]
     sla_breach_actions: list[dict[str, Any]]
+    escalation_levels: list[dict[str, Any]]
 
 
 @dataclass
@@ -115,6 +116,7 @@ def build_fsm_spec(
             on_enter_actions=list(s.on_enter_actions or []),
             on_exit_actions=list(s.on_exit_actions or []),
             sla_breach_actions=list(s.sla_breach_actions or []),
+            escalation_levels=list(s.escalation_levels or []),
         )
         for s in state_rows
     }

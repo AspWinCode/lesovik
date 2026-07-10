@@ -11,7 +11,7 @@ import {
   useWorkflows, useWorkflowStates, useUpdateState,
   useApprovalChains, useCreateApprovalChain, useUpdateApprovalChain, useDeleteApprovalChain,
 } from "@/shared/hooks/useWorkflows";
-import type { StateDefRead, ApprovalChainDefRead, ApprovalLevelDefCreate } from "@/shared/api/workflows";
+import type { StateDefRead, ApprovalChainDefRead, ApprovalLevelDefCreate, EscalationLevelDef } from "@/shared/api/workflows";
 
 const POSITIONS = ["основной", "выделенный", "встроенный", "скрыть"];
 const ICON_TABS = ["Все", "Заполненные", "Тонкие", "Обычные"];
@@ -267,6 +267,15 @@ export function ActionsPage() {
             }
           />
 
+          {/* Эскалация SLA */}
+          <EscalationSection
+            states={states}
+            workflowId={activeAction}
+            onSave={(stateId, escalation_levels) =>
+              updateStateMutation.mutate({ stateId, body: { escalation_levels } })
+            }
+          />
+
           {/* Цепочки согласования */}
           <ApprovalChainsSection
             chains={chains}
@@ -399,6 +408,176 @@ function AssigneesSection({
                     Сохранить
                   </button>
                 )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── SLA Escalation section ── */
+
+type EscLevelDraft = { delay_seconds: string; assignee_type: "user" | "group" | ""; assignee_id: string; message: string };
+type EscDraft = { level1: EscLevelDraft; level2: EscLevelDraft };
+
+function emptyEscLevel(): EscLevelDraft {
+  return { delay_seconds: "", assignee_type: "", assignee_id: "", message: "" };
+}
+
+function stateToEscDraft(s: StateDefRead): EscDraft {
+  const lvl = (n: 1 | 2): EscLevelDraft => {
+    const e = s.escalation_levels?.find((l) => l.level === n);
+    if (!e) return emptyEscLevel();
+    return {
+      delay_seconds: String(e.delay_seconds ?? ""),
+      assignee_type: (e.assignee_type ?? "") as EscLevelDraft["assignee_type"],
+      assignee_id: e.assignee_id ?? "",
+      message: e.message ?? "",
+    };
+  };
+  return { level1: lvl(1), level2: lvl(2) };
+}
+
+function draftToLevels(d: EscDraft): EscalationLevelDef[] {
+  const levels: EscalationLevelDef[] = [];
+  for (const [n, lvl] of [[1, d.level1], [2, d.level2]] as [1 | 2, EscLevelDraft][]) {
+    const delay = parseInt(lvl.delay_seconds, 10);
+    if (!isNaN(delay) && delay > 0) {
+      levels.push({
+        level: n,
+        delay_seconds: delay,
+        assignee_type: lvl.assignee_type || null,
+        assignee_id: lvl.assignee_id || null,
+        message: lvl.message || null,
+      });
+    }
+  }
+  return levels;
+}
+
+function escDirty(s: StateDefRead, d: EscDraft): boolean {
+  return JSON.stringify(draftToLevels(d)) !== JSON.stringify(s.escalation_levels ?? []);
+}
+
+function EscalationSection({
+  states,
+  workflowId,
+  onSave,
+}: {
+  states: StateDefRead[];
+  workflowId: string;
+  onSave: (stateId: string, levels: EscalationLevelDef[]) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, EscDraft>>({});
+
+  if (!workflowId) return null;
+
+  const slaStates = states.filter((s) => !s.is_terminal);
+
+  const getDraft = (s: StateDefRead): EscDraft => drafts[s.id] ?? stateToEscDraft(s);
+  const setLvl = (stateId: string, lvlKey: "level1" | "level2", patch: Partial<EscLevelDraft>) =>
+    setDrafts((prev) => {
+      const cur = prev[stateId] ?? stateToEscDraft(states.find((s) => s.id === stateId)!);
+      return { ...prev, [stateId]: { ...cur, [lvlKey]: { ...cur[lvlKey], ...patch } } };
+    });
+
+  return (
+    <div className="border-t-2 border-white py-[10px] pb-[30px]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-[40px] py-[7px]"
+      >
+        <span className="text-[20px] font-bold text-primary">Эскалация SLA</span>
+        <span className="w-3 h-3"><Chevron open={open} /></span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-[16px] mt-[10px] px-[40px]">
+          {slaStates.length === 0 && (
+            <p className="text-[14px] text-primary/60">Нет не-терминальных состояний с SLA.</p>
+          )}
+          {slaStates.map((s) => {
+            if (!s.sla_seconds) return null;
+            const draft = getDraft(s);
+            const dirty = escDirty(s, draft);
+
+            return (
+              <div key={s.id} className="bg-cardbg rounded-xl p-[16px] flex flex-col gap-[12px]">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-[10px]">
+                    <div
+                      className="h-[28px] px-[10px] flex items-center rounded-[14px] text-[13px] font-medium shrink-0"
+                      style={{ backgroundColor: (s.color ?? "#35A7FF") + "33", color: s.color ?? "#00205F" }}
+                    >
+                      {s.display_name}
+                    </div>
+                    <span className="text-[12px] text-primary/50">
+                      SLA: {s.sla_seconds >= 3600 ? `${s.sla_seconds / 3600} ч` : `${s.sla_seconds / 60} мин`}
+                    </span>
+                  </div>
+                  {dirty && (
+                    <button
+                      onClick={() => onSave(s.id, draftToLevels(draft))}
+                      className="h-[28px] px-[12px] bg-cta text-white text-[12px] rounded-btn hover:bg-cta/90 transition-colors"
+                    >
+                      Сохранить
+                    </button>
+                  )}
+                </div>
+
+                {/* Levels */}
+                {(["level1", "level2"] as const).map((lvlKey, idx) => {
+                  const lvl = draft[lvlKey];
+                  const label = idx === 0 ? "Уровень 1 — Ответственный" : "Уровень 2 — Руководитель";
+                  return (
+                    <div key={lvlKey} className="flex flex-col gap-[8px] pl-[4px]">
+                      <div className="flex items-center gap-[8px]">
+                        <span className="w-[6px] h-[6px] rounded-full bg-cta/60 shrink-0" />
+                        <span className="text-[13px] font-semibold text-primary">{label}</span>
+                      </div>
+                      <div className="grid grid-cols-[auto_auto_1fr_1fr] gap-[8px] items-center pl-[14px]">
+                        <span className="text-[12px] text-primary/60 whitespace-nowrap">Задержка (сек)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={lvl.delay_seconds}
+                          onChange={(e) => setLvl(s.id, lvlKey, { delay_seconds: e.target.value })}
+                          placeholder="3600"
+                          className="w-[90px] h-[32px] px-[10px] bg-white/60 rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                        />
+                        <select
+                          value={lvl.assignee_type}
+                          onChange={(e) => setLvl(s.id, lvlKey, { assignee_type: e.target.value as EscLevelDraft["assignee_type"], assignee_id: "" })}
+                          className="h-[32px] px-[8px] bg-white/60 rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40 cursor-pointer"
+                        >
+                          <option value="">— тип —</option>
+                          <option value="user">Пользователь</option>
+                          <option value="group">Группа</option>
+                        </select>
+                        {lvl.assignee_type !== "" && (
+                          <input
+                            value={lvl.assignee_id}
+                            onChange={(e) => setLvl(s.id, lvlKey, { assignee_id: e.target.value })}
+                            placeholder="UUID"
+                            className="h-[32px] px-[10px] bg-white/60 rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                          />
+                        )}
+                      </div>
+                      <div className="pl-[14px]">
+                        <input
+                          value={lvl.message}
+                          onChange={(e) => setLvl(s.id, lvlKey, { message: e.target.value })}
+                          placeholder="Сообщение уведомления (опционально)"
+                          className="w-full h-[32px] px-[10px] bg-white/60 rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}

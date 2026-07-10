@@ -193,6 +193,7 @@ class WorkflowService:
             on_enter_actions=data.on_enter_actions,
             on_exit_actions=data.on_exit_actions,
             sla_breach_actions=data.sla_breach_actions,
+            escalation_levels=data.escalation_levels,
             color=data.color,
             assignee_type=data.assignee_type,
             assignee_id=data.assignee_id,
@@ -218,6 +219,8 @@ class WorkflowService:
             state.on_exit_actions = data.on_exit_actions
         if data.sla_breach_actions is not None:
             state.sla_breach_actions = data.sla_breach_actions
+        if data.escalation_levels is not None:
+            state.escalation_levels = data.escalation_levels
         if data.color is not None:
             state.color = data.color
         if data.assignee_type is not None:
