@@ -588,12 +588,16 @@ export const handlers = [
     installedModulesByApp[appId] = installed;
     module.dependencies.forEach((dep) => installed.add(dep));
     installed.add(module.code);
+    const alreadyInstalled = module.dependencies.filter((dep) => installed.has(dep));
     const result: ModuleInstallResult = {
       module: { ...module, installed: true, installed_version: module.current_version },
       installed_dependencies: module.dependencies,
       entities_created: 2,
-      fields_created: 6,
+      fields_created: alreadyInstalled.length > 0 ? 4 : 6,
       pages_created: 1,
+      conflicts: alreadyInstalled.flatMap((dep) => [
+        { kind: "entity" as const, name: `${dep}_link`, entity: null, source: dep, action: "reused" as const },
+      ]),
     };
     return HttpResponse.json(result);
   }),

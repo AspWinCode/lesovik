@@ -3,7 +3,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-import type { ModuleRead } from "@/shared/api/modules";
+import type { ModuleConflict, ModuleRead } from "@/shared/api/modules";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useInstallModule, useModules, useUninstallModule } from "@/shared/hooks/useModules";
@@ -75,11 +75,66 @@ function ModuleCard({
   );
 }
 
+const KIND_LABEL: Record<ModuleConflict["kind"], string> = {
+  entity: "Сущность",
+  field: "Поле",
+  page: "Страница",
+};
+
+function ConflictsPanel({
+  conflicts,
+  moduleName,
+  onDismiss,
+}: {
+  conflicts: ModuleConflict[];
+  moduleName: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mb-6 bg-amber-50 border border-amber-200 rounded-[8px] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <p className="text-[14px] font-semibold text-amber-800 mb-2">
+            {conflicts.length} коллизий имён при установке «{moduleName}»
+          </p>
+          <div className="flex flex-col gap-1">
+            {conflicts.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 text-[12px] text-amber-700">
+                <span className="px-1.5 py-0.5 rounded bg-amber-200/60 font-medium">
+                  {KIND_LABEL[c.kind]}
+                </span>
+                <code className="font-mono">{c.name}</code>
+                {c.entity && <span className="text-amber-500">в {c.entity}</span>}
+                <span className="text-amber-500">→</span>
+                <span>
+                  {c.action === "reused" ? "переиспользована" : "пропущено"}{" "}
+                  {c.source
+                    ? c.source === "manual"
+                      ? "(создана вручную)"
+                      : `(модуль «${c.source}»)`
+                    : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-amber-500 hover:text-amber-700 text-[18px] leading-none shrink-0"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ModulesPage() {
   const [railModule, setRailModule] = useState<RailModule>("documents");
   const [category, setCategory] = useState(ALL);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [conflictResult, setConflictResult] = useState<{ moduleName: string; conflicts: ModuleConflict[] } | null>(null);
 
   const appsQuery = useApps();
   const app = useActiveApp(appsQuery.data?.items ?? []);
@@ -112,8 +167,12 @@ export function ModulesPage() {
 
   async function install(code: string) {
     const result = await installMutation.mutateAsync(code);
+    if (result.conflicts.length > 0) {
+      setConflictResult({ moduleName: result.module.name, conflicts: result.conflicts });
+    }
+    const conflictNote = result.conflicts.length > 0 ? `, ${result.conflicts.length} коллизий` : "";
     showToast(
-      `Installed ${result.module.name}: ${result.entities_created} entities, ${result.fields_created} fields`,
+      `Installed ${result.module.name}: ${result.entities_created} entities, ${result.fields_created} fields${conflictNote}`,
     );
   }
 
@@ -168,6 +227,14 @@ export function ModulesPage() {
               ))}
             </div>
           </div>
+
+          {conflictResult && (
+            <ConflictsPanel
+              conflicts={conflictResult.conflicts}
+              moduleName={conflictResult.moduleName}
+              onDismiss={() => setConflictResult(null)}
+            />
+          )}
 
           {!app && (
             <div className="bg-white border border-cardbg rounded-[8px] p-5 text-[14px] text-primary/60">

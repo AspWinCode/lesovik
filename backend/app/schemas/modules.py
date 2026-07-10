@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,9 +44,18 @@ class AppModuleRead(BaseModel):
     installed_by: uuid.UUID | None
 
 
+class ModuleConflict(BaseModel):
+    kind: Literal["entity", "field", "page"]
+    name: str
+    entity: str | None = None   # parent entity slug for field conflicts
+    source: str | None = None   # module code that owns it, or "manual"
+    action: Literal["reused", "skipped"]
+
+
 class ModuleInstallResult(BaseModel):
     module: ModuleRead
     installed_dependencies: list[str] = Field(default_factory=list)
     entities_created: int = 0
     fields_created: int = 0
     pages_created: int = 0
+    conflicts: list[ModuleConflict] = Field(default_factory=list)

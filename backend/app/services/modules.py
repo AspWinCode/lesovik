@@ -8,7 +8,7 @@ from app.models.catalog import App, AppMember, AppModule, Module, ModuleDependen
 from app.models.data import Sequence
 from app.models.metamodel import Entity, Field
 from app.models.ui import Page
-from app.schemas.modules import AppModuleRead, ModuleInstallResult, ModuleRead
+from app.schemas.modules import AppModuleRead, ModuleConflict, ModuleInstallResult, ModuleRead
 
 
 class ModuleNotFoundError(Exception):
@@ -234,7 +234,7 @@ class ModuleService:
             installed_dependencies.append(dep_result.module.code)
             installed_dependencies.extend(dep_result.installed_dependencies)
 
-        entities_created, fields_created, pages_created = await self._apply_manifest(
+        entities_created, fields_created, pages_created, conflicts = await self._apply_manifest(
             app_id, version.manifest
         )
         row = await self._app_module(app_id, module.id)
@@ -259,6 +259,7 @@ class ModuleService:
             entities_created=entities_created,
             fields_created=fields_created,
             pages_created=pages_created,
+            conflicts=conflicts,
         )
 
     async def uninstall_module(
@@ -271,7 +272,40 @@ class ModuleService:
             row.status = "removed"
             await self._db.flush()
 
-    async def _apply_manifest(self, app_id: uuid.UUID, manifest: dict[str, Any]) -> tuple[int, int, int]:
+    async def _build_entity_source_map(self, app_id: uuid.UUID) -> dict[str, str]:
+        """Returns {entity_slug: module_code} for all entities owned by installed modules."""
+        rows = (await self._db.execute(
+            select(Module.code, ModuleVersion.manifest)
+            .join(AppModule, AppModule.module_id == Module.id)
+            .join(ModuleVersion, ModuleVersion.id == AppModule.module_version_id)
+            .where(AppModule.app_id == app_id, AppModule.status == "installed")
+        )).all()
+        source_map: dict[str, str] = {}
+        for code, manifest in rows:
+            for ent in manifest.get("entities", []):
+                source_map[ent[0]] = code
+        return source_map
+
+    async def _build_page_source_map(self, app_id: uuid.UUID) -> dict[str, str]:
+        """Returns {page_slug: module_code} for all pages owned by installed modules."""
+        rows = (await self._db.execute(
+            select(Module.code, ModuleVersion.manifest)
+            .join(AppModule, AppModule.module_id == Module.id)
+            .join(ModuleVersion, ModuleVersion.id == AppModule.module_version_id)
+            .where(AppModule.app_id == app_id, AppModule.status == "installed")
+        )).all()
+        source_map: dict[str, str] = {}
+        for code, manifest in rows:
+            for pg in manifest.get("pages", []):
+                source_map[pg[0]] = code
+        return source_map
+
+    async def _apply_manifest(
+        self, app_id: uuid.UUID, manifest: dict[str, Any]
+    ) -> tuple[int, int, int, list[ModuleConflict]]:
+        entity_source = await self._build_entity_source_map(app_id)
+        page_source = await self._build_page_source_map(app_id)
+        conflicts: list[ModuleConflict] = []
         entities_created = 0
         fields_created = 0
         pages_created = 0
@@ -287,6 +321,13 @@ class ModuleService:
                 self._db.add(entity)
                 await self._db.flush()
                 entities_created += 1
+            else:
+                conflicts.append(ModuleConflict(
+                    kind="entity",
+                    name=slug,
+                    source=entity_source.get(slug, "manual"),
+                    action="reused",
+                ))
             entity_ids[slug] = entity.id
 
             existing_fields = {
@@ -295,6 +336,13 @@ class ModuleService:
             }
             for order, (name, field_display, field_type) in enumerate(fields):
                 if name in existing_fields:
+                    conflicts.append(ModuleConflict(
+                        kind="field",
+                        name=name,
+                        entity=slug,
+                        source=entity_source.get(slug, "manual"),
+                        action="skipped",
+                    ))
                     continue
                 self._db.add(
                     Field(
@@ -340,6 +388,12 @@ class ModuleService:
                 select(Page).where(Page.app_id == app_id, Page.slug == slug)
             )).scalar_one_or_none()
             if exists is not None:
+                conflicts.append(ModuleConflict(
+                    kind="page",
+                    name=slug,
+                    source=page_source.get(slug, "manual"),
+                    action="skipped",
+                ))
                 continue
             self._db.add(
                 Page(
@@ -353,7 +407,7 @@ class ModuleService:
             )
             pages_created += 1
 
-        return entities_created, fields_created, pages_created
+        return entities_created, fields_created, pages_created, conflicts
 
     async def _read_module(self, module: Module, app_id: uuid.UUID | None) -> ModuleRead:
         current = await self._current_version(module.id)

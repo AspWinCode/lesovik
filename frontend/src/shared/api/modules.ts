@@ -28,12 +28,21 @@ export interface AppModuleRead {
   installed_by: string | null;
 }
 
+export interface ModuleConflict {
+  kind: "entity" | "field" | "page";
+  name: string;
+  entity: string | null;
+  source: string | null;  // module code or "manual"
+  action: "reused" | "skipped";
+}
+
 export interface ModuleInstallResult {
   module: ModuleRead;
   installed_dependencies: string[];
   entities_created: number;
   fields_created: number;
   pages_created: number;
+  conflicts: ModuleConflict[];
 }
 
 export async function listModules(appId?: string): Promise<ModuleRead[]> {
