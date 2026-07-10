@@ -12,7 +12,7 @@ from sqlalchemy.types import Numeric
 
 from app.core.metrics import record_operations
 from app.models.data import Record
-from app.models.metamodel import Entity, Field
+from app.models.metamodel import Entity, Field, Relation
 from app.schemas.common import CursorPage
 from app.schemas.records import FilterOp, ParsedFilter, RecordCreate, RecordListParams, RecordRead, RecordUpdate
 
@@ -305,9 +305,20 @@ class RecordService:
         return await self.get_record(entity_id, record_id)
 
     async def delete_record(
-        self, entity_id: uuid.UUID, record_id: uuid.UUID, hard: bool = False
+        self, entity_id: uuid.UUID, record_id: uuid.UUID, hard: bool = False,
+        _seen: set[tuple[uuid.UUID, uuid.UUID]] | None = None,
     ) -> None:
+        seen = _seen if _seen is not None else set()
+        key = (entity_id, record_id)
+        if key in seen:
+            return
+        seen.add(key)
+
         record = await self._fetch(entity_id, record_id)
+
+        if not hard:
+            await self._cascade_soft_delete(entity_id, record_id, seen)
+
         if hard:
             await self._db.delete(record)
         else:
@@ -328,8 +339,120 @@ class RecordService:
             raise RecordNotFoundError(str(record_id))
         record.is_deleted = False
         await self._db.flush()
+
+        await self._cascade_restore(entity_id, record_id)
+
         await self._db.refresh(record, attribute_names=["updated_at"])
         return RecordRead.model_validate(record)
+
+    # ------------------------------------------------------------------
+    # Cascade helpers
+
+    async def _cascade_soft_delete(
+        self, entity_id: uuid.UUID, record_id: uuid.UUID, seen: set[tuple[uuid.UUID, uuid.UUID]]
+    ) -> None:
+        """Soft-delete children in both relation directions (excluding MANY_TO_MANY)."""
+        cascade_types = ("one_to_one", "one_to_many")
+
+        # 1. Outgoing: this entity's record holds IDs of children in to_entity
+        out_rels = (await self._db.execute(
+            select(Relation).where(
+                Relation.from_entity_id == entity_id,
+                Relation.relation_type.in_(cascade_types),
+            )
+        )).scalars().all()
+
+        # Fetch the record payload once to read outgoing FK values
+        rec_result = await self._db.execute(
+            select(Record).where(
+                Record.entity_id == entity_id,
+                Record.id == record_id,
+            )
+        )
+        parent_record = rec_result.scalar_one_or_none()
+
+        if parent_record:
+            for rel in out_rels:
+                raw = parent_record.payload.get(rel.from_field_name)
+                if not raw:
+                    continue
+                child_ids = raw if isinstance(raw, list) else [raw]
+                for child_id_raw in child_ids:
+                    try:
+                        child_id = uuid.UUID(str(child_id_raw))
+                    except (ValueError, AttributeError):
+                        continue
+                    await self._soft_delete_child(rel.to_entity_id, child_id, record_id, seen)
+
+        # 2. Incoming: other entities' records hold this record's ID
+        in_rels = (await self._db.execute(
+            select(Relation).where(
+                Relation.to_entity_id == entity_id,
+                Relation.relation_type.in_(cascade_types),
+            )
+        )).scalars().all()
+
+        for rel in in_rels:
+            field = rel.from_field_name
+            children = (await self._db.execute(
+                select(Record).where(
+                    Record.entity_id == rel.from_entity_id,
+                    Record.is_deleted.is_(False),
+                    or_(
+                        Record.payload[field].astext == str(record_id),
+                        cast(Record.payload[field], JSONB).contains([str(record_id)]),
+                    ),
+                )
+            )).scalars().all()
+
+            for child in children:
+                await self._soft_delete_child(rel.from_entity_id, child.id, record_id, seen)
+
+    async def _soft_delete_child(
+        self,
+        entity_id: uuid.UUID,
+        record_id: uuid.UUID,
+        parent_id: uuid.UUID,
+        seen: set[tuple[uuid.UUID, uuid.UUID]],
+    ) -> None:
+        key = (entity_id, record_id)
+        if key in seen:
+            return
+        seen.add(key)
+
+        # Recurse first so grandchildren are deleted before the child
+        await self._cascade_soft_delete(entity_id, record_id, seen)
+
+        await self._db.execute(
+            update(Record)
+            .where(
+                Record.entity_id == entity_id,
+                Record.id == record_id,
+                Record.is_deleted.is_(False),
+            )
+            .values(is_deleted=True, cascade_deleted_by=parent_id)
+        )
+
+    async def _cascade_restore(self, entity_id: uuid.UUID, record_id: uuid.UUID) -> None:
+        """Restore all records that were cascade-deleted because of this record."""
+        # Find direct children that were cascade-deleted by this record
+        children = (await self._db.execute(
+            select(Record).where(
+                Record.cascade_deleted_by == record_id,
+                Record.is_deleted.is_(True),
+            )
+        )).scalars().all()
+
+        for child in children:
+            await self._cascade_restore(child.entity_id, child.id)
+            await self._db.execute(
+                update(Record)
+                .where(
+                    Record.entity_id == child.entity_id,
+                    Record.id == child.id,
+                )
+                .values(is_deleted=False, cascade_deleted_by=None)
+            )
 
     # ------------------------------------------------------------------
     async def _fetch(self, entity_id: uuid.UUID, record_id: uuid.UUID) -> Record:
