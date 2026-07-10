@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
@@ -388,6 +388,267 @@ function RuleModal({
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Autofill rule editor modal
+   ════════════════════════════════════════════════════════════════ */
+interface FillRow { id: string; targetField: string; sourceType: "literal" | "field_ref"; sourceValue: string; }
+
+function AutofillModal({ rule, entityId, fields, appId, onClose }: {
+  rule: Rule | null; entityId: string; fields: FieldRead[]; appId: string; onClose: () => void;
+}) {
+  const isEdit = !!rule;
+  const createMut = useCreateRule(appId);
+  const updateMut = useUpdateRule(appId);
+  const userFields = fields.filter((f) => !f.is_system);
+
+  function parseAutofillActions(actions: Record<string, unknown>[]): FillRow[] {
+    return actions.filter((a) => a.type === "set_field").map((a) => ({
+      id: uid(),
+      targetField: String((a.field_name ?? a.field) ?? ""),
+      sourceType: (a.value as Record<string, unknown>)?.type === "field_ref" ? "field_ref" : "literal",
+      sourceValue: (a.value as Record<string, unknown>)?.type === "field_ref"
+        ? String((a.value as Record<string, unknown>).field ?? "")
+        : String(a.value ?? ""),
+    }));
+  }
+
+  const [name, setName] = useState(rule?.name ?? "");
+  const [triggerEvent, setTriggerEvent] = useState(rule?.trigger.event ?? "record.created");
+  const [watchField, setWatchField] = useState(rule?.trigger.watch_fields?.[0] ?? "");
+  const [condField, setCondField] = useState("");
+  const [condOp, setCondOp] = useState("eq");
+  const [condValue, setCondValue] = useState("");
+  const [hasCond, setHasCond] = useState(false);
+  const [fills, setFills] = useState<FillRow[]>(() =>
+    rule
+      ? parseAutofillActions(rule.actions)
+      : [{ id: uid(), targetField: userFields[0]?.name ?? "", sourceType: "literal", sourceValue: "" }]
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (rule?.conditions && Object.keys(rule.conditions).length > 0) {
+      const c = rule.conditions as Record<string, unknown>;
+      if (c.type === "compare") {
+        setHasCond(true);
+        setCondField(String(c.field ?? ""));
+        setCondOp(String(c.op ?? "eq"));
+        setCondValue(String(c.value ?? ""));
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function addFill() {
+    setFills((p) => [...p, { id: uid(), targetField: userFields[0]?.name ?? "", sourceType: "literal", sourceValue: "" }]);
+  }
+  function patchFill(id: string, patch: Partial<FillRow>) {
+    setFills((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
+  }
+  function removeFill(id: string) {
+    setFills((p) => p.filter((f) => f.id !== id));
+  }
+
+  async function handleSave() {
+    if (!name.trim()) { setError("Введите название"); return; }
+    if (fills.length === 0) { setError("Добавьте хотя бы одно поле для заполнения"); return; }
+    setSaving(true);
+    setError(null);
+    const actions = fills.map((f) => ({
+      type: "set_field",
+      field_name: f.targetField,
+      value: f.sourceType === "field_ref" ? { type: "field_ref", field: f.sourceValue } : f.sourceValue,
+    }));
+    const conditions = hasCond && condField
+      ? { type: "compare", field: condField, op: condOp, value: condValue || null }
+      : {};
+    const payload = {
+      name: name.trim(),
+      rule_type: "autofill" as const,
+      trigger: { event: triggerEvent, watch_fields: triggerEvent === "field.changed" && watchField ? [watchField] : [] },
+      conditions,
+      actions,
+      priority: 50,
+    };
+    try {
+      if (isEdit && rule) {
+        await updateMut.mutateAsync({ ruleId: rule.id, body: payload });
+      } else {
+        await createMut.mutateAsync({ ...payload, entity_id: entityId });
+      }
+      onClose();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Ошибка сохранения");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const AUTOFILL_TRIGGERS = [
+    { value: "record.created", label: "При создании записи" },
+    { value: "record.updated", label: "При любом обновлении" },
+    { value: "field.changed",  label: "При изменении поля" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-[16px] shadow-2xl w-[640px] max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-7 py-5 border-b border-cardbg">
+          <div>
+            <h2 className="text-[20px] font-bold text-primary">{isEdit ? "Редактировать автозаполнение" : "Новое автозаполнение"}</h2>
+            <p className="text-[13px] text-primary/50 mt-0.5">Автоматически заполняет поля при срабатывании</p>
+          </div>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-7 py-6 flex flex-col gap-5">
+          {error && <div className="px-4 py-2 bg-[#FDECEC] text-mistake text-[14px] rounded-[8px]">{error}</div>}
+
+          {/* Name */}
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-1">Название *</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Например: Заполнить дату при создании"
+              className="w-full h-[38px] border border-cardbg rounded-[8px] px-3 text-[14px] text-primary focus:outline-none focus:border-cta"
+            />
+          </div>
+
+          {/* Trigger */}
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-1">Когда срабатывает</label>
+            <div className="flex gap-2">
+              <select
+                value={triggerEvent}
+                onChange={(e) => setTriggerEvent(e.target.value)}
+                className="flex-1 h-[38px] border border-cardbg rounded-[8px] px-3 text-[14px] text-primary focus:outline-none focus:border-cta bg-white"
+              >
+                {AUTOFILL_TRIGGERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              {triggerEvent === "field.changed" && (
+                <select
+                  value={watchField}
+                  onChange={(e) => setWatchField(e.target.value)}
+                  className="flex-1 h-[38px] border border-cardbg rounded-[8px] px-3 text-[14px] text-primary focus:outline-none focus:border-cta bg-white"
+                >
+                  <option value="">— выберите поле —</option>
+                  {userFields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Optional condition */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <label className="text-[13px] text-primary/60">Условие (необязательно)</label>
+              <button
+                onClick={() => setHasCond((v) => !v)}
+                className={cn("text-[12px] px-2 py-0.5 rounded-full border transition-colors",
+                  hasCond ? "bg-cta/10 border-cta/30 text-cta" : "border-cardbg text-primary/40 hover:border-cta/30 hover:text-cta")}
+              >
+                {hasCond ? "Активно ✕" : "+ Добавить"}
+              </button>
+            </div>
+            {hasCond && (
+              <div className="flex gap-2 items-center bg-mainbg rounded-[8px] px-3 py-2">
+                <span className="text-[13px] text-primary/50 shrink-0">Если</span>
+                <select
+                  value={condField}
+                  onChange={(e) => setCondField(e.target.value)}
+                  className="flex-1 h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary bg-white focus:outline-none"
+                >
+                  <option value="">— поле —</option>
+                  {userFields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+                </select>
+                <select
+                  value={condOp}
+                  onChange={(e) => setCondOp(e.target.value)}
+                  className="w-[130px] h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary bg-white focus:outline-none"
+                >
+                  {COMPARE_OPS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+                </select>
+                {!["is_null", "is_not_null"].includes(condOp) && (
+                  <input
+                    value={condValue}
+                    onChange={(e) => setCondValue(e.target.value)}
+                    placeholder="значение"
+                    className="w-[110px] h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary focus:outline-none focus:border-cta"
+                  />
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Fill mappings */}
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-2">Заполнить поля</label>
+            <div className="flex flex-col gap-2">
+              {fills.map((f) => (
+                <div key={f.id} className="flex items-center gap-2 bg-mainbg rounded-[8px] px-3 py-2">
+                  <select
+                    value={f.targetField}
+                    onChange={(e) => patchFill(f.id, { targetField: e.target.value })}
+                    className="flex-1 h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary bg-white focus:outline-none"
+                  >
+                    {userFields.map((uf) => <option key={uf.id} value={uf.name}>{uf.display_name}</option>)}
+                  </select>
+                  <span className="text-[13px] text-primary/40 shrink-0 font-mono">=</span>
+                  <select
+                    value={f.sourceType}
+                    onChange={(e) => patchFill(f.id, { sourceType: e.target.value as "literal" | "field_ref", sourceValue: "" })}
+                    className="w-[140px] h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary bg-white focus:outline-none"
+                  >
+                    <option value="literal">Значение</option>
+                    <option value="field_ref">Другое поле</option>
+                  </select>
+                  {f.sourceType === "literal" ? (
+                    <input
+                      value={f.sourceValue}
+                      onChange={(e) => patchFill(f.id, { sourceValue: e.target.value })}
+                      placeholder="введите значение"
+                      className="flex-1 h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary focus:outline-none focus:border-cta"
+                    />
+                  ) : (
+                    <select
+                      value={f.sourceValue}
+                      onChange={(e) => patchFill(f.id, { sourceValue: e.target.value })}
+                      className="flex-1 h-[34px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary bg-white focus:outline-none"
+                    >
+                      <option value="">— поле-источник —</option>
+                      {userFields.map((uf) => <option key={uf.id} value={uf.name}>{uf.display_name}</option>)}
+                    </select>
+                  )}
+                  {fills.length > 1 && (
+                    <button onClick={() => removeFill(f.id)} className="text-primary/30 hover:text-mistake text-[16px] leading-none shrink-0">✕</button>
+                  )}
+                </div>
+              ))}
+              <button onClick={addFill} className="self-start text-[13px] text-cta hover:text-cta/70 font-medium mt-1">
+                + Добавить поле
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-7 py-4 border-t border-cardbg">
+          <button onClick={onClose} className="h-[38px] px-5 rounded-[8px] border border-cardbg text-[14px] text-primary hover:bg-mainbg">
+            Отмена
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="h-[38px] px-6 rounded-[8px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 disabled:opacity-50"
+          >
+            {saving ? "Сохранение…" : "Сохранить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
    Rule card
    ════════════════════════════════════════════════════════════════ */
 function RuleCard({ rule, appId, onEdit }: { rule: Rule; appId: string; onEdit: () => void; }) {
@@ -443,6 +704,7 @@ function RuleCard({ rule, appId, onEdit }: { rule: Rule; appId: string; onEdit: 
 export function RulesPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [ruleTab, setRuleTab] = useState<"automation" | "autofill">("automation");
   const [modal, setModal] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [navCollapsed, setNavCollapsed] = useState(false);
 
@@ -458,11 +720,18 @@ export function RulesPage() {
   const fields = activeEntity?.fields ?? [];
 
   const rulesQuery = useEntityRules(appId || undefined, activeEntityId || undefined);
-  const rules = rulesQuery.data ?? [];
+  const allRules = rulesQuery.data ?? [];
+  const rules = allRules.filter((r) => (r.rule_type ?? "automation") === ruleTab);
 
   function openCreate() { setModal({ open: true, rule: null }); }
   function openEdit(rule: Rule) { setModal({ open: true, rule }); }
   function closeModal() { setModal({ open: false, rule: null }); }
+
+  const isAutofill = ruleTab === "autofill";
+
+  const emptyText = isAutofill
+    ? { icon: "✨", title: "Автозаполнений пока нет", desc: "Настройте автоматическое заполнение полей при создании или изменении записи.", btn: "Создать автозаполнение" }
+    : { icon: "⚡", title: "Правил пока нет", desc: "Создайте правило, чтобы автоматически реагировать на события: уведомления, изменение полей, блокировка сохранения.", btn: "Создать первое правило" };
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -474,8 +743,24 @@ export function RulesPage() {
         className="absolute bg-white overflow-y-auto border-r border-cardbg"
         style={{ left: 85, top: 70, width: 295, height: 1010 }}
       >
-        <div className="flex items-center px-5 py-4 border-b border-cardbg">
-          <span className="text-[18px] font-semibold text-primary">Правила</span>
+        {/* Tab switcher */}
+        <div className="px-4 pt-4 pb-0 border-b border-cardbg">
+          <div className="flex gap-1 mb-0">
+            {([["automation", "Автоматизация"], ["autofill", "Автозаполнение"]] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setRuleTab(val)}
+                className={cn(
+                  "flex-1 py-2 text-[13px] font-medium rounded-t-[8px] transition-colors border-b-2",
+                  ruleTab === val
+                    ? "text-cta border-cta bg-[#EBF4FF]"
+                    : "text-primary/50 border-transparent hover:text-primary hover:bg-mainbg"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         {entities.length === 0 && (
           <p className="px-5 py-4 text-[13px] text-primary/40">Нет таблиц — создайте их в разделе «База данных»</p>
@@ -508,10 +793,11 @@ export function RulesPage() {
             <div>
               <h2 className="text-[22px] font-bold text-primary">
                 {activeEntity ? activeEntity.display_name : "Выберите таблицу"}
+                {activeEntity && <span className="ml-2 text-[14px] font-normal text-primary/40">{isAutofill ? "· Автозаполнение" : "· Автоматизация"}</span>}
               </h2>
               {activeEntity && (
                 <p className="text-[14px] text-primary/50 mt-1">
-                  {rules.length === 0 ? "Нет правил" : `${rules.length} ${rules.length === 1 ? "правило" : rules.length < 5 ? "правила" : "правил"}`}
+                  {rules.length === 0 ? "Нет записей" : `${rules.length} ${rules.length === 1 ? "правило" : rules.length < 5 ? "правила" : "правил"}`}
                 </p>
               )}
             </div>
@@ -521,7 +807,7 @@ export function RulesPage() {
                 className="h-[38px] px-5 rounded-[10px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 flex items-center gap-2"
               >
                 <span className="text-xl leading-none">+</span>
-                Добавить правило
+                {isAutofill ? "Добавить автозаполнение" : "Добавить правило"}
               </button>
             )}
           </div>
@@ -530,16 +816,14 @@ export function RulesPage() {
 
           {!rulesQuery.isLoading && rules.length === 0 && activeEntity && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="text-[48px] mb-4">⚡</div>
-              <p className="text-[18px] font-semibold text-primary mb-2">Правил пока нет</p>
-              <p className="text-[14px] text-primary/50 mb-6 max-w-[400px]">
-                Создайте правило, чтобы автоматически реагировать на события в таблице: отправлять уведомления, менять поля или блокировать сохранение.
-              </p>
+              <div className="text-[48px] mb-4">{emptyText.icon}</div>
+              <p className="text-[18px] font-semibold text-primary mb-2">{emptyText.title}</p>
+              <p className="text-[14px] text-primary/50 mb-6 max-w-[400px]">{emptyText.desc}</p>
               <button
                 onClick={openCreate}
                 className="h-[40px] px-6 rounded-[10px] bg-cta text-white text-[15px] font-medium hover:bg-cta/90"
               >
-                Создать первое правило
+                {emptyText.btn}
               </button>
             </div>
           )}
@@ -554,8 +838,17 @@ export function RulesPage() {
 
       <PreviewPanel projectName={app?.name ?? "Lesovik"} />
 
-      {modal.open && activeEntity && (
+      {modal.open && activeEntity && !isAutofill && (
         <RuleModal
+          rule={modal.rule}
+          entityId={activeEntity.id}
+          fields={fields}
+          appId={appId}
+          onClose={closeModal}
+        />
+      )}
+      {modal.open && activeEntity && isAutofill && (
+        <AutofillModal
           rule={modal.rule}
           entityId={activeEntity.id}
           fields={fields}

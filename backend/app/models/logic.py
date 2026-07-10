@@ -26,6 +26,8 @@ class Rule(Base):
     conditions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # Array of action nodes — AST
     actions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # "automation" | "autofill"
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False, default="automation")
     # Lower number = runs first when multiple rules match
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

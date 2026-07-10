@@ -7,6 +7,7 @@ export interface Rule {
   name: string;
   description: string | null;
   is_active: boolean;
+  rule_type: "automation" | "autofill";
   trigger: { event: string; watch_fields: string[] };
   conditions: Record<string, unknown>;
   actions: Array<Record<string, unknown>>;
@@ -21,6 +22,7 @@ export interface RuleUpdate {
   name?: string;
   description?: string | null;
   is_active?: boolean;
+  rule_type?: "automation" | "autofill";
   priority?: number;
   trigger?: { event: string; watch_fields?: string[] };
   conditions?: Record<string, unknown>;
@@ -30,6 +32,7 @@ export interface RuleUpdate {
 export interface RuleCreate {
   name: string;
   entity_id: string;
+  rule_type?: "automation" | "autofill";
   trigger: { event: string; watch_fields?: string[] };
   description?: string | null;
   priority?: number;

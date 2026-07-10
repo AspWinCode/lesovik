@@ -254,6 +254,7 @@ const rules: Rule[] = [
     name: "insert",
     description: null,
     is_active: false,
+    rule_type: "automation" as const,
     trigger: { event: "record.created", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -270,6 +271,7 @@ const rules: Rule[] = [
     name: "update",
     description: null,
     is_active: false,
+    rule_type: "automation" as const,
     trigger: { event: "record.updated", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -286,6 +288,7 @@ const rules: Rule[] = [
     name: "delete",
     description: null,
     is_active: false,
+    rule_type: "automation" as const,
     trigger: { event: "record.deleted", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -302,6 +305,7 @@ const rules: Rule[] = [
     name: "Отчет TG 2",
     description: null,
     is_active: true,
+    rule_type: "automation" as const,
     trigger: { event: "record.created", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -318,6 +322,7 @@ const rules: Rule[] = [
     name: "(disable) Ошибка отчета",
     description: null,
     is_active: false,
+    rule_type: "automation" as const,
     trigger: { event: "record.updated", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -334,6 +339,7 @@ const rules: Rule[] = [
     name: "New Bot 9",
     description: null,
     is_active: false,
+    rule_type: "automation" as const,
     trigger: { event: "record.created", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -350,6 +356,7 @@ const rules: Rule[] = [
     name: "Аналитические таблицы",
     description: null,
     is_active: true,
+    rule_type: "automation" as const,
     trigger: { event: "record.updated", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -366,6 +373,7 @@ const rules: Rule[] = [
     name: "New Bot 10",
     description: null,
     is_active: false,
+    rule_type: "automation" as const,
     trigger: { event: "record.deleted", watch_fields: [] },
     conditions: {},
     actions: [],
@@ -775,7 +783,7 @@ export const handlers = [
   // Rules create
   http.post(`${API}/apps/:appId/rules`, async ({ params, request }) => {
     const appId = params.appId as string;
-    const body = (await request.json()) as { name: string; entity_id: string; trigger: { event: string; watch_fields?: string[] }; description?: string | null; priority?: number };
+    const body = (await request.json()) as { name: string; entity_id: string; rule_type?: "automation" | "autofill"; trigger: { event: string; watch_fields?: string[] }; description?: string | null; priority?: number };
     const now = new Date().toISOString();
     const rule: Rule = {
       id: crypto.randomUUID(),
@@ -784,6 +792,7 @@ export const handlers = [
       name: body.name,
       description: body.description ?? null,
       is_active: false,
+      rule_type: body.rule_type ?? "automation",
       trigger: { event: body.trigger.event, watch_fields: body.trigger.watch_fields ?? [] },
       conditions: {},
       actions: [],

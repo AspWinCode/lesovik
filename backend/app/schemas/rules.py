@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field, model_validator
 # Trigger
 # ------------------------------------------------------------------
 
+class RuleType(str, Enum):
+    AUTOMATION = "automation"
+    AUTOFILL   = "autofill"
+
+
 class TriggerEvent(str, Enum):
     RECORD_CREATED = "record.created"
     RECORD_UPDATED = "record.updated"
@@ -172,6 +177,7 @@ class RuleRead(BaseModel):
     name: str
     description: str | None
     is_active: bool
+    rule_type: RuleType = RuleType.AUTOMATION
     trigger: dict[str, Any]
     conditions: dict[str, Any]
     actions: list[dict[str, Any]]
@@ -187,6 +193,7 @@ class RuleCreate(BaseModel):
     entity_id: uuid.UUID
     name: str = Field(min_length=2, max_length=256)
     description: str | None = None
+    rule_type: RuleType = RuleType.AUTOMATION
     trigger: RuleTrigger
     conditions: dict[str, Any] = Field(default_factory=dict)
     actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
@@ -206,6 +213,7 @@ class RuleCreate(BaseModel):
 class RuleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=256)
     description: str | None = None
+    rule_type: RuleType | None = None
     trigger: RuleTrigger | None = None
     conditions: dict[str, Any] | None = None
     actions: list[dict[str, Any]] | None = None
