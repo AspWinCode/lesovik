@@ -7,6 +7,35 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useEntities, useUpdateField } from "@/shared/hooks/useEntities";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
 
+/* ── Validation rule helpers ── */
+type VRules = Record<string, unknown>;
+
+function getGroup(fieldType: string): "text" | "number" | "date" | "select" | "multiselect" | "none" {
+  if (["text", "long_text", "rich_text", "email", "phone", "url"].includes(fieldType)) return "text";
+  if (["number", "decimal"].includes(fieldType)) return "number";
+  if (["date", "datetime"].includes(fieldType)) return "date";
+  if (fieldType === "select") return "select";
+  if (fieldType === "multi_select") return "multiselect";
+  return "none";
+}
+
+function vr(rules: VRules, key: string): string {
+  const v = rules[key];
+  return v == null ? "" : String(v);
+}
+function vrBool(rules: VRules, key: string): boolean {
+  return !!rules[key];
+}
+function vrList(rules: VRules, key: string): string[] {
+  const v = rules[key];
+  if (!Array.isArray(v)) return [];
+  return v.map(String);
+}
+
+function rulesEqual(a: VRules, b: VRules): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /* ── Display type options (UI-only, stored in field_options.display_type) ── */
 const DISPLAY_TYPES: { value: string; label: string }[] = [
   { value: "text",         label: "Текст" },
@@ -48,7 +77,7 @@ const FIELD_TYPE_LABEL: Record<string, string> = {
   lookup:       "Поиск",
 };
 
-type Tab = "fields" | "form";
+type Tab = "fields" | "form" | "validation";
 
 export function DataSourcesPage() {
   const [railModule, setRailModule] = useState<RailModule>("data");
@@ -140,7 +169,7 @@ export function DataSourcesPage() {
         {activeEntity && (
           <div className="flex items-center gap-2 px-[25px] pt-[15px] pb-0 shrink-0">
             <div className="flex items-center bg-white rounded-tab p-[3.6px] gap-1 self-start">
-              {([["fields", "Поля"], ["form", "Форма"]] as [Tab, string][]).map(([id, label]) => (
+              {([["fields", "Поля"], ["form", "Форма"], ["validation", "Валидация"]] as [Tab, string][]).map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setTab(id)}
@@ -166,6 +195,9 @@ export function DataSourcesPage() {
           )}
           {activeEntity && tab === "form" && (
             <FormTab entity={activeEntity} appId={appId!} />
+          )}
+          {activeEntity && tab === "validation" && (
+            <ValidationTab entity={activeEntity} appId={appId!} />
           )}
         </div>
       </div>
@@ -390,6 +422,403 @@ function FormTab({ entity, appId }: { entity: EntityRead; appId: string }) {
       <p className="text-[13px] text-primary/40">
         Порядок полей определяется полем «display_order». Для изменения порядка перейдите во вкладку «Поля».
       </p>
+    </div>
+  );
+}
+
+/* ── Validation tab ── */
+const COMPARE_OPS_SHORT = [
+  { value: "eq", label: "=" }, { value: "ne", label: "≠" },
+  { value: "gt", label: ">" }, { value: "gte", label: "≥" },
+  { value: "lt", label: "<" }, { value: "lte", label: "≤" },
+  { value: "contains", label: "содержит" }, { value: "is_null", label: "пустое" }, { value: "is_not_null", label: "не пустое" },
+];
+
+function ValidationTab({ entity, appId }: { entity: EntityRead; appId: string }) {
+  const updateField = useUpdateField(appId);
+  const fields = [...entity.fields]
+    .filter((f) => !f.is_system && getGroup(f.field_type) !== "none")
+    .sort((a, b) => a.display_order - b.display_order);
+
+  const [drafts, setDrafts] = useState<Record<string, VRules>>({});
+
+  function getDraft(f: FieldRead): VRules {
+    return drafts[f.id] ?? (f.validation_rules as VRules) ?? {};
+  }
+  function setDraft(fieldId: string, patch: VRules) {
+    setDrafts((prev) => {
+      const base = prev[fieldId] ?? {};
+      return { ...prev, [fieldId]: { ...base, ...patch } };
+    });
+  }
+  function clearKey(fieldId: string, key: string) {
+    setDrafts((prev) => {
+      const next = { ...(prev[fieldId] ?? {}) };
+      delete next[key];
+      return { ...prev, [fieldId]: next };
+    });
+  }
+  function save(f: FieldRead) {
+    updateField.mutate(
+      { entityId: entity.id, fieldId: f.id, body: { validation_rules: getDraft(f) } },
+      { onSuccess: () => setDrafts((p) => { const n = { ...p }; delete n[f.id]; return n; }) }
+    );
+  }
+  function isDirty(f: FieldRead) {
+    return !!drafts[f.id] && !rulesEqual(drafts[f.id], (f.validation_rules as VRules) ?? {});
+  }
+
+  if (fields.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-[18px] font-semibold text-primary mb-2">Нет полей для валидации</p>
+        <p className="text-[14px] text-primary/50">Добавьте текстовые, числовые или датовые поля во вкладке «Поля».</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 max-w-[860px]">
+      <p className="text-[15px] text-primary/60">
+        Правила валидации проверяются при сохранении записи. Настройте ограничения для каждого поля.
+      </p>
+
+      {fields.map((field) => {
+        const draft = getDraft(field);
+        const group = getGroup(field.field_type);
+        const dirty = isDirty(field);
+
+        return (
+          <div key={field.id} className="bg-white rounded-[14px] border border-cardbg overflow-hidden">
+            {/* Field header */}
+            <div className="flex items-center justify-between h-[50px] px-5 bg-mainbg border-b border-cardbg">
+              <div className="flex items-center gap-2">
+                <span className="w-[16px] h-[16px] text-primary/50 shrink-0">
+                  <FieldTypeIcon type={field.field_type} />
+                </span>
+                <span className="text-[15px] font-semibold text-primary">{field.display_name}</span>
+                <span className="text-[12px] font-mono text-primary/40 bg-white px-1.5 py-0.5 rounded border border-cardbg">{FIELD_TYPE_LABEL[field.field_type] ?? field.field_type}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {dirty && (
+                  <span className="w-2 h-2 rounded-full bg-cta/70 shrink-0" title="Есть несохранённые изменения" />
+                )}
+                <button
+                  onClick={() => save(field)}
+                  disabled={!dirty}
+                  className={cn(
+                    "h-[30px] px-4 rounded-[8px] text-[13px] font-medium transition-colors",
+                    dirty
+                      ? "bg-cta text-white hover:bg-cta/90"
+                      : "bg-cardbg text-primary/30 cursor-not-allowed"
+                  )}
+                >
+                  Сохранить
+                </button>
+              </div>
+            </div>
+
+            {/* Rules grid */}
+            <div className="px-5 py-4 flex flex-col gap-4">
+
+              {/* ── Text group ── */}
+              {group === "text" && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <VField label="Минимальная длина">
+                      <NumberInput
+                        value={vr(draft, "min_length")}
+                        placeholder="не задано"
+                        onChange={(v) => v ? setDraft(field.id, { min_length: Number(v) }) : clearKey(field.id, "min_length")}
+                      />
+                    </VField>
+                    <VField label="Максимальная длина">
+                      <NumberInput
+                        value={vr(draft, "max_length")}
+                        placeholder="не задано"
+                        onChange={(v) => v ? setDraft(field.id, { max_length: Number(v) }) : clearKey(field.id, "max_length")}
+                      />
+                    </VField>
+                  </div>
+                  <VField label="Регулярное выражение (pattern)">
+                    <TextInput
+                      value={vr(draft, "pattern")}
+                      placeholder="например: ^[a-zA-Z]+$"
+                      mono
+                      onChange={(v) => v ? setDraft(field.id, { pattern: v }) : clearKey(field.id, "pattern")}
+                    />
+                  </VField>
+                  <VField label="Сообщение при несовпадении с паттерном">
+                    <TextInput
+                      value={vr(draft, "pattern_message")}
+                      placeholder="Текст ошибки при несовпадении"
+                      onChange={(v) => v ? setDraft(field.id, { pattern_message: v }) : clearKey(field.id, "pattern_message")}
+                    />
+                  </VField>
+                </>
+              )}
+
+              {/* ── Number group ── */}
+              {group === "number" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <VField label="Минимальное значение">
+                    <NumberInput
+                      value={vr(draft, "min")}
+                      placeholder="не задано"
+                      decimal={field.field_type === "decimal"}
+                      onChange={(v) => v !== "" ? setDraft(field.id, { min: Number(v) }) : clearKey(field.id, "min")}
+                    />
+                  </VField>
+                  <VField label="Максимальное значение">
+                    <NumberInput
+                      value={vr(draft, "max")}
+                      placeholder="не задано"
+                      decimal={field.field_type === "decimal"}
+                      onChange={(v) => v !== "" ? setDraft(field.id, { max: Number(v) }) : clearKey(field.id, "max")}
+                    />
+                  </VField>
+                </div>
+              )}
+
+              {/* ── Date group ── */}
+              {group === "date" && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <VField label="Минимальная дата">
+                      <DateInput
+                        value={vr(draft, "min_date")}
+                        onChange={(v) => v ? setDraft(field.id, { min_date: v }) : clearKey(field.id, "min_date")}
+                      />
+                    </VField>
+                    <VField label="Максимальная дата">
+                      <DateInput
+                        value={vr(draft, "max_date")}
+                        onChange={(v) => v ? setDraft(field.id, { max_date: v }) : clearKey(field.id, "max_date")}
+                      />
+                    </VField>
+                  </div>
+                  <div className="flex gap-6">
+                    <CheckRow
+                      label="Только будущие даты"
+                      checked={vrBool(draft, "future_only")}
+                      onChange={(v) => v ? setDraft(field.id, { future_only: true, past_only: undefined }) : clearKey(field.id, "future_only")}
+                    />
+                    <CheckRow
+                      label="Только прошлые даты"
+                      checked={vrBool(draft, "past_only")}
+                      onChange={(v) => v ? setDraft(field.id, { past_only: true, future_only: undefined }) : clearKey(field.id, "past_only")}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* ── Select / multiselect ── */}
+              {(group === "select" || group === "multiselect") && (
+                <>
+                  <VField label="Разрешённые значения (через запятую)">
+                    <TextInput
+                      value={vrList(draft, "allowed_values").join(", ")}
+                      placeholder="значение1, значение2, …"
+                      onChange={(v) => {
+                        const arr = v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+                        arr.length ? setDraft(field.id, { allowed_values: arr }) : clearKey(field.id, "allowed_values");
+                      }}
+                    />
+                  </VField>
+                  {group === "multiselect" && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <VField label="Минимум выбранных">
+                        <NumberInput
+                          value={vr(draft, "min_selected")}
+                          placeholder="не задано"
+                          onChange={(v) => v ? setDraft(field.id, { min_selected: Number(v) }) : clearKey(field.id, "min_selected")}
+                        />
+                      </VField>
+                      <VField label="Максимум выбранных">
+                        <NumberInput
+                          value={vr(draft, "max_selected")}
+                          placeholder="не задано"
+                          onChange={(v) => v ? setDraft(field.id, { max_selected: Number(v) }) : clearKey(field.id, "max_selected")}
+                        />
+                      </VField>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ── Extra conditions (all types) ── */}
+              <ExtraConditions
+                conditions={vrList(draft, "extra_conditions").map((s) => {
+                  try { return JSON.parse(s) as { field: string; op: string; value: string }; } catch { return null; }
+                }).filter(Boolean) as { field: string; op: string; value: string }[]}
+                entityFields={entity.fields.filter((f) => !f.is_system && f.name !== field.name)}
+                onChange={(conds) => {
+                  conds.length
+                    ? setDraft(field.id, { extra_conditions: conds.map((c) => JSON.stringify(c)) })
+                    : clearKey(field.id, "extra_conditions");
+                }}
+              />
+
+              {/* ── Custom error message (all types) ── */}
+              <VField label="Сообщение об ошибке валидации">
+                <TextInput
+                  value={vr(draft, "custom_message")}
+                  placeholder="Текст ошибки для пользователя (необязательно)"
+                  onChange={(v) => v ? setDraft(field.id, { custom_message: v }) : clearKey(field.id, "custom_message")}
+                />
+              </VField>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Small reusable sub-components ── */
+function VField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[12px] font-medium text-primary/50 uppercase tracking-wide">{label}</label>
+      {children}
+    </div>
+  );
+}
+function TextInput({ value, placeholder, mono, onChange }: { value: string; placeholder?: string; mono?: boolean; onChange: (v: string) => void }) {
+  return (
+    <input
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        "h-[36px] w-full border border-cardbg rounded-[8px] px-3 text-[13px] text-primary focus:outline-none focus:border-cta bg-mainbg",
+        mono && "font-mono"
+      )}
+    />
+  );
+}
+function NumberInput({ value, placeholder, decimal, onChange }: { value: string; placeholder?: string; decimal?: boolean; onChange: (v: string) => void }) {
+  return (
+    <input
+      type="number"
+      step={decimal ? "0.01" : "1"}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-[36px] w-full border border-cardbg rounded-[8px] px-3 text-[13px] text-primary focus:outline-none focus:border-cta bg-mainbg"
+    />
+  );
+}
+function DateInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <input
+      type="date"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-[36px] w-full border border-cardbg rounded-[8px] px-3 text-[13px] text-primary focus:outline-none focus:border-cta bg-mainbg"
+    />
+  );
+}
+function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer select-none">
+      <button
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "w-[18px] h-[18px] rounded-[4px] border-2 flex items-center justify-center transition-colors shrink-0",
+          checked ? "bg-cta border-cta" : "bg-white border-cardbg hover:border-cta/50"
+        )}
+      >
+        {checked && <svg viewBox="0 0 10 10" fill="none" className="w-2.5 h-2.5"><path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+      </button>
+      <span className="text-[13px] text-primary">{label}</span>
+    </label>
+  );
+}
+
+function ExtraConditions({
+  conditions,
+  entityFields,
+  onChange,
+}: {
+  conditions: { field: string; op: string; value: string }[];
+  entityFields: FieldRead[];
+  onChange: (conds: { field: string; op: string; value: string }[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const opsNoValue = ["is_null", "is_not_null"];
+
+  function addRow() {
+    onChange([...conditions, { field: entityFields[0]?.name ?? "", op: "eq", value: "" }]);
+    setOpen(true);
+  }
+  function patch(idx: number, p: Partial<{ field: string; op: string; value: string }>) {
+    onChange(conditions.map((c, i) => i === idx ? { ...c, ...p } : c));
+  }
+  function remove(idx: number) {
+    const next = conditions.filter((_, i) => i !== idx);
+    onChange(next);
+    if (!next.length) setOpen(false);
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[12px] font-medium text-primary/50 uppercase tracking-wide">
+          Дополнительные условия
+        </span>
+        {conditions.length > 0 && (
+          <button onClick={() => setOpen((v) => !v)} className="text-[12px] text-cta hover:underline">
+            {open ? "Свернуть" : "Показать"} ({conditions.length})
+          </button>
+        )}
+      </div>
+
+      {(open || conditions.length === 0) && (
+        <div className="flex flex-col gap-2">
+          {conditions.map((cond, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-mainbg rounded-[8px] px-3 py-2">
+              <span className="text-[12px] text-primary/40 shrink-0">Если</span>
+              <select
+                value={cond.field}
+                onChange={(e) => patch(idx, { field: e.target.value })}
+                className="flex-1 h-[30px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white text-primary focus:outline-none"
+              >
+                {entityFields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+              </select>
+              <select
+                value={cond.op}
+                onChange={(e) => patch(idx, { op: e.target.value })}
+                className="w-[130px] h-[30px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white text-primary focus:outline-none"
+              >
+                {COMPARE_OPS_SHORT.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {!opsNoValue.includes(cond.op) && (
+                <input
+                  value={cond.value}
+                  onChange={(e) => patch(idx, { value: e.target.value })}
+                  placeholder="значение"
+                  className="w-[100px] h-[30px] border border-cardbg rounded-[6px] px-2 text-[12px] focus:outline-none focus:border-cta"
+                />
+              )}
+              <button onClick={() => remove(idx)} className="text-primary/30 hover:text-mistake text-[14px] leading-none shrink-0">✕</button>
+            </div>
+          ))}
+          <button
+            onClick={addRow}
+            disabled={entityFields.length === 0}
+            className="self-start text-[12px] text-cta hover:text-cta/70 font-medium disabled:opacity-40"
+          >
+            + Добавить условие
+          </button>
+        </div>
+      )}
+
+      {!open && conditions.length > 0 && (
+        <div className="text-[12px] text-primary/40 italic">
+          {conditions.length} условие(й) — нажмите «Показать» для редактирования
+        </div>
+      )}
     </div>
   );
 }
