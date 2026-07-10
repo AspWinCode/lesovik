@@ -28,6 +28,7 @@ import { TemplatesPage } from "@/pages/TemplatesPage";
 import { LearningPage } from "@/pages/LearningPage";
 import { RulesPage } from "@/pages/RulesPage";
 import { ModulesPage } from "@/pages/ModulesPage";
+import { EmailTemplatesPage } from "@/pages/EmailTemplatesPage";
 import { ThemesPage } from "@/pages/ThemesPage";
 import { AccountPage } from "@/pages/AccountPage";
 import { EditorPage } from "@/pages/EditorPage";
@@ -88,6 +89,7 @@ export function EditorApp() {
         <Route path="/preview"    element={<RequireAuth><ScaleToFit><PreviewPage /></ScaleToFit></RequireAuth>} />
         <Route path="/db-history" element={<RequireAuth><ScaleToFit><DbHistoryPage /></ScaleToFit></RequireAuth>} />
         <Route path="/data-page"  element={<RequireAuth><ScaleToFit><DataPage /></ScaleToFit></RequireAuth>} />
+        <Route path="/notifications" element={<RequireAuth><ScaleToFit><EmailTemplatesPage /></ScaleToFit></RequireAuth>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

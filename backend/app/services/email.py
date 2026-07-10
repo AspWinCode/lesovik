@@ -43,18 +43,46 @@ async def send_email(
         logger.exception("email_send_failed", to=to, subject=subject)
 
 
+async def send_via_template(
+    db,
+    code: str,
+    to: str,
+    context: dict,
+    fallback_subject: str = "",
+    fallback_html: str = "",
+    fallback_text: str | None = None,
+) -> None:
+    """Render a template by code and send. Falls back to inline content if template missing."""
+    from app.services.email_templates import EmailTemplateService
+    svc = EmailTemplateService(db)
+    rendered = await svc.render_by_code(code, context)
+    if rendered:
+        await send_email(to, rendered.subject, rendered.body_html, rendered.body_text)
+    else:
+        await send_email(to, fallback_subject, fallback_html, fallback_text)
+
+
 async def send_password_reset_email(
     to: str,
     display_name: str,
     reset_url: str,
+    db=None,
 ) -> None:
+    if db is not None:
+        await send_via_template(
+            db, "password_reset", to,
+            {"display_name": display_name, "reset_url": reset_url},
+            fallback_subject="Сброс пароля",
+            fallback_html=f"<p>Здравствуйте, {display_name}!</p><p><a href=\"{reset_url}\">Сбросить пароль</a></p>",
+        )
+        return
     subject = "Сброс пароля"
-    html = f"""
-<p>Здравствуйте, {display_name}!</p>
-<p>Мы получили запрос на сброс пароля для вашего аккаунта.</p>
-<p><a href="{reset_url}">Сбросить пароль</a></p>
-<p>Ссылка действительна 1 час. Если вы не запрашивали сброс — просто проигнорируйте это письмо.</p>
-"""
+    html = (
+        f"<p>Здравствуйте, {display_name}!</p>"
+        "<p>Мы получили запрос на сброс пароля для вашего аккаунта.</p>"
+        f"<p><a href=\"{reset_url}\">Сбросить пароль</a></p>"
+        "<p>Ссылка действительна 1 час. Если вы не запрашивали сброс — просто проигнорируйте это письмо.</p>"
+    )
     text = (
         f"Здравствуйте, {display_name}!\n\n"
         "Мы получили запрос на сброс пароля.\n"
@@ -70,16 +98,24 @@ async def send_invitation_email(
     display_name: str,
     temp_password: str,
     platform_url: str = "http://localhost:5173/editor",
+    db=None,
 ) -> None:
+    if db is not None:
+        await send_via_template(
+            db, "invitation", to,
+            {"display_name": display_name, "email": to, "temp_password": temp_password, "platform_url": platform_url},
+            fallback_subject="Приглашение на платформу",
+            fallback_html=f"<p>Здравствуйте, {display_name}!</p><p>Email: {to}, пароль: {temp_password}</p>",
+        )
+        return
     subject = "Приглашение на платформу"
-    html = f"""
-<p>Здравствуйте, {display_name}!</p>
-<p>Вас пригласили на платформу бизнес-приложений.</p>
-<p><b>Email:</b> {to}<br>
-<b>Временный пароль:</b> {temp_password}</p>
-<p>Войдите по ссылке: <a href="{platform_url}">{platform_url}</a></p>
-<p>Смените пароль после первого входа.</p>
-"""
+    html = (
+        f"<p>Здравствуйте, {display_name}!</p>"
+        "<p>Вас пригласили на платформу бизнес-приложений.</p>"
+        f"<p><b>Email:</b> {to}<br><b>Временный пароль:</b> {temp_password}</p>"
+        f"<p>Войдите по ссылке: <a href=\"{platform_url}\">{platform_url}</a></p>"
+        "<p>Смените пароль после первого входа.</p>"
+    )
     text = (
         f"Здравствуйте, {display_name}!\n\n"
         f"Вас пригласили на платформу бизнес-приложений.\n"

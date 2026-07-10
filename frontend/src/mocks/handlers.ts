@@ -9,6 +9,7 @@ import type { ViewRead, PageRead } from "@/shared/api/views";
 import type { WorkflowDefRead, StateDefRead, ApprovalChainDefRead, ApprovalChainInstanceRead } from "@/shared/api/workflows";
 import type { WebhookRead } from "@/shared/api/webhooks";
 import type { ModuleInstallResult, ModuleRead } from "@/shared/api/modules";
+import type { EmailTemplateRead } from "@/shared/api/emailTemplates";
 
 /**
  * In-memory mock backend for local frontend dev without Docker.
@@ -1215,4 +1216,145 @@ export const handlers = [
     }
     return new HttpResponse(null, { status: 204 });
   }),
+
+  // ── Email Templates ──────────────────────────────────────────────────
+  ...(() => {
+    const now = new Date().toISOString();
+    const mkTpl = (
+      code: string, name: string, description: string,
+      subject: string, body_html: string, body_text: string,
+      variables: EmailTemplateRead["variables"],
+    ): EmailTemplateRead => ({
+      id: crypto.randomUUID(),
+      code, name, description,
+      subject, body_html, body_text,
+      variables,
+      is_system: true,
+      created_at: now,
+      updated_at: now,
+    });
+
+    const emailTemplates: EmailTemplateRead[] = [
+      mkTpl(
+        "password_reset", "Сброс пароля", "Отправляется при запросе сброса пароля",
+        "Сброс пароля в {{ platform_name | default('Lesovik') }}",
+        "<p>Здравствуйте, <b>{{ display_name }}</b>!</p><p><a href=\"{{ reset_url }}\">Сбросить пароль</a></p><p style=\"color:#888;font-size:13px\">Ссылка действительна 1 час.</p>",
+        "Здравствуйте, {{ display_name }}!\n\nСсылка для сброса: {{ reset_url }}\n\nСсылка действительна 1 час.",
+        [
+          { name: "display_name", type: "string", description: "Имя пользователя", example: "Иван Иванов" },
+          { name: "reset_url", type: "string", description: "Ссылка для сброса", example: "https://example.com/reset?token=xxx" },
+          { name: "platform_name", type: "string", description: "Название платформы", example: "Lesovik" },
+        ],
+      ),
+      mkTpl(
+        "invitation", "Приглашение на платформу", "Отправляется при создании нового пользователя",
+        "Приглашение в {{ platform_name | default('Lesovik') }}",
+        "<p>Здравствуйте, <b>{{ display_name }}</b>!</p><p><b>Email:</b> {{ email }}<br><b>Пароль:</b> <code>{{ temp_password }}</code></p><p><a href=\"{{ platform_url }}\">Войти</a></p>",
+        "Здравствуйте, {{ display_name }}!\nEmail: {{ email }}\nПароль: {{ temp_password }}\nВойти: {{ platform_url }}",
+        [
+          { name: "display_name", type: "string", description: "Имя пользователя", example: "Иван Иванов" },
+          { name: "email", type: "string", description: "Email", example: "user@example.com" },
+          { name: "temp_password", type: "string", description: "Временный пароль", example: "TmpPass123" },
+          { name: "platform_url", type: "string", description: "Ссылка на платформу", example: "https://example.com/editor" },
+        ],
+      ),
+      mkTpl(
+        "sla_breach", "Нарушение SLA", "Отправляется при нарушении дедлайна заявки",
+        "SLA нарушен: {{ state_name }}",
+        "<p>Дедлайн истёк.</p><p><b>Заявка:</b> {{ instance_id }}<br><b>Статус:</b> {{ state_name }}<br><b>Дедлайн:</b> {{ deadline }}</p>",
+        "SLA нарушен!\nЗаявка: {{ instance_id }}\nСтатус: {{ state_name }}\nДедлайн: {{ deadline }}",
+        [
+          { name: "instance_id", type: "string", description: "ID заявки", example: "abc-123" },
+          { name: "state_name", type: "string", description: "Текущий статус", example: "На проверке" },
+          { name: "deadline", type: "string", description: "Дедлайн", example: "2026-07-10T12:00:00Z" },
+        ],
+      ),
+      mkTpl(
+        "sla_escalation", "Эскалация SLA", "Отправляется при эскалации на новый уровень",
+        "Эскалация уровня {{ escalation_level }}: {{ state_name }}",
+        "<p>Эскалация на уровень <b>{{ escalation_level }}</b>.</p><p><b>Заявка:</b> {{ instance_id }}<br><b>Статус:</b> {{ state_name }}</p>",
+        "Эскалация уровня {{ escalation_level }}!\nЗаявка: {{ instance_id }}\nСтатус: {{ state_name }}",
+        [
+          { name: "instance_id", type: "string", description: "ID заявки", example: "abc-123" },
+          { name: "state_name", type: "string", description: "Статус", example: "На проверке" },
+          { name: "escalation_level", type: "integer", description: "Уровень (1 или 2)", example: "1" },
+        ],
+      ),
+      mkTpl(
+        "workflow_notification", "Уведомление о заявке", "Общее уведомление при изменении статуса",
+        "{{ subject | default('Изменение статуса заявки') }}",
+        "<p>{{ message | default('Статус вашей заявки изменился.') }}</p><p><b>Заявка:</b> {{ instance_id }}<br><b>Событие:</b> {{ event }}</p>",
+        "{{ message | default('Статус изменился.') }}\nЗаявка: {{ instance_id }}\nСобытие: {{ event }}",
+        [
+          { name: "instance_id", type: "string", description: "ID заявки", example: "abc-123" },
+          { name: "event", type: "string", description: "Тип события", example: "transition" },
+          { name: "state_name", type: "string", description: "Новый статус", example: "Одобрено" },
+          { name: "subject", type: "string", description: "Тема (опционально)", example: "Ваша заявка одобрена" },
+          { name: "message", type: "string", description: "Сообщение (опционально)", example: "Заявка успешно одобрена" },
+        ],
+      ),
+    ];
+
+    return [
+      http.get(`${API}/email-templates`, () => HttpResponse.json(emailTemplates)),
+
+      http.post(`${API}/email-templates`, async ({ request }) => {
+        const body = (await request.json()) as Partial<EmailTemplateRead>;
+        const tpl: EmailTemplateRead = {
+          id: crypto.randomUUID(),
+          code: body.code ?? "new_template",
+          name: body.name ?? "Новый шаблон",
+          description: body.description ?? null,
+          subject: body.subject ?? "",
+          body_html: body.body_html ?? "",
+          body_text: body.body_text ?? null,
+          variables: body.variables ?? [],
+          is_system: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        emailTemplates.push(tpl);
+        return HttpResponse.json(tpl, { status: 201 });
+      }),
+
+      http.patch(`${API}/email-templates/:id`, async ({ params, request }) => {
+        const tpl = emailTemplates.find((t) => t.id === params.id);
+        if (!tpl) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+        const body = (await request.json()) as Partial<EmailTemplateRead>;
+        if (body.name !== undefined) tpl.name = body.name;
+        if (body.subject !== undefined) tpl.subject = body.subject;
+        if (body.body_html !== undefined) tpl.body_html = body.body_html;
+        if ("body_text" in body) tpl.body_text = body.body_text ?? null;
+        if (body.description !== undefined) tpl.description = body.description ?? null;
+        if (body.variables !== undefined) tpl.variables = body.variables;
+        tpl.updated_at = new Date().toISOString();
+        return HttpResponse.json(tpl);
+      }),
+
+      http.delete(`${API}/email-templates/:id`, ({ params }) => {
+        const idx = emailTemplates.findIndex((t) => t.id === params.id);
+        if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+        if (emailTemplates[idx].is_system) return HttpResponse.json({ detail: "System templates cannot be deleted" }, { status: 403 });
+        emailTemplates.splice(idx, 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
+
+      http.post(`${API}/email-templates/:id/preview`, async ({ params, request }) => {
+        const tpl = emailTemplates.find((t) => t.id === params.id);
+        if (!tpl) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+        const body = (await request.json()) as { context?: Record<string, unknown> };
+        const ctx = body.context ?? {};
+        // Simple variable substitution for mock preview
+        function renderSimple(tmpl: string): string {
+          return tmpl.replace(/\{\{\s*([\w.]+)(?:\s*\|\s*default\(['"]([^'"]*)['"]\))?\s*\}\}/g,
+            (_, name, fallback) => String(ctx[name] ?? fallback ?? `{{${name}}}`));
+        }
+        return HttpResponse.json({
+          subject: renderSimple(tpl.subject),
+          body_html: renderSimple(tpl.body_html),
+          body_text: tpl.body_text ? renderSimple(tpl.body_text) : null,
+        });
+      }),
+    ];
+  })(),
 ];

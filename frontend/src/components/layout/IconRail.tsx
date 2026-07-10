@@ -42,7 +42,7 @@ const MODULE_ROUTES: Partial<Record<RailModule, string>> = {
   data: "/schema",        // конструктор сущностей и схема данных
   automation: "/bot",
   analytics: "/intel",    // AI / Intelligence
-  notifications: "/admin",// административная панель
+  notifications: "/notifications",
   documents: "/deploy",
   security: "/security",
   docs: "/learning",      // обучение / документация

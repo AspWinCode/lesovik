@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
-    apps, audit, auth, documents, entities, groups, health, integration, modules, orgs, records, roles, rules, security, sequences, templates, users, workflow,
+    apps, audit, auth, documents, email_templates, entities, groups, health, integration, modules, orgs, records, roles, rules, security, sequences, templates, users, workflow,
 )
 from app.api.v1.endpoints.ui import pages_router, views_router
 
@@ -27,3 +27,4 @@ api_router.include_router(pages_router)
 api_router.include_router(integration.router)
 api_router.include_router(security.router)
 api_router.include_router(audit.router)
+api_router.include_router(email_templates.router)
