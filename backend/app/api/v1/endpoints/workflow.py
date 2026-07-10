@@ -5,6 +5,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AuthDep, DbDep
 from app.schemas.workflow import (
+    ApprovalChainDefCreate,
+    ApprovalChainDefRead,
+    ApprovalChainDefUpdate,
+    ApprovalChainInstanceRead,
+    ApprovalDecisionRequest,
     AssignInstanceRequest,
     AvailableTransitionRead,
     StartInstanceRequest,
@@ -401,6 +406,95 @@ async def cancel_instance(
     except WorkflowTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail=str(exc)) from exc
+
+
+# ==================================================================
+# Approval chains (definition CRUD)
+# ==================================================================
+
+@router.get("/{workflow_id}/approval-chains", response_model=list[ApprovalChainDefRead])
+async def list_approval_chains(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, current_user: AuthDep, db: DbDep
+) -> list[ApprovalChainDefRead]:
+    await _check_app(app_id, current_user, db)
+    try:
+        await WorkflowService(db).get_workflow(app_id, workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise _wf_not_found(exc) from exc
+    return await WorkflowService(db).list_approval_chains(workflow_id)
+
+
+@router.post("/{workflow_id}/approval-chains", response_model=ApprovalChainDefRead,
+             status_code=status.HTTP_201_CREATED)
+async def create_approval_chain(
+    app_id: uuid.UUID, workflow_id: uuid.UUID,
+    body: ApprovalChainDefCreate, current_user: AuthDep, db: DbDep,
+) -> ApprovalChainDefRead:
+    await _check_app(app_id, current_user, db)
+    try:
+        await WorkflowService(db).get_workflow(app_id, workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise _wf_not_found(exc) from exc
+    return await WorkflowService(db).create_approval_chain(workflow_id, body)
+
+
+@router.patch("/{workflow_id}/approval-chains/{chain_id}", response_model=ApprovalChainDefRead)
+async def update_approval_chain(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, chain_id: uuid.UUID,
+    body: ApprovalChainDefUpdate, current_user: AuthDep, db: DbDep,
+) -> ApprovalChainDefRead:
+    await _check_app(app_id, current_user, db)
+    try:
+        return await WorkflowService(db).update_approval_chain(workflow_id, chain_id, body)
+    except WorkflowNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chain not found") from exc
+
+
+@router.delete("/{workflow_id}/approval-chains/{chain_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_approval_chain(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, chain_id: uuid.UUID,
+    current_user: AuthDep, db: DbDep,
+) -> None:
+    await _check_app(app_id, current_user, db)
+    try:
+        await WorkflowService(db).delete_approval_chain(workflow_id, chain_id)
+    except WorkflowNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chain not found") from exc
+
+
+# ==================================================================
+# Approval chain instances
+# ==================================================================
+
+@router.get("/{workflow_id}/instances/{instance_id}/approval-chains",
+            response_model=list[ApprovalChainInstanceRead])
+async def list_chain_instances(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, instance_id: uuid.UUID,
+    current_user: AuthDep, db: DbDep,
+) -> list[ApprovalChainInstanceRead]:
+    await _check_app(app_id, current_user, db)
+    return await WorkflowService(db).list_chain_instances(instance_id)
+
+
+@router.post("/{workflow_id}/instances/{instance_id}/approval-chains/{chain_instance_id}/decide",
+             response_model=ApprovalChainInstanceRead)
+async def decide_chain_level(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, instance_id: uuid.UUID,
+    chain_instance_id: uuid.UUID,
+    body: ApprovalDecisionRequest, current_user: AuthDep, db: DbDep,
+) -> ApprovalChainInstanceRead:
+    await _check_app(app_id, current_user, db)
+    try:
+        return await WorkflowService(db).decide_chain_level(
+            chain_instance_id=chain_instance_id,
+            actor_id=current_user.user_id,
+            req=body,
+            app_id=app_id,
+        )
+    except WorkflowNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WorkflowTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 # ==================================================================

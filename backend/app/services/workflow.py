@@ -17,6 +17,10 @@ from app.engine.fsm import (
     execute_fsm_transition,
 )
 from app.models.workflow import (
+    ApprovalChainDef,
+    ApprovalChainInstance,
+    ApprovalLevelDef,
+    ApprovalLevelResponse,
     StateDef,
     TransitionDef,
     TransitionLog,
@@ -24,6 +28,13 @@ from app.models.workflow import (
     WorkflowInstance,
 )
 from app.schemas.workflow import (
+    ApprovalChainDefCreate,
+    ApprovalChainDefRead,
+    ApprovalChainDefUpdate,
+    ApprovalChainInstanceRead,
+    ApprovalDecisionRequest,
+    ApprovalLevelDefRead,
+    ApprovalLevelResponseRead,
     AssignInstanceRequest,
     AvailableTransitionRead,
     StartInstanceRequest,
@@ -185,6 +196,7 @@ class WorkflowService:
             color=data.color,
             assignee_type=data.assignee_type,
             assignee_id=data.assignee_id,
+            approval_chain_id=data.approval_chain_id,
         )
         self._db.add(state)
         await self._db.flush()
@@ -212,6 +224,8 @@ class WorkflowService:
             state.assignee_type = data.assignee_type
         if data.assignee_id is not None:
             state.assignee_id = data.assignee_id
+        if data.approval_chain_id is not None:
+            state.approval_chain_id = data.approval_chain_id
         await self._db.flush()
         return StateDefRead.model_validate(state)
 
@@ -338,6 +352,8 @@ class WorkflowService:
         self._db.add(log_entry)
         await self._db.flush()
 
+        await self._activate_chain_for_state(instance.id, wf.initial_state, states)
+
         if enter_result.sla_seconds:
             self._schedule_sla_check(instance, wf.initial_state)
 
@@ -440,6 +456,8 @@ class WorkflowService:
         # Re-fetch updated instance for response
         refreshed = await self._db.get(WorkflowInstance, instance_id)
 
+        await self._activate_chain_for_state(instance_id, new_state, states)
+
         if tr_result.sla_seconds and not is_terminal:
             self._schedule_sla_check(refreshed, new_state)
 
@@ -534,6 +552,144 @@ class WorkflowService:
 
         refreshed = await self._db.get(WorkflowInstance, instance_id)
         return WorkflowInstanceRead.model_validate(refreshed)
+
+    # ==============================================================
+    # Approval chains — definition CRUD
+    # ==============================================================
+
+    async def list_approval_chains(self, workflow_id: uuid.UUID) -> list[ApprovalChainDefRead]:
+        res = await self._db.execute(
+            select(ApprovalChainDef)
+            .where(ApprovalChainDef.workflow_id == workflow_id)
+            .order_by(ApprovalChainDef.created_at)
+        )
+        chains = list(res.scalars())
+        out = []
+        for c in chains:
+            levels = await self._load_chain_levels(c.id)
+            read = ApprovalChainDefRead.model_validate(c)
+            read.levels = [ApprovalLevelDefRead.model_validate(l) for l in levels]
+            out.append(read)
+        return out
+
+    async def create_approval_chain(
+        self, workflow_id: uuid.UUID, data: ApprovalChainDefCreate
+    ) -> ApprovalChainDefRead:
+        chain = ApprovalChainDef(
+            workflow_id=workflow_id,
+            name=data.name,
+            description=data.description,
+            on_approve_transition=data.on_approve_transition,
+            on_reject_transition=data.on_reject_transition,
+        )
+        self._db.add(chain)
+        await self._db.flush()
+        levels = await self._replace_chain_levels(chain.id, data.levels)
+        read = ApprovalChainDefRead.model_validate(chain)
+        read.levels = [ApprovalLevelDefRead.model_validate(l) for l in levels]
+        return read
+
+    async def update_approval_chain(
+        self, workflow_id: uuid.UUID, chain_id: uuid.UUID, data: ApprovalChainDefUpdate
+    ) -> ApprovalChainDefRead:
+        chain = await self._fetch_chain(workflow_id, chain_id)
+        if data.name is not None:
+            chain.name = data.name
+        if data.description is not None:
+            chain.description = data.description
+        if data.on_approve_transition is not None:
+            chain.on_approve_transition = data.on_approve_transition
+        if data.on_reject_transition is not None:
+            chain.on_reject_transition = data.on_reject_transition
+        if data.levels is not None:
+            await self._replace_chain_levels(chain.id, data.levels)
+        await self._db.flush()
+        levels = await self._load_chain_levels(chain.id)
+        read = ApprovalChainDefRead.model_validate(chain)
+        read.levels = [ApprovalLevelDefRead.model_validate(l) for l in levels]
+        return read
+
+    async def delete_approval_chain(self, workflow_id: uuid.UUID, chain_id: uuid.UUID) -> None:
+        chain = await self._fetch_chain(workflow_id, chain_id)
+        await self._db.delete(chain)
+        await self._db.flush()
+
+    # ==============================================================
+    # Approval chains — instance operations
+    # ==============================================================
+
+    async def list_chain_instances(
+        self, workflow_instance_id: uuid.UUID
+    ) -> list[ApprovalChainInstanceRead]:
+        res = await self._db.execute(
+            select(ApprovalChainInstance)
+            .where(ApprovalChainInstance.workflow_instance_id == workflow_instance_id)
+            .order_by(ApprovalChainInstance.started_at)
+        )
+        instances = list(res.scalars())
+        return [await self._build_chain_instance_read(ci) for ci in instances]
+
+    async def decide_chain_level(
+        self,
+        chain_instance_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        req: ApprovalDecisionRequest,
+        app_id: uuid.UUID,
+    ) -> ApprovalChainInstanceRead:
+        ci = await self._fetch_chain_instance(chain_instance_id)
+        if ci.status != "pending":
+            raise WorkflowTransitionError(f"Chain instance is already {ci.status}")
+
+        chain_def = await self._db.get(ApprovalChainDef, ci.chain_def_id)
+        levels = await self._load_chain_levels(ci.chain_def_id)
+        max_level = max((l.level_order for l in levels), default=1)
+
+        response = ApprovalLevelResponse(
+            chain_instance_id=ci.id,
+            level_order=ci.current_level,
+            actor_id=actor_id,
+            decision=req.decision,
+            comment=req.comment,
+        )
+        self._db.add(response)
+
+        if req.decision == "rejected":
+            ci.status = "rejected"
+            ci.completed_at = datetime.now(UTC)
+            await self._db.flush()
+            if chain_def and chain_def.on_reject_transition:
+                await self._auto_fire_transition(
+                    app_id=app_id,
+                    workflow_instance_id=ci.workflow_instance_id,
+                    transition_name=chain_def.on_reject_transition,
+                )
+        else:
+            if ci.current_level >= max_level:
+                ci.status = "approved"
+                ci.completed_at = datetime.now(UTC)
+                await self._db.flush()
+                if chain_def and chain_def.on_approve_transition:
+                    await self._auto_fire_transition(
+                        app_id=app_id,
+                        workflow_instance_id=ci.workflow_instance_id,
+                        transition_name=chain_def.on_approve_transition,
+                    )
+            else:
+                ci.current_level += 1
+                await self._db.flush()
+                # update assignee on workflow instance to next level
+                next_level = next(
+                    (l for l in levels if l.level_order == ci.current_level), None
+                )
+                if next_level:
+                    user_id, group_id = self._resolve_level_assignee(next_level)
+                    await self._db.execute(
+                        update(WorkflowInstance)
+                        .where(WorkflowInstance.id == ci.workflow_instance_id)
+                        .values(assigned_user_id=user_id, assigned_group_id=group_id)
+                    )
+
+        return await self._build_chain_instance_read(ci)
 
     async def assign_instance(
         self,
@@ -658,6 +814,152 @@ class WorkflowService:
             select(TransitionDef).where(TransitionDef.workflow_id == workflow_id)
         )
         return list(states_res.scalars()), list(transitions_res.scalars())
+
+    async def _activate_chain_for_state(
+        self,
+        workflow_instance_id: uuid.UUID,
+        state_name: str,
+        states: list[StateDef],
+    ) -> None:
+        """Create an ApprovalChainInstance when entering a state that has a chain attached."""
+        state_def = next((s for s in states if s.name == state_name), None)
+        if state_def is None or state_def.approval_chain_id is None:
+            return
+
+        levels = await self._load_chain_levels(state_def.approval_chain_id)
+        first_level = next((l for l in levels if l.level_order == 1), None)
+
+        ci = ApprovalChainInstance(
+            chain_def_id=state_def.approval_chain_id,
+            workflow_instance_id=workflow_instance_id,
+            current_level=1,
+            status="pending",
+        )
+        self._db.add(ci)
+        await self._db.flush()
+
+        # set assignee on instance to first level approver
+        if first_level:
+            user_id, group_id = self._resolve_level_assignee(first_level)
+            await self._db.execute(
+                update(WorkflowInstance)
+                .where(WorkflowInstance.id == workflow_instance_id)
+                .values(assigned_user_id=user_id, assigned_group_id=group_id)
+            )
+
+    async def _auto_fire_transition(
+        self,
+        app_id: uuid.UUID,
+        workflow_instance_id: uuid.UUID,
+        transition_name: str,
+    ) -> None:
+        instance = await self._db.get(WorkflowInstance, workflow_instance_id)
+        if not instance or instance.completed_at:
+            return
+        _, transitions = await self._load_fsm_data(instance.workflow_id)
+        tr_def = next(
+            (t for t in transitions
+             if t.from_state == instance.current_state and t.name == transition_name),
+            None,
+        )
+        if tr_def is None:
+            logger.warning("auto_fire_transition_not_found",
+                           transition=transition_name, state=instance.current_state)
+            return
+        req = TransitionRequest(transition_name=transition_name, record_payload={})
+        try:
+            await self.execute_transition(
+                app_id=app_id,
+                workflow_id=instance.workflow_id,
+                instance_id=instance.id,
+                req=req,
+                actor_id=None,
+                actor_roles=list(tr_def.required_roles or []),
+            )
+        except (WorkflowTransitionError, WorkflowConcurrentModificationError) as exc:
+            logger.warning("auto_fire_transition_failed", error=str(exc),
+                           transition=transition_name)
+
+    async def _fetch_chain(
+        self, workflow_id: uuid.UUID, chain_id: uuid.UUID
+    ) -> ApprovalChainDef:
+        res = await self._db.execute(
+            select(ApprovalChainDef).where(
+                ApprovalChainDef.id == chain_id,
+                ApprovalChainDef.workflow_id == workflow_id,
+            )
+        )
+        chain = res.scalar_one_or_none()
+        if chain is None:
+            raise WorkflowNotFoundError(f"Approval chain {chain_id} not found")
+        return chain
+
+    async def _fetch_chain_instance(
+        self, chain_instance_id: uuid.UUID
+    ) -> ApprovalChainInstance:
+        ci = await self._db.get(ApprovalChainInstance, chain_instance_id)
+        if ci is None:
+            raise WorkflowNotFoundError(f"Approval chain instance {chain_instance_id} not found")
+        return ci
+
+    async def _load_chain_levels(self, chain_id: uuid.UUID) -> list[ApprovalLevelDef]:
+        res = await self._db.execute(
+            select(ApprovalLevelDef)
+            .where(ApprovalLevelDef.chain_id == chain_id)
+            .order_by(ApprovalLevelDef.level_order)
+        )
+        return list(res.scalars())
+
+    async def _replace_chain_levels(
+        self, chain_id: uuid.UUID, levels_data: list
+    ) -> list[ApprovalLevelDef]:
+        await self._db.execute(
+            ApprovalLevelDef.__table__.delete().where(  # type: ignore[attr-defined]
+                ApprovalLevelDef.chain_id == chain_id
+            )
+        )
+        levels = []
+        for ld in levels_data:
+            level = ApprovalLevelDef(
+                chain_id=chain_id,
+                level_order=ld.level_order,
+                display_name=ld.display_name,
+                assignee_type=ld.assignee_type,
+                assignee_id=ld.assignee_id,
+            )
+            self._db.add(level)
+            levels.append(level)
+        await self._db.flush()
+        return levels
+
+    async def _build_chain_instance_read(
+        self, ci: ApprovalChainInstance
+    ) -> ApprovalChainInstanceRead:
+        res = await self._db.execute(
+            select(ApprovalLevelResponse)
+            .where(ApprovalLevelResponse.chain_instance_id == ci.id)
+            .order_by(ApprovalLevelResponse.decided_at)
+        )
+        responses = [ApprovalLevelResponseRead.model_validate(r) for r in res.scalars()]
+        read = ApprovalChainInstanceRead.model_validate(ci)
+        read.responses = responses
+        return read
+
+    @staticmethod
+    def _resolve_level_assignee(
+        level: ApprovalLevelDef,
+    ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+        if level.assignee_type == "user" and level.assignee_id:
+            try:
+                return uuid.UUID(level.assignee_id), None
+            except ValueError:
+                pass
+        elif level.assignee_type == "group" and level.assignee_id:
+            try:
+                return None, uuid.UUID(level.assignee_id)
+            except ValueError:
+                pass
+        return None, None
 
     @staticmethod
     def _resolve_state_assignee(

@@ -48,10 +48,12 @@ class StateDef(Base):
     on_exit_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     sla_breach_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     color: Mapped[str | None] = mapped_column(sa.String(32))
-    # "user" | "group" | "role" — who is responsible when entering this state
     assignee_type: Mapped[str | None] = mapped_column(sa.String(16))
-    # UUID (user/group) or role name string
     assignee_id: Mapped[str | None] = mapped_column(sa.String(128))
+    approval_chain_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("workflow.approval_chain_def.id", ondelete="SET NULL"),
+    )
 
 
 class TransitionDef(Base):
@@ -103,6 +105,83 @@ class WorkflowInstance(Base):
     completed_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime(timezone=True))
     assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     assigned_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class ApprovalChainDef(Base):
+    __tablename__ = "approval_chain_def"
+    __table_args__ = {"schema": "workflow"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                           server_default=sa.text("gen_random_uuid()"))
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("workflow.workflow_def.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(sa.String(256), nullable=False)
+    description: Mapped[str | None] = mapped_column(sa.Text)
+    on_approve_transition: Mapped[str | None] = mapped_column(sa.String(128))
+    on_reject_transition: Mapped[str | None] = mapped_column(sa.String(128))
+    created_at: Mapped[sa.DateTime] = mapped_column(sa.DateTime(timezone=True), nullable=False,
+                                                     server_default=sa.text("now()"))
+
+
+class ApprovalLevelDef(Base):
+    __tablename__ = "approval_level_def"
+    __table_args__ = (
+        sa.UniqueConstraint("chain_id", "level_order", name="uq_approval_level_chain_order"),
+        {"schema": "workflow"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                           server_default=sa.text("gen_random_uuid()"))
+    chain_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("workflow.approval_chain_def.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    level_order: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    display_name: Mapped[str] = mapped_column(sa.String(256), nullable=False)
+    assignee_type: Mapped[str | None] = mapped_column(sa.String(16))
+    assignee_id: Mapped[str | None] = mapped_column(sa.String(128))
+
+
+class ApprovalChainInstance(Base):
+    __tablename__ = "approval_chain_instance"
+    __table_args__ = {"schema": "workflow"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                           server_default=sa.text("gen_random_uuid()"))
+    chain_def_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workflow_instance_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("workflow.workflow_instance.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    current_level: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="1")
+    status: Mapped[str] = mapped_column(sa.String(32), nullable=False, server_default="'pending'")
+    started_at: Mapped[sa.DateTime] = mapped_column(sa.DateTime(timezone=True), nullable=False,
+                                                     server_default=sa.text("now()"))
+    completed_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime(timezone=True))
+
+
+class ApprovalLevelResponse(Base):
+    __tablename__ = "approval_level_response"
+    __table_args__ = {"schema": "workflow"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                           server_default=sa.text("gen_random_uuid()"))
+    chain_instance_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("workflow.approval_chain_instance.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    level_order: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    decision: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    comment: Mapped[str | None] = mapped_column(sa.Text)
+    decided_at: Mapped[sa.DateTime] = mapped_column(sa.DateTime(timezone=True), nullable=False,
+                                                     server_default=sa.text("now()"))
 
 
 class TransitionLog(Base):

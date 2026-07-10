@@ -2,16 +2,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activateWorkflow,
   assignInstance,
+  createApprovalChain,
   createState,
   createWorkflow,
   deactivateWorkflow,
+  decideChainLevel,
+  deleteApprovalChain,
   deleteState,
   deleteWorkflow,
+  listApprovalChains,
+  listChainInstances,
   listInstances,
   listStates,
   listWorkflows,
+  updateApprovalChain,
   updateState,
   updateWorkflow,
+  type ApprovalChainDefCreate,
+  type ApprovalChainDefUpdate,
+  type ApprovalDecisionRequest,
   type AssignInstanceRequest,
   type StateDefCreate,
   type StateDefUpdate,
@@ -22,6 +31,9 @@ import {
 const WF_KEY = (appId: string) => ["workflows", appId] as const;
 const STATES_KEY = (appId: string, workflowId: string) => ["workflow-states", appId, workflowId] as const;
 const INSTANCES_KEY = (appId: string, workflowId: string) => ["workflow-instances", appId, workflowId] as const;
+const CHAINS_KEY = (appId: string, workflowId: string) => ["approval-chains", appId, workflowId] as const;
+const CHAIN_INSTANCES_KEY = (appId: string, workflowId: string, instanceId: string) =>
+  ["approval-chain-instances", appId, workflowId, instanceId] as const;
 
 export function useWorkflows(appId: string | undefined, entityId?: string) {
   return useQuery({
@@ -123,5 +135,75 @@ export function useAssignInstance(appId: string, workflowId: string) {
     mutationFn: ({ instanceId, body }: { instanceId: string; body: AssignInstanceRequest }) =>
       assignInstance(appId, workflowId, instanceId, body),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) }); },
+  });
+}
+
+// ------------------------------------------------------------------
+// Approval chain definitions
+// ------------------------------------------------------------------
+
+export function useApprovalChains(appId: string | undefined, workflowId: string | undefined) {
+  return useQuery({
+    queryKey: CHAINS_KEY(appId ?? "", workflowId ?? ""),
+    queryFn: () => listApprovalChains(appId!, workflowId!),
+    enabled: !!appId && !!workflowId,
+  });
+}
+
+export function useCreateApprovalChain(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ApprovalChainDefCreate) => createApprovalChain(appId, workflowId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: CHAINS_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useUpdateApprovalChain(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ chainId, body }: { chainId: string; body: ApprovalChainDefUpdate }) =>
+      updateApprovalChain(appId, workflowId, chainId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: CHAINS_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useDeleteApprovalChain(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chainId: string) => deleteApprovalChain(appId, workflowId, chainId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: CHAINS_KEY(appId, workflowId) }); },
+  });
+}
+
+// ------------------------------------------------------------------
+// Approval chain instances (runtime)
+// ------------------------------------------------------------------
+
+export function useChainInstances(
+  appId: string | undefined,
+  workflowId: string | undefined,
+  instanceId: string | undefined,
+) {
+  return useQuery({
+    queryKey: CHAIN_INSTANCES_KEY(appId ?? "", workflowId ?? "", instanceId ?? ""),
+    queryFn: () => listChainInstances(appId!, workflowId!, instanceId!),
+    enabled: !!appId && !!workflowId && !!instanceId,
+  });
+}
+
+export function useDecideChainLevel(appId: string, workflowId: string, instanceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      chainInstanceId,
+      body,
+    }: {
+      chainInstanceId: string;
+      body: ApprovalDecisionRequest;
+    }) => decideChainLevel(appId, workflowId, instanceId, chainInstanceId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: CHAIN_INSTANCES_KEY(appId, workflowId, instanceId) });
+      void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) });
+    },
   });
 }

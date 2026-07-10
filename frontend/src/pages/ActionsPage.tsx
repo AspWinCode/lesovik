@@ -7,8 +7,11 @@ import { EditActionModal } from "@/components/modals/MiscModals";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useEntities } from "@/shared/hooks/useEntities";
-import { useWorkflows, useWorkflowStates, useUpdateState } from "@/shared/hooks/useWorkflows";
-import type { StateDefRead } from "@/shared/api/workflows";
+import {
+  useWorkflows, useWorkflowStates, useUpdateState,
+  useApprovalChains, useCreateApprovalChain, useUpdateApprovalChain, useDeleteApprovalChain,
+} from "@/shared/hooks/useWorkflows";
+import type { StateDefRead, ApprovalChainDefRead, ApprovalLevelDefCreate } from "@/shared/api/workflows";
 
 const POSITIONS = ["основной", "выделенный", "встроенный", "скрыть"];
 const ICON_TABS = ["Все", "Заполненные", "Тонкие", "Обычные"];
@@ -35,6 +38,12 @@ export function ActionsPage() {
   const statesQuery = useWorkflowStates(appId, activeAction || undefined);
   const states = statesQuery.data ?? [];
   const updateStateMutation = useUpdateState(appId ?? "", activeAction);
+
+  const chainsQuery = useApprovalChains(appId, activeAction || undefined);
+  const chains = chainsQuery.data ?? [];
+  const createChainMutation = useCreateApprovalChain(appId ?? "", activeAction);
+  const updateChainMutation = useUpdateApprovalChain(appId ?? "", activeAction);
+  const deleteChainMutation = useDeleteApprovalChain(appId ?? "", activeAction);
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -258,6 +267,15 @@ export function ActionsPage() {
             }
           />
 
+          {/* Цепочки согласования */}
+          <ApprovalChainsSection
+            chains={chains}
+            workflowId={activeAction}
+            onCreate={(body) => createChainMutation.mutate(body)}
+            onUpdate={(chainId, body) => updateChainMutation.mutate({ chainId, body })}
+            onDelete={(chainId) => deleteChainMutation.mutate(chainId)}
+          />
+
           {/* Поведение / Документация */}
           <SectionHeader title="Поведение" />
           <SectionHeader title="Документация" />
@@ -384,6 +402,287 @@ function AssigneesSection({
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Approval chains section ── */
+type LevelDraft = { level_order: number; display_name: string; assignee_type: string; assignee_id: string };
+type ChainDraft = { name: string; on_approve_transition: string; on_reject_transition: string; levels: LevelDraft[] };
+
+function emptyChainDraft(): ChainDraft {
+  return { name: "", on_approve_transition: "", on_reject_transition: "", levels: [{ level_order: 1, display_name: "Менеджер", assignee_type: "", assignee_id: "" }] };
+}
+
+function chainToRead(chain: ApprovalChainDefRead): ChainDraft {
+  return {
+    name: chain.name,
+    on_approve_transition: chain.on_approve_transition ?? "",
+    on_reject_transition: chain.on_reject_transition ?? "",
+    levels: chain.levels.map((l) => ({ level_order: l.level_order, display_name: l.display_name, assignee_type: l.assignee_type ?? "", assignee_id: l.assignee_id ?? "" })),
+  };
+}
+
+function ApprovalChainsSection({
+  chains,
+  workflowId,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  chains: ApprovalChainDefRead[];
+  workflowId: string;
+  onCreate: (body: { name: string; on_approve_transition?: string | null; on_reject_transition?: string | null; levels: ApprovalLevelDefCreate[] }) => void;
+  onUpdate: (chainId: string, body: { name?: string; on_approve_transition?: string | null; on_reject_transition?: string | null; levels?: ApprovalLevelDefCreate[] }) => void;
+  onDelete: (chainId: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, ChainDraft>>({});
+  const [creating, setCreating] = useState(false);
+  const [newDraft, setNewDraft] = useState<ChainDraft>(emptyChainDraft());
+
+  if (!workflowId) return null;
+
+  const getDraft = (chain: ApprovalChainDefRead) => drafts[chain.id] ?? chainToRead(chain);
+  const setDraft = (chainId: string, patch: Partial<ChainDraft>) =>
+    setDrafts((prev) => ({ ...prev, [chainId]: { ...(prev[chainId] ?? chainToRead(chains.find((c) => c.id === chainId)!)), ...patch } }));
+
+  const patchLevel = (draft: ChainDraft, setFn: (d: ChainDraft) => void, idx: number, patch: Partial<LevelDraft>) =>
+    setFn({ ...draft, levels: draft.levels.map((l, i) => i === idx ? { ...l, ...patch } : l) });
+
+  const addLevel = (draft: ChainDraft, setFn: (d: ChainDraft) => void) => {
+    const nextOrder = (draft.levels[draft.levels.length - 1]?.level_order ?? 0) + 1;
+    setFn({ ...draft, levels: [...draft.levels, { level_order: nextOrder, display_name: "", assignee_type: "", assignee_id: "" }] });
+  };
+
+  const removeLevel = (draft: ChainDraft, setFn: (d: ChainDraft) => void, idx: number) =>
+    setFn({ ...draft, levels: draft.levels.filter((_, i) => i !== idx).map((l, i) => ({ ...l, level_order: i + 1 })) });
+
+  const saveDraft = (chain: ApprovalChainDefRead, draft: ChainDraft) => {
+    onUpdate(chain.id, {
+      name: draft.name,
+      on_approve_transition: draft.on_approve_transition || null,
+      on_reject_transition: draft.on_reject_transition || null,
+      levels: draft.levels.map((l) => ({ level_order: l.level_order, display_name: l.display_name, assignee_type: l.assignee_type || null, assignee_id: l.assignee_id || null })),
+    });
+    setDrafts((prev) => { const n = { ...prev }; delete n[chain.id]; return n; });
+  };
+
+  const saveNew = () => {
+    onCreate({
+      name: newDraft.name,
+      on_approve_transition: newDraft.on_approve_transition || null,
+      on_reject_transition: newDraft.on_reject_transition || null,
+      levels: newDraft.levels.map((l) => ({ level_order: l.level_order, display_name: l.display_name, assignee_type: l.assignee_type || null, assignee_id: l.assignee_id || null })),
+    });
+    setCreating(false);
+    setNewDraft(emptyChainDraft());
+  };
+
+  const isDirty = (chain: ApprovalChainDefRead) => !!drafts[chain.id];
+
+  return (
+    <div className="border-t-2 border-white py-[10px] pb-[30px]">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-[40px] py-[7px]">
+        <span className="text-[20px] font-bold text-primary">Цепочки согласования</span>
+        <span className="w-3 h-3"><Chevron open={open} /></span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-[16px] mt-[10px]">
+          {chains.length === 0 && !creating && (
+            <p className="text-[14px] text-primary/60 px-[40px]">Нет цепочек. Нажмите «+», чтобы создать.</p>
+          )}
+
+          {chains.map((chain) => {
+            const draft = getDraft(chain);
+            const setFn = (d: ChainDraft) => setDraft(chain.id, d);
+            return (
+              <div key={chain.id} className="mx-[40px] bg-cardbg rounded-[12px] p-[16px] flex flex-col gap-[12px]">
+                {/* Header row */}
+                <div className="flex items-center gap-[10px]">
+                  <input
+                    value={draft.name}
+                    onChange={(e) => setDraft(chain.id, { name: e.target.value })}
+                    placeholder="Название цепочки"
+                    className="flex-1 h-[36px] px-[12px] bg-white rounded-btn text-[14px] text-primary outline-none border border-transparent focus:border-cta/40"
+                  />
+                  <button onClick={() => onDelete(chain.id)} className="w-8 h-8 flex items-center justify-center text-red-400 hover:text-red-600 transition-colors" title="Удалить цепочку">
+                    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </button>
+                </div>
+
+                {/* Transition refs */}
+                <div className="grid grid-cols-2 gap-[10px]">
+                  <input
+                    value={draft.on_approve_transition}
+                    onChange={(e) => setDraft(chain.id, { on_approve_transition: e.target.value })}
+                    placeholder="Переход при одобрении"
+                    className="h-[32px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                  />
+                  <input
+                    value={draft.on_reject_transition}
+                    onChange={(e) => setDraft(chain.id, { on_reject_transition: e.target.value })}
+                    placeholder="Переход при отклонении"
+                    className="h-[32px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                  />
+                </div>
+
+                {/* Levels */}
+                <div className="flex flex-col gap-[8px]">
+                  {draft.levels.map((level, idx) => (
+                    <div key={idx} className="flex items-center gap-[8px]">
+                      <span className="w-5 h-5 flex items-center justify-center rounded-full bg-cta/20 text-cta text-[11px] font-bold shrink-0">{level.level_order}</span>
+                      <input
+                        value={level.display_name}
+                        onChange={(e) => patchLevel(draft, setFn, idx, { display_name: e.target.value })}
+                        placeholder="Название уровня"
+                        className="flex-1 h-[30px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                      />
+                      <select
+                        value={level.assignee_type}
+                        onChange={(e) => patchLevel(draft, setFn, idx, { assignee_type: e.target.value, assignee_id: "" })}
+                        className="h-[30px] px-[8px] bg-white rounded-btn text-[13px] text-primary outline-none cursor-pointer"
+                      >
+                        <option value="">— тип —</option>
+                        <option value="user">Пользователь</option>
+                        <option value="group">Группа</option>
+                        <option value="role">Роль</option>
+                      </select>
+                      {level.assignee_type && (
+                        <input
+                          value={level.assignee_id}
+                          onChange={(e) => patchLevel(draft, setFn, idx, { assignee_id: e.target.value })}
+                          placeholder={level.assignee_type === "role" ? "Роль" : "UUID"}
+                          className="w-[140px] h-[30px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                        />
+                      )}
+                      {draft.levels.length > 1 && (
+                        <button onClick={() => removeLevel(draft, setFn, idx)} className="w-6 h-6 flex items-center justify-center text-primary/40 hover:text-red-400 transition-colors" title="Удалить уровень">
+                          <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={() => addLevel(draft, setFn)}
+                    className="self-start flex items-center gap-[6px] h-[28px] px-[10px] bg-cta/10 rounded-btn text-cta text-[12px] hover:bg-cta/20 transition-colors"
+                  >
+                    <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3"><path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                    Добавить уровень
+                  </button>
+                </div>
+
+                {/* Save row */}
+                {isDirty(chain) && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => saveDraft(chain, draft)}
+                      className="h-[32px] px-[14px] bg-cta text-white text-[13px] rounded-btn hover:bg-cta/90 transition-colors"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* New chain form */}
+          {creating && (
+            <div className="mx-[40px] bg-cardbg rounded-[12px] p-[16px] flex flex-col gap-[12px]">
+              <input
+                value={newDraft.name}
+                onChange={(e) => setNewDraft({ ...newDraft, name: e.target.value })}
+                placeholder="Название цепочки"
+                className="h-[36px] px-[12px] bg-white rounded-btn text-[14px] text-primary outline-none border border-transparent focus:border-cta/40"
+                autoFocus
+              />
+              <div className="grid grid-cols-2 gap-[10px]">
+                <input
+                  value={newDraft.on_approve_transition}
+                  onChange={(e) => setNewDraft({ ...newDraft, on_approve_transition: e.target.value })}
+                  placeholder="Переход при одобрении"
+                  className="h-[32px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                />
+                <input
+                  value={newDraft.on_reject_transition}
+                  onChange={(e) => setNewDraft({ ...newDraft, on_reject_transition: e.target.value })}
+                  placeholder="Переход при отклонении"
+                  className="h-[32px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                />
+              </div>
+              <div className="flex flex-col gap-[8px]">
+                {newDraft.levels.map((level, idx) => (
+                  <div key={idx} className="flex items-center gap-[8px]">
+                    <span className="w-5 h-5 flex items-center justify-center rounded-full bg-cta/20 text-cta text-[11px] font-bold shrink-0">{level.level_order}</span>
+                    <input
+                      value={level.display_name}
+                      onChange={(e) => patchLevel(newDraft, setNewDraft, idx, { display_name: e.target.value })}
+                      placeholder="Название уровня"
+                      className="flex-1 h-[30px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                    />
+                    <select
+                      value={level.assignee_type}
+                      onChange={(e) => patchLevel(newDraft, setNewDraft, idx, { assignee_type: e.target.value, assignee_id: "" })}
+                      className="h-[30px] px-[8px] bg-white rounded-btn text-[13px] text-primary outline-none cursor-pointer"
+                    >
+                      <option value="">— тип —</option>
+                      <option value="user">Пользователь</option>
+                      <option value="group">Группа</option>
+                      <option value="role">Роль</option>
+                    </select>
+                    {level.assignee_type && (
+                      <input
+                        value={level.assignee_id}
+                        onChange={(e) => patchLevel(newDraft, setNewDraft, idx, { assignee_id: e.target.value })}
+                        placeholder={level.assignee_type === "role" ? "Роль" : "UUID"}
+                        className="w-[140px] h-[30px] px-[10px] bg-white rounded-btn text-[13px] text-primary outline-none border border-transparent focus:border-cta/40"
+                      />
+                    )}
+                    {newDraft.levels.length > 1 && (
+                      <button onClick={() => removeLevel(newDraft, setNewDraft, idx)} className="w-6 h-6 flex items-center justify-center text-primary/40 hover:text-red-400 transition-colors">
+                        <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={() => addLevel(newDraft, setNewDraft)}
+                  className="self-start flex items-center gap-[6px] h-[28px] px-[10px] bg-cta/10 rounded-btn text-cta text-[12px] hover:bg-cta/20 transition-colors"
+                >
+                  <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3"><path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                  Добавить уровень
+                </button>
+              </div>
+              <div className="flex justify-end gap-[8px]">
+                <button onClick={() => { setCreating(false); setNewDraft(emptyChainDraft()); }} className="h-[32px] px-[14px] bg-cardbg border border-primary/20 text-primary text-[13px] rounded-btn hover:bg-primary/10 transition-colors">
+                  Отмена
+                </button>
+                <button
+                  onClick={saveNew}
+                  disabled={!newDraft.name.trim()}
+                  className="h-[32px] px-[14px] bg-cta text-white text-[13px] rounded-btn hover:bg-cta/90 transition-colors disabled:opacity-50"
+                >
+                  Создать
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Add button */}
+          {!creating && (
+            <button
+              onClick={() => setCreating(true)}
+              className="self-start mx-[40px] flex items-center gap-[6px] h-[32px] px-[14px] bg-cta/10 rounded-btn text-cta text-[13px] hover:bg-cta/20 transition-colors"
+            >
+              <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3"><path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+              Добавить цепочку
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -26,6 +26,75 @@ export interface WorkflowDefUpdate {
   initial_state?: string;
 }
 
+export interface ApprovalLevelDefRead {
+  id: string;
+  chain_id: string;
+  level_order: number;
+  display_name: string;
+  assignee_type: "user" | "group" | "role" | null;
+  assignee_id: string | null;
+}
+
+export interface ApprovalLevelDefCreate {
+  level_order: number;
+  display_name: string;
+  assignee_type?: "user" | "group" | "role" | null;
+  assignee_id?: string | null;
+}
+
+export interface ApprovalChainDefRead {
+  id: string;
+  workflow_id: string;
+  name: string;
+  description: string | null;
+  on_approve_transition: string | null;
+  on_reject_transition: string | null;
+  levels: ApprovalLevelDefRead[];
+  created_at: string;
+}
+
+export interface ApprovalChainDefCreate {
+  name: string;
+  description?: string | null;
+  on_approve_transition?: string | null;
+  on_reject_transition?: string | null;
+  levels: ApprovalLevelDefCreate[];
+}
+
+export interface ApprovalChainDefUpdate {
+  name?: string;
+  description?: string | null;
+  on_approve_transition?: string | null;
+  on_reject_transition?: string | null;
+  levels?: ApprovalLevelDefCreate[];
+}
+
+export interface ApprovalLevelResponseRead {
+  id: string;
+  chain_instance_id: string;
+  level_order: number;
+  actor_id: string | null;
+  decision: "approved" | "rejected";
+  comment: string | null;
+  decided_at: string;
+}
+
+export interface ApprovalChainInstanceRead {
+  id: string;
+  chain_def_id: string;
+  workflow_instance_id: string;
+  current_level: number;
+  status: "pending" | "approved" | "rejected";
+  started_at: string;
+  completed_at: string | null;
+  responses: ApprovalLevelResponseRead[];
+}
+
+export interface ApprovalDecisionRequest {
+  decision: "approved" | "rejected";
+  comment?: string | null;
+}
+
 export interface StateDefRead {
   id: string;
   workflow_id: string;
@@ -39,6 +108,7 @@ export interface StateDefRead {
   sla_breach_actions: Record<string, unknown>[];
   assignee_type: "user" | "group" | "role" | null;
   assignee_id: string | null;
+  approval_chain_id: string | null;
 }
 
 export interface StateDefCreate {
@@ -179,6 +249,82 @@ export async function assignInstance(
 ): Promise<WorkflowInstanceRead> {
   const { data } = await apiClient.patch<WorkflowInstanceRead>(
     `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/assign`,
+    body,
+  );
+  return data;
+}
+
+// ------------------------------------------------------------------
+// Approval chains — definitions
+// ------------------------------------------------------------------
+
+export async function listApprovalChains(
+  appId: string,
+  workflowId: string,
+): Promise<ApprovalChainDefRead[]> {
+  const { data } = await apiClient.get<ApprovalChainDefRead[]>(
+    `/apps/${appId}/workflows/${workflowId}/approval-chains`,
+  );
+  return data;
+}
+
+export async function createApprovalChain(
+  appId: string,
+  workflowId: string,
+  body: ApprovalChainDefCreate,
+): Promise<ApprovalChainDefRead> {
+  const { data } = await apiClient.post<ApprovalChainDefRead>(
+    `/apps/${appId}/workflows/${workflowId}/approval-chains`,
+    body,
+  );
+  return data;
+}
+
+export async function updateApprovalChain(
+  appId: string,
+  workflowId: string,
+  chainId: string,
+  body: ApprovalChainDefUpdate,
+): Promise<ApprovalChainDefRead> {
+  const { data } = await apiClient.patch<ApprovalChainDefRead>(
+    `/apps/${appId}/workflows/${workflowId}/approval-chains/${chainId}`,
+    body,
+  );
+  return data;
+}
+
+export async function deleteApprovalChain(
+  appId: string,
+  workflowId: string,
+  chainId: string,
+): Promise<void> {
+  await apiClient.delete(`/apps/${appId}/workflows/${workflowId}/approval-chains/${chainId}`);
+}
+
+// ------------------------------------------------------------------
+// Approval chain instances — runtime
+// ------------------------------------------------------------------
+
+export async function listChainInstances(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+): Promise<ApprovalChainInstanceRead[]> {
+  const { data } = await apiClient.get<ApprovalChainInstanceRead[]>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/approval-chains`,
+  );
+  return data;
+}
+
+export async function decideChainLevel(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+  chainInstanceId: string,
+  body: ApprovalDecisionRequest,
+): Promise<ApprovalChainInstanceRead> {
+  const { data } = await apiClient.post<ApprovalChainInstanceRead>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/approval-chains/${chainInstanceId}/decide`,
     body,
   );
   return data;

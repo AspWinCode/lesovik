@@ -6,7 +6,7 @@ import type { Rule } from "@/shared/api/rules";
 import type { User, UserRole } from "@/shared/api/users";
 import type { RecordRead } from "@/shared/api/records";
 import type { ViewRead, PageRead } from "@/shared/api/views";
-import type { WorkflowDefRead, StateDefRead } from "@/shared/api/workflows";
+import type { WorkflowDefRead, StateDefRead, ApprovalChainDefRead, ApprovalChainInstanceRead } from "@/shared/api/workflows";
 import type { WebhookRead } from "@/shared/api/webhooks";
 import type { ModuleInstallResult, ModuleRead } from "@/shared/api/modules";
 
@@ -457,6 +457,8 @@ function buildPages(appId: string): PageRead[] {
 /* ── Mock Workflows ── */
 const workflowsByApp: Record<string, WorkflowDefRead[]> = {};
 const statesByWorkflow: Record<string, StateDefRead[]> = {};
+const chainsByWorkflow: Record<string, ApprovalChainDefRead[]> = {};
+const chainInstancesByWfInstance: Record<string, ApprovalChainInstanceRead[]> = {};
 
 function buildWorkflows(appId: string): WorkflowDefRead[] {
   const now = new Date().toISOString();
@@ -464,15 +466,17 @@ function buildWorkflows(appId: string): WorkflowDefRead[] {
   const wf2Id = `wf-${appId}-2`;
 
   statesByWorkflow[wf1Id] = [
-    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
-    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
-    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
+    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
   ];
   statesByWorkflow[wf2Id] = [
-    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
-    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
-    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
+    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
+    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null, approval_chain_id: null },
   ];
+  chainsByWorkflow[wf1Id] = [];
+  chainsByWorkflow[wf2Id] = [];
 
   return [
     {
@@ -1038,7 +1042,7 @@ export const handlers = [
   http.post(`${API}/apps/:appId/workflows/:workflowId/states`, async ({ params, request }) => {
     const workflowId = params.workflowId as string;
     if (!statesByWorkflow[workflowId]) statesByWorkflow[workflowId] = [];
-    const body = (await request.json()) as { name: string; display_name: string; is_terminal?: boolean; color?: string | null; sla_seconds?: number | null; assignee_type?: string | null; assignee_id?: string | null };
+    const body = (await request.json()) as { name: string; display_name: string; is_terminal?: boolean; color?: string | null; sla_seconds?: number | null; assignee_type?: string | null; assignee_id?: string | null; approval_chain_id?: string | null };
     const state: StateDefRead = {
       id: crypto.randomUUID(), workflow_id: workflowId,
       name: body.name, display_name: body.display_name,
@@ -1047,6 +1051,7 @@ export const handlers = [
       on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [],
       assignee_type: (body.assignee_type as StateDefRead["assignee_type"]) ?? null,
       assignee_id: body.assignee_id ?? null,
+      approval_chain_id: body.approval_chain_id ?? null,
     };
     statesByWorkflow[workflowId].push(state);
     return HttpResponse.json(state, { status: 201 });
@@ -1082,6 +1087,86 @@ export const handlers = [
       if (idx !== -1) statesByWorkflow[workflowId].splice(idx, 1);
     }
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Approval chain definitions
+  http.get(`${API}/apps/:appId/workflows/:workflowId/approval-chains`, ({ params }) => {
+    const workflowId = params.workflowId as string;
+    return HttpResponse.json(chainsByWorkflow[workflowId] ?? []);
+  }),
+
+  http.post(`${API}/apps/:appId/workflows/:workflowId/approval-chains`, async ({ params, request }) => {
+    const workflowId = params.workflowId as string;
+    if (!chainsByWorkflow[workflowId]) chainsByWorkflow[workflowId] = [];
+    const body = (await request.json()) as { name: string; description?: string | null; on_approve_transition?: string | null; on_reject_transition?: string | null; levels?: { level_order: number; display_name: string; assignee_type?: string | null; assignee_id?: string | null }[] };
+    const chainId = crypto.randomUUID();
+    const chain: ApprovalChainDefRead = {
+      id: chainId, workflow_id: workflowId,
+      name: body.name, description: body.description ?? null,
+      on_approve_transition: body.on_approve_transition ?? null,
+      on_reject_transition: body.on_reject_transition ?? null,
+      levels: (body.levels ?? []).map((l) => ({ id: crypto.randomUUID(), chain_id: chainId, level_order: l.level_order, display_name: l.display_name, assignee_type: (l.assignee_type as ApprovalChainDefRead["levels"][0]["assignee_type"]) ?? null, assignee_id: l.assignee_id ?? null })),
+      created_at: new Date().toISOString(),
+    };
+    chainsByWorkflow[workflowId].push(chain);
+    return HttpResponse.json(chain, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/workflows/:workflowId/approval-chains/:chainId`, async ({ params, request }) => {
+    const workflowId = params.workflowId as string;
+    if (!chainsByWorkflow[workflowId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = chainsByWorkflow[workflowId].findIndex((c) => c.id === params.chainId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<ApprovalChainDefRead & { levels?: { level_order: number; display_name: string; assignee_type?: string | null; assignee_id?: string | null }[] }>;
+    const existing = chainsByWorkflow[workflowId][idx];
+    const chainId = existing.id;
+    const updated: ApprovalChainDefRead = {
+      ...existing,
+      name: body.name ?? existing.name,
+      description: body.description !== undefined ? body.description : existing.description,
+      on_approve_transition: body.on_approve_transition !== undefined ? body.on_approve_transition : existing.on_approve_transition,
+      on_reject_transition: body.on_reject_transition !== undefined ? body.on_reject_transition : existing.on_reject_transition,
+      levels: body.levels ? body.levels.map((l) => ({ id: crypto.randomUUID(), chain_id: chainId, level_order: l.level_order, display_name: l.display_name, assignee_type: (l.assignee_type as ApprovalChainDefRead["levels"][0]["assignee_type"]) ?? null, assignee_id: l.assignee_id ?? null })) : existing.levels,
+    };
+    chainsByWorkflow[workflowId][idx] = updated;
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete(`${API}/apps/:appId/workflows/:workflowId/approval-chains/:chainId`, ({ params }) => {
+    const workflowId = params.workflowId as string;
+    if (chainsByWorkflow[workflowId]) {
+      const idx = chainsByWorkflow[workflowId].findIndex((c) => c.id === params.chainId);
+      if (idx !== -1) chainsByWorkflow[workflowId].splice(idx, 1);
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Approval chain instances (runtime)
+  http.get(`${API}/apps/:appId/workflows/:workflowId/instances/:instanceId/approval-chains`, ({ params }) => {
+    const instanceId = params.instanceId as string;
+    return HttpResponse.json(chainInstancesByWfInstance[instanceId] ?? []);
+  }),
+
+  http.post(`${API}/apps/:appId/workflows/:workflowId/instances/:instanceId/approval-chains/:chainInstanceId/decide`, async ({ params, request }) => {
+    const instanceId = params.instanceId as string;
+    const chainInstanceId = params.chainInstanceId as string;
+    const body = (await request.json()) as { decision: "approved" | "rejected"; comment?: string | null };
+    const instances = chainInstancesByWfInstance[instanceId] ?? [];
+    const ci = instances.find((c) => c.id === chainInstanceId);
+    if (!ci) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const response = { id: crypto.randomUUID(), chain_instance_id: chainInstanceId, level_order: ci.current_level, actor_id: null, decision: body.decision, comment: body.comment ?? null, decided_at: new Date().toISOString() };
+    const updatedResponses = [...ci.responses, response];
+    const updated: ApprovalChainInstanceRead = {
+      ...ci,
+      responses: updatedResponses,
+      status: body.decision === "rejected" ? "rejected" : (ci.current_level >= 3 ? "approved" : "pending"),
+      current_level: body.decision === "approved" && ci.current_level < 3 ? ci.current_level + 1 : ci.current_level,
+      completed_at: body.decision === "rejected" || ci.current_level >= 3 ? new Date().toISOString() : null,
+    };
+    const idx = instances.findIndex((c) => c.id === chainInstanceId);
+    if (idx !== -1) instances[idx] = updated;
+    chainInstancesByWfInstance[instanceId] = instances;
+    return HttpResponse.json(updated);
   }),
 
   // Webhooks

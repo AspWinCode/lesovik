@@ -1,7 +1,7 @@
 """Workflow Engine Pydantic schemas."""
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,90 @@ class WorkflowDefUpdate(BaseModel):
 # StateDef
 # ------------------------------------------------------------------
 
+# ------------------------------------------------------------------
+# ApprovalChain
+# ------------------------------------------------------------------
+
+class ApprovalLevelDefRead(BaseModel):
+    id: uuid.UUID
+    chain_id: uuid.UUID
+    level_order: int
+    display_name: str
+    assignee_type: str | None
+    assignee_id: str | None
+    model_config = {"from_attributes": True}
+
+
+class ApprovalLevelDefCreate(BaseModel):
+    level_order: int = Field(ge=1)
+    display_name: str = Field(min_length=1, max_length=256)
+    assignee_type: str | None = None
+    assignee_id: str | None = None
+
+
+class ApprovalChainDefRead(BaseModel):
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    name: str
+    description: str | None
+    on_approve_transition: str | None
+    on_reject_transition: str | None
+    levels: list[ApprovalLevelDefRead] = Field(default_factory=list)
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class ApprovalChainDefCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=256)
+    description: str | None = None
+    on_approve_transition: str | None = None
+    on_reject_transition: str | None = None
+    levels: list[ApprovalLevelDefCreate] = Field(default_factory=list)
+
+
+class ApprovalChainDefUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=256)
+    description: str | None = None
+    on_approve_transition: str | None = None
+    on_reject_transition: str | None = None
+    levels: list[ApprovalLevelDefCreate] | None = None
+
+
+class ApprovalChainInstanceRead(BaseModel):
+    id: uuid.UUID
+    chain_def_id: uuid.UUID
+    workflow_instance_id: uuid.UUID
+    current_level: int
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    responses: list["ApprovalLevelResponseRead"] = Field(default_factory=list)
+    model_config = {"from_attributes": True}
+
+
+class ApprovalLevelResponseRead(BaseModel):
+    id: uuid.UUID
+    chain_instance_id: uuid.UUID
+    level_order: int
+    actor_id: uuid.UUID | None
+    decision: str
+    comment: str | None
+    decided_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class ApprovalDecisionRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    comment: str | None = None
+
+
+ApprovalChainInstanceRead.model_rebuild()
+
+
+# ------------------------------------------------------------------
+# StateDef
+# ------------------------------------------------------------------
+
 class StateDefRead(BaseModel):
     id: uuid.UUID
     workflow_id: uuid.UUID
@@ -54,6 +138,7 @@ class StateDefRead(BaseModel):
     color: str | None
     assignee_type: str | None
     assignee_id: str | None
+    approval_chain_id: uuid.UUID | None
     model_config = {"from_attributes": True}
 
 
@@ -70,6 +155,7 @@ class StateDefCreate(BaseModel):
     color: str | None = None
     assignee_type: str | None = None
     assignee_id: str | None = None
+    approval_chain_id: uuid.UUID | None = None
 
 
 class StateDefUpdate(BaseModel):
@@ -82,6 +168,7 @@ class StateDefUpdate(BaseModel):
     color: str | None = None
     assignee_type: str | None = None
     assignee_id: str | None = None
+    approval_chain_id: uuid.UUID | None = None
 
 
 # ------------------------------------------------------------------
