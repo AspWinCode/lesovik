@@ -299,6 +299,18 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
 
   const hasDataView = !!viewType && viewType !== "form";
 
+  // Pick the context record for evaluating block visibility conditions.
+  // On detail pages use the active record; otherwise fall back to the first record.
+  const contextRecord = activeRecordId
+    ? records.find((r) => r.id === activeRecordId)
+    : records[0];
+  const contextPayload: Record<string, unknown> = contextRecord?.payload ?? {};
+
+  const visibleBlocks = blocks.filter((b) => {
+    const cond = b.config.visibility_condition as VisibilityCond | undefined;
+    return evalVisibilityCond(cond, contextPayload);
+  });
+
   return (
     <div style={{ fontSize: textSizePx }}>
       {(design.show_header ?? true) && (
@@ -319,9 +331,9 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
           onRecordUpdated={() => recordsQuery.refetch()}
         />
       )}
-      {blocks.length > 0 && (
+      {visibleBlocks.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: blockGap, marginTop: hasDataView ? blockGap : 0 }}>
-          {blocks.map((b) => (
+          {visibleBlocks.map((b) => (
             <Block
               key={b.id}
               block={b}
@@ -676,6 +688,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   }
 
   const inline = labelPosition === "inline";
+  const fieldConditions = (block.config?.field_conditions ?? {}) as Record<string, VisibilityCond | null>;
 
   return (
     <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface }}>
@@ -684,7 +697,10 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
         <p style={{ color: colors.textMuted, fontSize: 14 }}>Таблица не выбрана.</p>
       ) : (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {cols.map((f) => (
+          {cols.map((f) => {
+            const fieldCond = fieldConditions[f.name];
+            if (!evalVisibilityCond(fieldCond, values as Record<string, unknown>)) return null;
+            return (
             <label key={f.id} style={{ display: "flex", flexDirection: inline ? "row" : "column", alignItems: inline ? "center" : "stretch", gap: inline ? 12 : 4, fontSize: 13, color: colors.textMuted }}>
               <span style={{ flexShrink: 0, minWidth: inline ? 120 : undefined }}>{f.display_name}{f.is_required && " *"}</span>
               {f.field_type === "boolean" ? (
@@ -722,7 +738,8 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
                 />
               )}
             </label>
-          ))}
+            );
+          })}
 
           {status === "success" && (
             <p style={{ color: "#15803D", fontSize: 13, fontWeight: 500 }}>✓ Запись сохранена</p>
@@ -1423,6 +1440,25 @@ function MapView({ title, cols, records }: {
       )}
     </section>
   );
+}
+
+/* ── Visibility condition evaluation ── */
+type VisibilityCond = { field: string; op: string; value: string };
+
+function evalVisibilityCond(cond: VisibilityCond | null | undefined, payload: Record<string, unknown>): boolean {
+  if (!cond || !cond.field || !cond.op) return true;
+  const raw = payload[cond.field];
+  const strVal = raw !== null && raw !== undefined ? String(raw) : "";
+  switch (cond.op) {
+    case "eq":        return strVal === cond.value;
+    case "neq":       return strVal !== cond.value;
+    case "contains":  return strVal.toLowerCase().includes((cond.value ?? "").toLowerCase());
+    case "empty":     return strVal === "" || raw === null || raw === undefined;
+    case "not_empty": return strVal !== "" && raw !== null && raw !== undefined;
+    case "gt":        return Number(strVal) > Number(cond.value);
+    case "lt":        return Number(strVal) < Number(cond.value);
+    default:          return true;
+  }
 }
 
 function formatCell(value: unknown, field: FieldRead): string {
