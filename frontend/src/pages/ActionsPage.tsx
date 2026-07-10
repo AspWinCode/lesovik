@@ -7,7 +7,8 @@ import { EditActionModal } from "@/components/modals/MiscModals";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useEntities } from "@/shared/hooks/useEntities";
-import { useWorkflows } from "@/shared/hooks/useWorkflows";
+import { useWorkflows, useWorkflowStates, useUpdateState } from "@/shared/hooks/useWorkflows";
+import type { StateDefRead } from "@/shared/api/workflows";
 
 const POSITIONS = ["основной", "выделенный", "встроенный", "скрыть"];
 const ICON_TABS = ["Все", "Заполненные", "Тонкие", "Обычные"];
@@ -30,6 +31,10 @@ export function ActionsPage() {
 
   const workflowsQuery = useWorkflows(appId, openGroup ?? undefined);
   const workflows = workflowsQuery.data ?? [];
+
+  const statesQuery = useWorkflowStates(appId, activeAction || undefined);
+  const states = statesQuery.data ?? [];
+  const updateStateMutation = useUpdateState(appId ?? "", activeAction);
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -243,6 +248,16 @@ export function ActionsPage() {
             )}
           </div>
 
+          {/* Ответственные по состояниям */}
+          <AssigneesSection
+            states={states}
+            appId={appId ?? ""}
+            workflowId={activeAction}
+            onSave={(stateId, body) =>
+              updateStateMutation.mutate({ stateId, body })
+            }
+          />
+
           {/* Поведение / Документация */}
           <SectionHeader title="Поведение" />
           <SectionHeader title="Документация" />
@@ -264,6 +279,112 @@ export function ActionsPage() {
           onClose={() => setEditAction(false)}
           onSave={() => setEditAction(false)}
         />
+      )}
+    </div>
+  );
+}
+
+/* ── Assignees section ── */
+type AssigneeType = "user" | "group" | "role" | "";
+
+function AssigneesSection({
+  states,
+  workflowId,
+  onSave,
+}: {
+  states: StateDefRead[];
+  appId: string;
+  workflowId: string;
+  onSave: (stateId: string, body: { assignee_type: string | null; assignee_id: string | null }) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, { type: AssigneeType; id: string }>>({});
+
+  if (!workflowId) return null;
+
+  const getDraft = (s: StateDefRead) =>
+    drafts[s.id] ?? {
+      type: (s.assignee_type as AssigneeType) ?? "",
+      id: s.assignee_id ?? "",
+    };
+
+  const setDraft = (stateId: string, patch: Partial<{ type: AssigneeType; id: string }>) =>
+    setDrafts((prev) => ({ ...prev, [stateId]: { ...getDraft({ id: stateId } as StateDefRead), ...patch } }));
+
+  return (
+    <div className="border-t-2 border-white py-[10px] pb-[30px]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-[40px] py-[7px]"
+      >
+        <span className="text-[20px] font-bold text-primary">Ответственные по состояниям</span>
+        <span className="w-3 h-3"><Chevron open={open} /></span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-[12px] mt-[10px]">
+          {states.length === 0 && (
+            <p className="text-[14px] text-primary/60 px-[40px]">Нет состояний — сначала добавьте состояния в workflow.</p>
+          )}
+          {states.map((s) => {
+            const draft = getDraft(s);
+            const dirty =
+              draft.type !== ((s.assignee_type ?? "") as AssigneeType) ||
+              draft.id !== (s.assignee_id ?? "");
+            return (
+              <div key={s.id} className="px-[40px] flex items-center gap-[16px]">
+                {/* State chip */}
+                <div
+                  className="h-[32px] px-[12px] flex items-center rounded-[16px] text-[14px] font-medium shrink-0"
+                  style={{
+                    backgroundColor: s.color ? s.color + "33" : "#e8edf7",
+                    color: s.color ?? "#00205F",
+                    minWidth: 120,
+                  }}
+                >
+                  {s.display_name}
+                </div>
+
+                {/* Type selector */}
+                <select
+                  value={draft.type}
+                  onChange={(e) => setDraft(s.id, { type: e.target.value as AssigneeType, id: "" })}
+                  className="h-[36px] px-[10px] bg-cardbg rounded-btn text-[14px] text-primary outline-none border border-transparent focus:border-cta/40 cursor-pointer"
+                >
+                  <option value="">— не задано —</option>
+                  <option value="user">Пользователь</option>
+                  <option value="group">Группа</option>
+                  <option value="role">Роль</option>
+                </select>
+
+                {/* ID input */}
+                {draft.type !== "" && (
+                  <input
+                    value={draft.id}
+                    onChange={(e) => setDraft(s.id, { id: e.target.value })}
+                    placeholder={draft.type === "role" ? "Название роли" : "UUID"}
+                    className="flex-1 h-[36px] px-[12px] bg-cardbg rounded-btn text-[14px] text-primary outline-none border border-transparent focus:border-cta/40"
+                  />
+                )}
+
+                {/* Save button */}
+                {dirty && (
+                  <button
+                    onClick={() =>
+                      onSave(s.id, {
+                        assignee_type: draft.type || null,
+                        assignee_id: draft.id || null,
+                      })
+                    }
+                    className="h-[32px] px-[14px] bg-cta text-white text-[13px] rounded-btn hover:bg-cta/90 transition-colors shrink-0"
+                  >
+                    Сохранить
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

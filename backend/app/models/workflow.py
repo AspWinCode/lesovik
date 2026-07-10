@@ -48,6 +48,10 @@ class StateDef(Base):
     on_exit_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     sla_breach_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     color: Mapped[str | None] = mapped_column(sa.String(32))
+    # "user" | "group" | "role" — who is responsible when entering this state
+    assignee_type: Mapped[str | None] = mapped_column(sa.String(16))
+    # UUID (user/group) or role name string
+    assignee_id: Mapped[str | None] = mapped_column(sa.String(128))
 
 
 class TransitionDef(Base):
@@ -97,6 +101,8 @@ class WorkflowInstance(Base):
     started_at: Mapped[sa.DateTime] = mapped_column(sa.DateTime(timezone=True), nullable=False,
                                                      server_default=sa.text("now()"))
     completed_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime(timezone=True))
+    assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    assigned_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class TransitionLog(Base):

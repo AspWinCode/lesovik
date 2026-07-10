@@ -24,6 +24,7 @@ from app.models.workflow import (
     WorkflowInstance,
 )
 from app.schemas.workflow import (
+    AssignInstanceRequest,
     AvailableTransitionRead,
     StartInstanceRequest,
     StateDefCreate,
@@ -182,6 +183,8 @@ class WorkflowService:
             on_exit_actions=data.on_exit_actions,
             sla_breach_actions=data.sla_breach_actions,
             color=data.color,
+            assignee_type=data.assignee_type,
+            assignee_id=data.assignee_id,
         )
         self._db.add(state)
         await self._db.flush()
@@ -205,6 +208,10 @@ class WorkflowService:
             state.sla_breach_actions = data.sla_breach_actions
         if data.color is not None:
             state.color = data.color
+        if data.assignee_type is not None:
+            state.assignee_type = data.assignee_type
+        if data.assignee_id is not None:
+            state.assignee_id = data.assignee_id
         await self._db.flush()
         return StateDefRead.model_validate(state)
 
@@ -306,6 +313,7 @@ class WorkflowService:
         if enter_result.sla_seconds:
             sla_deadline = datetime.now(UTC) + timedelta(seconds=enter_result.sla_seconds)
 
+        initial_assignee = self._resolve_state_assignee(wf.initial_state, states)
         instance = WorkflowInstance(
             workflow_id=workflow_id,
             app_id=app_id,
@@ -313,6 +321,8 @@ class WorkflowService:
             record_id=req.record_id,
             current_state=wf.initial_state,
             sla_deadline=sla_deadline,
+            assigned_user_id=initial_assignee[0],
+            assigned_group_id=initial_assignee[1],
         )
         self._db.add(instance)
         await self._db.flush()
@@ -384,6 +394,8 @@ class WorkflowService:
         if tr_result.sla_seconds:
             new_sla_deadline = datetime.now(UTC) + timedelta(seconds=tr_result.sla_seconds)
 
+        new_assignee = self._resolve_state_assignee(new_state, states)
+
         # ---- Conditional UPDATE (optimistic lock) ----
         update_result = await self._db.execute(
             update(WorkflowInstance)
@@ -397,6 +409,8 @@ class WorkflowService:
                 version=WorkflowInstance.version + 1,
                 sla_deadline=new_sla_deadline,
                 completed_at=datetime.now(UTC) if is_terminal else None,
+                assigned_user_id=new_assignee[0],
+                assigned_group_id=new_assignee[1],
             )
             .returning(WorkflowInstance.id)
         )
@@ -521,6 +535,21 @@ class WorkflowService:
         refreshed = await self._db.get(WorkflowInstance, instance_id)
         return WorkflowInstanceRead.model_validate(refreshed)
 
+    async def assign_instance(
+        self,
+        app_id: uuid.UUID,
+        workflow_id: uuid.UUID,
+        instance_id: uuid.UUID,
+        req: AssignInstanceRequest,
+    ) -> WorkflowInstanceRead:
+        """Manually set the assigned user / group on a workflow instance."""
+        instance = await self._fetch_instance(workflow_id, instance_id)
+        instance.assigned_user_id = req.assigned_user_id
+        instance.assigned_group_id = req.assigned_group_id
+        await self._db.flush()
+        refreshed = await self._db.get(WorkflowInstance, instance_id)
+        return WorkflowInstanceRead.model_validate(refreshed)
+
     async def get_available_transitions(
         self,
         app_id: uuid.UUID,
@@ -629,6 +658,26 @@ class WorkflowService:
             select(TransitionDef).where(TransitionDef.workflow_id == workflow_id)
         )
         return list(states_res.scalars()), list(transitions_res.scalars())
+
+    @staticmethod
+    def _resolve_state_assignee(
+        state_name: str, states: list[StateDef]
+    ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+        """Return (assigned_user_id, assigned_group_id) derived from state definition."""
+        for s in states:
+            if s.name == state_name:
+                if s.assignee_type == "user" and s.assignee_id:
+                    try:
+                        return uuid.UUID(s.assignee_id), None
+                    except ValueError:
+                        pass
+                elif s.assignee_type == "group" and s.assignee_id:
+                    try:
+                        return None, uuid.UUID(s.assignee_id)
+                    except ValueError:
+                        pass
+                break
+        return None, None
 
     @staticmethod
     def _schedule_sla_check(instance: WorkflowInstance, expected_state: str) -> None:

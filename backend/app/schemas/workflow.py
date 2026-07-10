@@ -52,6 +52,8 @@ class StateDefRead(BaseModel):
     on_exit_actions: list[dict[str, Any]]
     sla_breach_actions: list[dict[str, Any]]
     color: str | None
+    assignee_type: str | None
+    assignee_id: str | None
     model_config = {"from_attributes": True}
 
 
@@ -66,6 +68,8 @@ class StateDefCreate(BaseModel):
     on_exit_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     sla_breach_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     color: str | None = None
+    assignee_type: str | None = None
+    assignee_id: str | None = None
 
 
 class StateDefUpdate(BaseModel):
@@ -76,6 +80,8 @@ class StateDefUpdate(BaseModel):
     on_exit_actions: list[dict[str, Any]] | None = None
     sla_breach_actions: list[dict[str, Any]] | None = None
     color: str | None = None
+    assignee_type: str | None = None
+    assignee_id: str | None = None
 
 
 # ------------------------------------------------------------------
@@ -130,7 +136,14 @@ class WorkflowInstanceRead(BaseModel):
     sla_deadline: datetime | None
     started_at: datetime
     completed_at: datetime | None
+    assigned_user_id: uuid.UUID | None
+    assigned_group_id: uuid.UUID | None
     model_config = {"from_attributes": True}
+
+
+class AssignInstanceRequest(BaseModel):
+    assigned_user_id: uuid.UUID | None = None
+    assigned_group_id: uuid.UUID | None = None
 
 
 class StartInstanceRequest(BaseModel):

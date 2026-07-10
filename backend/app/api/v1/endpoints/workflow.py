@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AuthDep, DbDep
 from app.schemas.workflow import (
+    AssignInstanceRequest,
     AvailableTransitionRead,
     StartInstanceRequest,
     StateDefCreate,
@@ -355,6 +356,22 @@ async def execute_transition(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+@router.patch("/{workflow_id}/instances/{instance_id}/assign",
+              response_model=WorkflowInstanceRead)
+async def assign_instance(
+    app_id: uuid.UUID, workflow_id: uuid.UUID, instance_id: uuid.UUID,
+    body: AssignInstanceRequest, current_user: AuthDep, db: DbDep,
+) -> WorkflowInstanceRead:
+    """Manually assign a user or group to a workflow instance."""
+    await _check_app(app_id, current_user, db)
+    try:
+        return await WorkflowService(db).assign_instance(
+            app_id, workflow_id, instance_id, body
+        )
+    except WorkflowInstanceNotFoundError as exc:
+        raise _instance_not_found(exc) from exc
 
 
 @router.post("/{workflow_id}/instances/{instance_id}/cancel",

@@ -464,14 +464,14 @@ function buildWorkflows(appId: string): WorkflowDefRead[] {
   const wf2Id = `wf-${appId}-2`;
 
   statesByWorkflow[wf1Id] = [
-    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
-    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
-    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+    { id: `s-${wf1Id}-1`, workflow_id: wf1Id, name: "new",        display_name: "Новый",      is_terminal: false, color: "#35A7FF", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
+    { id: `s-${wf1Id}-2`, workflow_id: wf1Id, name: "in_progress", display_name: "В работе",   is_terminal: false, color: "#F59E0B", sla_seconds: 86400, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
+    { id: `s-${wf1Id}-3`, workflow_id: wf1Id, name: "done",        display_name: "Выполнено",  is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
   ];
   statesByWorkflow[wf2Id] = [
-    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
-    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
-    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [] },
+    { id: `s-${wf2Id}-1`, workflow_id: wf2Id, name: "draft",    display_name: "Черновик",   is_terminal: false, color: "#6B7280", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
+    { id: `s-${wf2Id}-2`, workflow_id: wf2Id, name: "review",   display_name: "На проверке",is_terminal: false, color: "#8B5CF6", sla_seconds: 3600, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
+    { id: `s-${wf2Id}-3`, workflow_id: wf2Id, name: "approved", display_name: "Одобрено",   is_terminal: true,  color: "#10B981", sla_seconds: null, on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [], assignee_type: null, assignee_id: null },
   ];
 
   return [
@@ -1038,16 +1038,41 @@ export const handlers = [
   http.post(`${API}/apps/:appId/workflows/:workflowId/states`, async ({ params, request }) => {
     const workflowId = params.workflowId as string;
     if (!statesByWorkflow[workflowId]) statesByWorkflow[workflowId] = [];
-    const body = (await request.json()) as { name: string; display_name: string; is_terminal?: boolean; color?: string | null; sla_seconds?: number | null };
+    const body = (await request.json()) as { name: string; display_name: string; is_terminal?: boolean; color?: string | null; sla_seconds?: number | null; assignee_type?: string | null; assignee_id?: string | null };
     const state: StateDefRead = {
       id: crypto.randomUUID(), workflow_id: workflowId,
       name: body.name, display_name: body.display_name,
       is_terminal: body.is_terminal ?? false, color: body.color ?? null,
       sla_seconds: body.sla_seconds ?? null,
       on_enter_actions: [], on_exit_actions: [], sla_breach_actions: [],
+      assignee_type: (body.assignee_type as StateDefRead["assignee_type"]) ?? null,
+      assignee_id: body.assignee_id ?? null,
     };
     statesByWorkflow[workflowId].push(state);
     return HttpResponse.json(state, { status: 201 });
+  }),
+
+  http.patch(`${API}/apps/:appId/workflows/:workflowId/states/:stateId`, async ({ params, request }) => {
+    const workflowId = params.workflowId as string;
+    if (!statesByWorkflow[workflowId]) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const idx = statesByWorkflow[workflowId].findIndex((s) => s.id === params.stateId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Partial<StateDefRead>;
+    statesByWorkflow[workflowId][idx] = { ...statesByWorkflow[workflowId][idx], ...body };
+    return HttpResponse.json(statesByWorkflow[workflowId][idx]);
+  }),
+
+  http.patch(`${API}/apps/:appId/workflows/:workflowId/instances/:instanceId/assign`, async ({ request }) => {
+    const body = (await request.json()) as { assigned_user_id?: string | null; assigned_group_id?: string | null };
+    const now = new Date().toISOString();
+    return HttpResponse.json({
+      id: crypto.randomUUID(),
+      workflow_id: "mock", app_id: "mock", entity_id: "mock", record_id: "mock",
+      current_state: "new", version: 1, sla_deadline: null,
+      started_at: now, completed_at: null,
+      assigned_user_id: body.assigned_user_id ?? null,
+      assigned_group_id: body.assigned_group_id ?? null,
+    });
   }),
 
   http.delete(`${API}/apps/:appId/workflows/:workflowId/states/:stateId`, ({ params }) => {

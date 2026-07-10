@@ -37,6 +37,8 @@ export interface StateDefRead {
   on_enter_actions: Record<string, unknown>[];
   on_exit_actions: Record<string, unknown>[];
   sla_breach_actions: Record<string, unknown>[];
+  assignee_type: "user" | "group" | "role" | null;
+  assignee_id: string | null;
 }
 
 export interface StateDefCreate {
@@ -45,6 +47,37 @@ export interface StateDefCreate {
   is_terminal?: boolean;
   color?: string | null;
   sla_seconds?: number | null;
+  assignee_type?: "user" | "group" | "role" | null;
+  assignee_id?: string | null;
+}
+
+export interface StateDefUpdate {
+  display_name?: string;
+  is_terminal?: boolean;
+  color?: string | null;
+  sla_seconds?: number | null;
+  assignee_type?: "user" | "group" | "role" | null;
+  assignee_id?: string | null;
+}
+
+export interface WorkflowInstanceRead {
+  id: string;
+  workflow_id: string;
+  app_id: string;
+  entity_id: string;
+  record_id: string;
+  current_state: string;
+  version: number;
+  sla_deadline: string | null;
+  started_at: string;
+  completed_at: string | null;
+  assigned_user_id: string | null;
+  assigned_group_id: string | null;
+}
+
+export interface AssignInstanceRequest {
+  assigned_user_id?: string | null;
+  assigned_group_id?: string | null;
 }
 
 export async function listWorkflows(
@@ -109,6 +142,44 @@ export async function createState(
   return data;
 }
 
+export async function updateState(
+  appId: string,
+  workflowId: string,
+  stateId: string,
+  body: StateDefUpdate,
+): Promise<StateDefRead> {
+  const { data } = await apiClient.patch<StateDefRead>(
+    `/apps/${appId}/workflows/${workflowId}/states/${stateId}`,
+    body,
+  );
+  return data;
+}
+
 export async function deleteState(appId: string, workflowId: string, stateId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}/workflows/${workflowId}/states/${stateId}`);
+}
+
+export async function listInstances(
+  appId: string,
+  workflowId: string,
+  params?: { record_id?: string; limit?: number },
+): Promise<WorkflowInstanceRead[]> {
+  const { data } = await apiClient.get<WorkflowInstanceRead[]>(
+    `/apps/${appId}/workflows/${workflowId}/instances`,
+    { params },
+  );
+  return data;
+}
+
+export async function assignInstance(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+  body: AssignInstanceRequest,
+): Promise<WorkflowInstanceRead> {
+  const { data } = await apiClient.patch<WorkflowInstanceRead>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/assign`,
+    body,
+  );
+  return data;
 }
