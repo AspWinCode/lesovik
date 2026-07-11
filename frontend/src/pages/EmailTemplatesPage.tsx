@@ -374,22 +374,18 @@ function TemplateEditor({
   );
 }
 
-/* ── Main page ── */
-export function EmailTemplatesPage() {
-  const [railModule, setRailModule] = useState<RailModule>("notifications");
+/* ── Shared content (used by both the standalone page and AdminPage) ── */
+export function EmailTemplatesContent({ className }: { className?: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const appsQuery = useApps();
-  const app = useActiveApp(appsQuery.data?.items ?? []);
   const templatesQuery = useEmailTemplates();
   const createMutation = useCreateEmailTemplate();
 
   const templates = templatesQuery.data ?? [];
   const selected = templates.find((t) => t.id === selectedId) ?? null;
 
-  // Auto-select first template when list loads
   useEffect(() => {
     if (!selectedId && templates.length > 0) {
       setSelectedId(templates[0].id);
@@ -414,95 +410,85 @@ export function EmailTemplatesPage() {
   }
 
   return (
-    <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
-      <Navbar />
-      <IconRail active={railModule} onChange={setRailModule} />
-
-      <main
-        className="absolute bg-mainbg flex"
-        style={{ left: 85, top: 70, width: 1425, height: 1010 }}
-      >
-        {/* Sidebar */}
-        <aside className="w-[280px] shrink-0 bg-white border-r border-cardbg flex flex-col h-full">
-          <div className="px-4 py-4 border-b border-cardbg">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="text-[16px] font-semibold text-primary">Email-шаблоны</h2>
-              <button
-                onClick={() => setShowNew(true)}
-                title="Новый шаблон"
-                className="w-[28px] h-[28px] flex items-center justify-center rounded-[6px] bg-cta text-white text-[18px] leading-none hover:bg-cta/90"
-              >
-                +
-              </button>
-            </div>
-            <p className="text-[12px] text-primary/40">{templates.length} шаблонов</p>
+    <div className={cn("flex overflow-hidden bg-white rounded-[5px] shadow-[0_4px_4px_rgba(0,0,0,0.25)]", className)}>
+      {/* Sidebar */}
+      <aside className="w-[280px] shrink-0 border-r border-cardbg flex flex-col h-full">
+        <div className="px-4 py-4 border-b border-cardbg">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-[16px] font-semibold text-primary">Email-шаблоны</h2>
+            <button
+              onClick={() => setShowNew(true)}
+              title="Новый шаблон"
+              className="w-[28px] h-[28px] flex items-center justify-center rounded-[6px] bg-cta text-white text-[18px] leading-none hover:bg-cta/90"
+            >
+              +
+            </button>
           </div>
-
-          <div className="flex-1 overflow-y-auto py-2">
-            {templatesQuery.isLoading && (
-              <p className="px-4 py-3 text-[13px] text-primary/40">Загрузка...</p>
-            )}
-            {templates.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setSelectedId(t.id)}
-                className={cn(
-                  "w-full text-left px-4 py-3 transition-colors border-l-2",
-                  selectedId === t.id
-                    ? "bg-cta/6 border-cta"
-                    : "border-transparent hover:bg-mainbg",
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-medium text-primary leading-tight truncate">
-                    {t.name}
-                  </span>
-                  {t.is_system && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/8 text-primary/40 shrink-0">
-                      sys
-                    </span>
-                  )}
-                </div>
-                <span className="text-[11px] font-mono text-primary/35">{t.code}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        {/* Editor */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-white">
-          {selected ? (
-            <TemplateEditor
-              key={selected.id}
-              template={selected}
-              onSaved={showToast}
-              onDeleted={() => {
-                setSelectedId(templates.find((t) => t.id !== selected.id)?.id ?? null);
-                showToast("Шаблон удалён");
-              }}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="w-12 h-12 rounded-full bg-cta/10 flex items-center justify-center mb-3">
-                <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
-                  <path d="M4 4h16v16H4z" stroke="#35A7FF" strokeWidth="1.5" rx="2" />
-                  <path d="M4 8l8 5 8-5" stroke="#35A7FF" strokeWidth="1.5" />
-                </svg>
-              </div>
-              <p className="text-[16px] font-semibold text-primary mb-1">Выберите шаблон</p>
-              <p className="text-[13px] text-primary/40">или создайте новый</p>
-              <button
-                onClick={() => setShowNew(true)}
-                className="mt-4 h-[36px] px-4 rounded-[8px] text-[13px] bg-cta text-white hover:bg-cta/90"
-              >
-                Новый шаблон
-              </button>
-            </div>
-          )}
+          <p className="text-[12px] text-primary/40">{templates.length} шаблонов</p>
         </div>
-      </main>
 
-      <PreviewPanel projectName={app?.name ?? "Lesovik"} />
+        <div className="flex-1 overflow-y-auto py-2">
+          {templatesQuery.isLoading && (
+            <p className="px-4 py-3 text-[13px] text-primary/40">Загрузка...</p>
+          )}
+          {templates.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setSelectedId(t.id)}
+              className={cn(
+                "w-full text-left px-4 py-3 transition-colors border-l-2",
+                selectedId === t.id
+                  ? "bg-cta/6 border-cta"
+                  : "border-transparent hover:bg-mainbg",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-[14px] font-medium text-primary leading-tight truncate">
+                  {t.name}
+                </span>
+                {t.is_system && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/8 text-primary/40 shrink-0">
+                    sys
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] font-mono text-primary/35">{t.code}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      {/* Editor */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {selected ? (
+          <TemplateEditor
+            key={selected.id}
+            template={selected}
+            onSaved={showToast}
+            onDeleted={() => {
+              setSelectedId(templates.find((t) => t.id !== selected.id)?.id ?? null);
+              showToast("Шаблон удалён");
+            }}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="w-12 h-12 rounded-full bg-cta/10 flex items-center justify-center mb-3">
+              <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+                <path d="M4 4h16v16H4z" stroke="#35A7FF" strokeWidth="1.5" rx="2" />
+                <path d="M4 8l8 5 8-5" stroke="#35A7FF" strokeWidth="1.5" />
+              </svg>
+            </div>
+            <p className="text-[16px] font-semibold text-primary mb-1">Выберите шаблон</p>
+            <p className="text-[13px] text-primary/40">или создайте новый</p>
+            <button
+              onClick={() => setShowNew(true)}
+              className="mt-4 h-[36px] px-4 rounded-[8px] text-[13px] bg-cta text-white hover:bg-cta/90"
+            >
+              Новый шаблон
+            </button>
+          </div>
+        )}
+      </div>
 
       {showNew && (
         <NewTemplateModal
@@ -516,6 +502,30 @@ export function EmailTemplatesPage() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Main page ── */
+export function EmailTemplatesPage() {
+  const [railModule, setRailModule] = useState<RailModule>("notifications");
+
+  const appsQuery = useApps();
+  const app = useActiveApp(appsQuery.data?.items ?? []);
+
+  return (
+    <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
+      <Navbar />
+      <IconRail active={railModule} onChange={setRailModule} />
+
+      <main
+        className="absolute bg-mainbg"
+        style={{ left: 85, top: 70, width: 1425, height: 1010 }}
+      >
+        <EmailTemplatesContent className="h-full" />
+      </main>
+
+      <PreviewPanel projectName={app?.name ?? "Lesovik"} />
     </div>
   );
 }

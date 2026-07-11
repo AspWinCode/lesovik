@@ -10,9 +10,10 @@ import { useHealth } from "@/shared/hooks/useHealth";
 import { useAuthStore } from "@/shared/auth/store";
 import { useAllSessions, useTerminateSession, useTerminateUserSessions } from "@/shared/hooks/useSessions";
 import { useAllRoles, useCreateRole, useDeleteRole } from "@/shared/hooks/useRbac";
+import { EmailTemplatesContent } from "@/pages/EmailTemplatesPage";
 
 /* ── Types ── */
-type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "roles" | "apps" | "databases" | "sessions";
+type AdminSection = "home" | "orgs" | "logs" | "users" | "groups" | "roles" | "apps" | "databases" | "sessions" | "notifications";
 
 const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode; platformOnly?: boolean }[] = [
   { id: "home",      label: "Главная",        icon: <HomeIcon /> },
@@ -22,8 +23,9 @@ const ALL_ADMIN_ITEMS: { id: AdminSection; label: string; icon: React.ReactNode;
   { id: "roles",     label: "Роли",           icon: <RolesNavIcon /> },
   { id: "apps",      label: "Приложения",     icon: <AppsIcon />, platformOnly: true },
   { id: "databases", label: "Базы данных",    icon: <DbIcon />, platformOnly: true },
-  { id: "sessions",  label: "Сессии",         icon: <SessionsNavIcon /> },
-  { id: "logs",      label: "Журнал аудита",  icon: <LogsIcon /> },
+  { id: "sessions",       label: "Сессии",          icon: <SessionsNavIcon /> },
+  { id: "notifications",  label: "Email-шаблоны",   icon: <NotifNavIcon /> },
+  { id: "logs",           label: "Журнал аудита",   icon: <LogsIcon /> },
 ];
 
 function AdminSidebar({
@@ -1829,15 +1831,16 @@ export function AdminPage() {
   const [section, setSection] = useState<AdminSection>(defaultSection);
 
   const contentMap: Record<AdminSection, React.ReactNode> = {
-    home:      <AdminDashboard />,
-    orgs:      <AdminOrgs />,
-    logs:      <AdminLogs />,
-    users:     <AdminUsers />,
-    groups:    <AdminGroups />,
-    roles:     <AdminRoles />,
-    apps:      <AdminApps />,
-    databases: <AdminDatabases />,
-    sessions:  <AdminSessions />,
+    home:          <AdminDashboard />,
+    orgs:          <AdminOrgs />,
+    logs:          <AdminLogs />,
+    users:         <AdminUsers />,
+    groups:        <AdminGroups />,
+    roles:         <AdminRoles />,
+    apps:          <AdminApps />,
+    databases:     <AdminDatabases />,
+    sessions:      <AdminSessions />,
+    notifications: <EmailTemplatesContent className="h-[920px]" />,
   };
 
   return (
@@ -2182,6 +2185,15 @@ function SessionsNavIcon() {
       <path d="M3 10h19" stroke="#00205F" strokeWidth="1.5"/>
       <circle cx="7" cy="15" r="1.5" fill="#00205F"/>
       <circle cx="12.5" cy="15" r="1.5" fill="#00205F"/>
+    </svg>
+  );
+}
+
+function NotifNavIcon() {
+  return (
+    <svg viewBox="0 0 25 25" fill="none" className="w-full h-full">
+      <rect x="3" y="5" width="19" height="14" rx="2" stroke="#00205F" strokeWidth="2"/>
+      <path d="M3 9l9.5 6 9.5-6" stroke="#00205F" strokeWidth="1.5" strokeLinecap="round"/>
     </svg>
   );
 }
