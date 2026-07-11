@@ -85,3 +85,7 @@ export async function inviteUser(body: InviteUserRequest): Promise<User> {
   const { data } = await apiClient.post<User>("/users/invite", body);
   return data;
 }
+
+export async function setUserPassword(userId: string, newPassword: string): Promise<void> {
+  await apiClient.post(`/users/${userId}/set-password`, { new_password: newPassword });
+}

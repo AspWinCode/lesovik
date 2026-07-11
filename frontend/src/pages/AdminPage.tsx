@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
-import { useUsers, useDeactivateUser, useUpdateUser, useHardDeleteUser, useInviteUser, useRoles } from "@/shared/hooks/useUsers";
+import { useUsers, useDeactivateUser, useUpdateUser, useHardDeleteUser, useInviteUser, useSetUserPassword, useRoles } from "@/shared/hooks/useUsers";
 import { useGroups, useCreateGroup, useUpdateGroup, useDeleteGroup, useGroup, useAddGroupMember, useRemoveGroupMember, useApplyGroupRoles } from "@/shared/hooks/useGroups";
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
 import { useApps } from "@/shared/hooks/useApps";
@@ -795,6 +795,7 @@ function AdminUsers() {
   const [search, setSearch] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [passwordUser, setPasswordUser] = useState<{ id: string; name: string } | null>(null);
   const { data, isLoading } = useUsers(search ? { search } : undefined);
   const deactivate = useDeactivateUser();
   const update = useUpdateUser();
@@ -815,6 +816,7 @@ function AdminUsers() {
   return (
     <div className="flex flex-col gap-[40px]">
       {inviteOpen && <InviteUserDialog onClose={() => setInviteOpen(false)} />}
+      {passwordUser && <SetPasswordDialog userId={passwordUser.id} userName={passwordUser.name} onClose={() => setPasswordUser(null)} />}
 
       {deleteConfirm && (
         <div
@@ -920,6 +922,7 @@ function AdminUsers() {
                       onBlock={() => update.mutate({ userId: u.id, body: { is_blocked: true } })}
                       onUnblock={() => update.mutate({ userId: u.id, body: { is_blocked: false } })}
                       onDelete={() => setDeleteConfirm({ id: u.id, name: u.display_name })}
+                      onSetPassword={() => setPasswordUser({ id: u.id, name: u.display_name })}
                     />
                   </td>
                 </tr>
@@ -940,6 +943,7 @@ function UserActionsMenu({
   onBlock,
   onUnblock,
   onDelete,
+  onSetPassword,
 }: {
   user: { is_active: boolean; is_blocked: boolean; is_superuser: boolean };
   onDeactivate: () => void;
@@ -947,6 +951,7 @@ function UserActionsMenu({
   onBlock: () => void;
   onUnblock: () => void;
   onDelete: () => void;
+  onSetPassword: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -1031,6 +1036,19 @@ function UserActionsMenu({
             </button>
           )}
 
+          <div className="border-t border-mainbg my-[4px]" />
+          <button
+            onClick={() => act(onSetPassword)}
+            className="w-full text-left flex items-center gap-[10px] px-[14px] h-[36px] text-[14px] text-primary hover:bg-mainbg transition-colors"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 shrink-0 text-primary/60" stroke="currentColor" strokeWidth="1.5">
+              <rect x="3" y="7" width="10" height="7" rx="1.5" />
+              <path d="M5.5 7V5a2.5 2.5 0 015 0v2" strokeLinecap="round" />
+              <line x1="8" y1="10" x2="8" y2="11.5" strokeLinecap="round" strokeWidth="2" />
+            </svg>
+            Установить пароль
+          </button>
+
           {!user.is_superuser && (
             <>
               <div className="border-t border-mainbg my-[4px]" />
@@ -1049,6 +1067,67 @@ function UserActionsMenu({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Set password dialog ── */
+function SetPasswordDialog({ userId, userName, onClose }: { userId: string; userName: string; onClose: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const setPass = useSetUserPassword();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) { setError("Минимум 8 символов"); return; }
+    setPass.mutate(
+      { userId, newPassword: password },
+      {
+        onSuccess: onClose,
+        onError: (err: unknown) => {
+          const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+          setError(detail ?? "Не удалось установить пароль");
+        },
+      },
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,32,95,0.35)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-[20px] w-[420px] flex flex-col"
+        style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[20px]">
+          <span className="text-[20px] font-bold text-primary">Установить пароль</span>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg transition-colors text-primary/40 hover:text-primary text-[22px] leading-none">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-[16px] px-[30px] pb-[28px]">
+          <p className="text-[14px] text-primary/60">Новый пароль для <strong className="text-primary">{userName}</strong></p>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(""); }}
+            placeholder="Введите новый пароль"
+            autoFocus
+            className="h-[42px] px-[14px] bg-mainbg rounded-[10px] text-[15px] text-primary outline-none border border-transparent focus:border-cta transition-colors placeholder:text-primary/30"
+          />
+          {error && <p className="text-[13px] text-red-400 -mt-2">{error}</p>}
+          <div className="flex gap-[10px] justify-end pt-[4px]">
+            <button type="button" onClick={onClose} className="h-[42px] px-[22px] border-2 border-primary/20 rounded-[20px] text-[15px] text-primary hover:bg-mainbg transition-colors">
+              Отмена
+            </button>
+            <button type="submit" disabled={setPass.isPending} className="h-[42px] px-[22px] bg-cta rounded-[20px] text-[15px] font-semibold text-white hover:bg-active transition-colors disabled:opacity-50">
+              {setPass.isPending ? "Сохранение…" : "Сохранить"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

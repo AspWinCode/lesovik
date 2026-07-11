@@ -6,6 +6,7 @@ import {
   inviteUser,
   listRoles,
   listUsers,
+  setUserPassword,
   updateUser,
   type InviteUserRequest,
   type UserCreate,
@@ -69,5 +70,12 @@ export function useInviteUser() {
   return useMutation({
     mutationFn: (body: InviteUserRequest) => inviteUser(body),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: USERS_KEY }); },
+  });
+}
+
+export function useSetUserPassword() {
+  return useMutation({
+    mutationFn: ({ userId, newPassword }: { userId: string; newPassword: string }) =>
+      setUserPassword(userId, newPassword),
   });
 }

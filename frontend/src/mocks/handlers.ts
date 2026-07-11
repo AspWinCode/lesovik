@@ -718,6 +718,16 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  http.post(`${API}/users/:userId/set-password`, async ({ params, request }) => {
+    const user = mockUsers.find((u) => u.id === params.userId);
+    if (!user) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as { new_password: string };
+    if (!body.new_password || body.new_password.length < 8) {
+      return HttpResponse.json({ detail: "Минимум 8 символов" }, { status: 422 });
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.post(`${API}/users/invite`, async ({ request }) => {
     const body = (await request.json()) as { email: string; display_name?: string; roles?: string[] };
     const existing = mockUsers.find((u) => u.email === body.email);

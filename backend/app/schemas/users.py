@@ -75,6 +75,10 @@ class InviteUserRequest(BaseModel):
     roles: list[str] = Field(default_factory=list)
 
 
+class AdminSetPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class AuditLogRead(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID | None

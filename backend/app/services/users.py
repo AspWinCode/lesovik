@@ -227,6 +227,32 @@ class UserService:
         )
         return await self.get_by_id(user_id)
 
+    async def set_password(
+        self,
+        user_id: uuid.UUID,
+        new_password: str,
+        set_by: uuid.UUID | None = None,
+        actor_email: str | None = None,
+    ) -> None:
+        user = await self._fetch_user(user_id)
+        try:
+            validate_password(new_password)
+        except PasswordPolicyError as exc:
+            raise ValueError(str(exc)) from exc
+        user.password_hash = hash_password(new_password)
+        user.password_changed_at = datetime.now(UTC)
+        await self._db.flush()
+        logger.info("admin_set_password", user_id=str(user_id))
+        await AuditService(self._db).log(
+            "user_updated",
+            user_id=set_by,
+            actor_email=actor_email,
+            resource_type="user",
+            resource_id=str(user_id),
+            level="warn",
+            details={"action": "admin_password_set"},
+        )
+
     async def delete_user(
         self,
         user_id: uuid.UUID,

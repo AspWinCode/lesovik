@@ -1115,6 +1115,10 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
     );
   }
 
+  if (viewType === "list") {
+    return <ListView title={title} cols={cols} records={records} accent={accent} colors={colors} onRowClick={canDrill ? (recordId) => onRowClick!(entity!.id, recordId) : undefined} />;
+  }
+
   if (viewType === "detail" || viewType === "details" || viewType === "card") {
     return <DetailView title={title} cols={cols} records={records} accent={accent} initialRecordId={activeRecordId} />;
   }
@@ -1144,6 +1148,75 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
               {cols[0] ? String(rec.payload[cols[0].name] ?? "—") : rec.id.slice(0, 8)}
             </div>
           ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── List view: scrollable card list ── */
+function ListView({ title, cols, records, accent, colors, onRowClick }: {
+  title: string; cols: FieldRead[]; records: RecordRead[]; accent: string; colors: AppColors;
+  onRowClick?: (recordId: string) => void;
+}) {
+  const labelCol = cols[0];
+  const subCols = cols.slice(1, 4);
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{title}</span>
+        <span style={{ fontSize: 12, color: colors.textMuted, fontWeight: 400 }}>{records.length} записей</span>
+      </div>
+      {records.length === 0 ? (
+        <div style={{ padding: 24, color: colors.textMuted, fontSize: 14, textAlign: "center" }}>Нет записей</div>
+      ) : (
+        <div style={{ maxHeight: 420, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          {records.map((rec, idx) => {
+            const label = labelCol ? String(rec.payload[labelCol.name] ?? "—") : rec.id.slice(0, 8);
+            return (
+              <div
+                key={rec.id}
+                onClick={() => onRowClick?.(rec.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 14px",
+                  borderTop: idx > 0 ? `1px solid ${colors.border}` : undefined,
+                  cursor: onRowClick ? "pointer" : "default",
+                  background: "transparent",
+                  transition: "background 0.12s",
+                }}
+                onMouseEnter={(e) => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = colors.bg; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+              >
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: accent + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14, fontWeight: 700, color: accent }}>
+                  {label.slice(0, 1).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
+                  {subCols.length > 0 && (
+                    <div style={{ display: "flex", gap: 12, marginTop: 2, flexWrap: "wrap" }}>
+                      {subCols.map((f) => {
+                        const val = rec.payload[f.name];
+                        if (val === null || val === undefined || val === "") return null;
+                        return (
+                          <span key={f.id} style={{ fontSize: 12, color: colors.textMuted }}>
+                            <span style={{ fontWeight: 500 }}>{f.display_name}:</span>{" "}
+                            {formatCell(val, f)}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {onRowClick && (
+                  <svg viewBox="0 0 16 16" fill="none" style={{ width: 14, height: 14, color: colors.textMuted, flexShrink: 0 }} stroke="currentColor" strokeWidth="1.8">
+                    <path d="M6 3l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

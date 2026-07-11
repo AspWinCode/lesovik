@@ -436,7 +436,7 @@ export function MainPage() {
           className="absolute flex items-center justify-center gap-5
                      bg-cta rounded-btn text-[24px] font-medium text-white
                      hover:bg-active transition-colors cursor-pointer"
-          style={{ left: "calc(50% - 165.5px)", top: 919, width: 331, height: 50 }}
+          style={{ left: "calc(50% - 165.5px)", top: 870, width: 331, height: 50 }}
         >
           Приступить к работе
         </button>

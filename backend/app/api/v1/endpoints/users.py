@@ -9,6 +9,7 @@ from app.api.deps import AuthDep, DbDep
 from app.schemas.common import CursorPage
 from app.schemas.auth import SessionRead
 from app.schemas.users import (
+    AdminSetPasswordRequest,
     AuditLogRead,
     InviteUserRequest,
     RoleRead,
@@ -154,6 +155,23 @@ async def delete_user(user_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> N
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.post("/{user_id}/set-password", status_code=status.HTTP_204_NO_CONTENT, summary="Admin: set password directly without email")
+async def admin_set_password(user_id: uuid.UUID, body: AdminSetPasswordRequest, current_user: AuthDep, db: DbDep) -> None:
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    try:
+        await UserService(db).set_password(
+            user_id,
+            body.new_password,
+            set_by=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+        )
+    except UserNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/{user_id}/sessions", response_model=list[SessionRead], summary="List active sessions for a user")
