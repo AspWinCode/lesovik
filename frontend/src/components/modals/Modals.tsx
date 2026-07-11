@@ -11,7 +11,7 @@ import {
   useCreateSnapshot,
   useRollbackSnapshot,
 } from "@/shared/hooks/useApps";
-import { useUsers } from "@/shared/hooks/useUsers";
+import { useUsers, useInviteUser } from "@/shared/hooks/useUsers";
 import type { AppSnapshot } from "@/shared/api/apps";
 
 /* ─────────────────────────────────────────────────
@@ -503,6 +503,7 @@ export function RolesModal({
   const { data: allUsers } = useUsers();
   const removeMember = useRemoveAppMember(appId ?? "");
   const addMember = useAddAppMember(appId ?? "");
+  const inviteUser = useInviteUser();
 
   function copyLink() {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -534,7 +535,18 @@ export function RolesModal({
     if (!email) return;
     const user = allUsers?.items.find((u) => u.email === email);
     if (!user) {
-      setInviteError("Пользователь с таким email не найден");
+      inviteUser.mutate(
+        { email, display_name: email, roles: [] },
+        {
+          onSuccess: (newUser) => {
+            addMember.mutate(
+              { userId: newUser.id, role: "editor" },
+              { onSuccess: () => { setInviteEmail(""); setInviteError(""); } },
+            );
+          },
+          onError: () => { setInviteError("Не удалось отправить приглашение"); },
+        },
+      );
       return;
     }
     const already = (members ?? []).some((m) => m.user_id === user.id);

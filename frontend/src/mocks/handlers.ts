@@ -718,6 +718,27 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  http.post(`${API}/users/invite`, async ({ request }) => {
+    const body = (await request.json()) as { email: string; display_name?: string; roles?: string[] };
+    const existing = mockUsers.find((u) => u.email === body.email);
+    if (existing) return HttpResponse.json(existing);
+    const now = new Date().toISOString();
+    const newUser: User = {
+      id: crypto.randomUUID(),
+      email: body.email,
+      display_name: body.display_name ?? body.email,
+      is_active: true,
+      is_superuser: false,
+      totp_enabled: false,
+      last_login_at: null,
+      created_at: now,
+      updated_at: now,
+      roles: [],
+    };
+    mockUsers.push(newUser);
+    return HttpResponse.json(newUser, { status: 201 });
+  }),
+
   // Entities
   http.get(`${API}/apps/:appId/entities`, ({ params }) => {
     const appId = params.appId as string;
