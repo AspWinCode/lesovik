@@ -727,6 +727,18 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
                     </span>
                   )}
                 </div>
+              ) : (f.field_type === "select" || f.field_type === "multi_select") ? (
+                <select
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  required={f.is_required}
+                  style={{ ...inputStyleCss(), cursor: "pointer" }}
+                >
+                  <option value="">— выберите —</option>
+                  {((f.field_options?.choices as { value: string; label: string }[]) ?? []).map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
               ) : (
                 <input
                   type={f.field_type === "number" ? "number" : f.field_type === "date" ? "date" : "text"}
@@ -919,12 +931,26 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                     {cols.map((f) => (
                       <td key={f.id} style={{ padding: colPadding, whiteSpace: "nowrap" }}>
                         {isEditing ? (
+                          (f.field_type === "select" || f.field_type === "multi_select") ? (
+                            <select
+                              value={editValues[f.name] ?? ""}
+                              onChange={(e) => setEditValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ height: 26, padding: "0 4px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
+                            >
+                              <option value="">—</option>
+                              {((f.field_options?.choices as { value: string; label: string }[]) ?? []).map((c) => (
+                                <option key={c.value} value={c.value}>{c.label}</option>
+                              ))}
+                            </select>
+                          ) : (
                           <input
                             value={editValues[f.name] ?? ""}
                             onChange={(e) => setEditValues((v) => ({ ...v, [f.name]: e.target.value }))}
                             onClick={(e) => e.stopPropagation()}
                             style={{ height: 26, padding: "0 6px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
                           />
+                          )
                         ) : (
                           formatCell(rec.payload[f.name], f)
                         )}
