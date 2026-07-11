@@ -549,6 +549,22 @@ export const handlers = [
     return HttpResponse.json(page);
   }),
 
+  http.post(`${API}/apps/:appId/publish`, ({ params }) => {
+    const app = apps.find((a) => a.id === params.appId);
+    if (!app) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    app.is_published = true;
+    app.updated_at = new Date().toISOString();
+    return HttpResponse.json(app);
+  }),
+
+  http.post(`${API}/apps/:appId/unpublish`, ({ params }) => {
+    const app = apps.find((a) => a.id === params.appId);
+    if (!app) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    app.is_published = false;
+    app.updated_at = new Date().toISOString();
+    return HttpResponse.json(app);
+  }),
+
   http.post(`${API}/apps`, async ({ request }) => {
     const body = (await request.json()) as { slug: string; name: string; description?: string | null };
     const created = makeApp({ slug: body.slug, name: body.name, description: body.description ?? null });
