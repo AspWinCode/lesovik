@@ -1,9 +1,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.api.deps import DbDep
 from app.schemas.email_templates import (
     EmailTemplateCreate,
     EmailTemplatePreviewRequest,
@@ -21,7 +20,7 @@ from app.services.email_templates import (
 router = APIRouter(prefix="/email-templates", tags=["email-templates"])
 
 
-def _svc(db: AsyncSession = Depends(get_db)) -> EmailTemplateService:
+def _svc(db: DbDep) -> EmailTemplateService:
     return EmailTemplateService(db)
 
 
