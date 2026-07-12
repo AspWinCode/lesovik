@@ -220,6 +220,12 @@ export function ViewEditorPage() {
   const layoutRef = useRef<Record<string, unknown>>({});
   useEffect(() => { layoutRef.current = layout; }, [layout]);
 
+  const blocksRef = useRef<PageBlock[]>([]);
+  const undoStackRef = useRef<{ blocks: PageBlock[]; layout: Record<string, unknown> }[]>([]);
+  const redoStackRef = useRef<{ blocks: PageBlock[]; layout: Record<string, unknown> }[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
   const viewType = (layout.view_type as ViewType) ?? "table";
   const selectedEntityId = (layout.entity_id as string) ?? "";
   const position = (layout.position as string) ?? "первый";
@@ -272,9 +278,17 @@ export function ViewEditorPage() {
   // Sync local state from active page
   useEffect(() => {
     if (!activePage) return;
+    const loadedBlocks = (activePage.blocks ?? []) as unknown as PageBlock[];
+    const loadedLayout = activePage.layout ?? {};
     setName(activePage.title);
-    setBlocks((activePage.blocks ?? []) as unknown as PageBlock[]);
-    setLayout(activePage.layout ?? {});
+    setBlocks(loadedBlocks);
+    setLayout(loadedLayout);
+    blocksRef.current = loadedBlocks;
+    layoutRef.current = loadedLayout;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
   }, [activeView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const userPages   = pages.filter((p) => !p.layout?.is_system);
@@ -367,8 +381,16 @@ export function ViewEditorPage() {
     if (!hasDetail || !hasForm || !hasInline) _postRefetch();
   }
 
+  function pushToHistory() {
+    undoStackRef.current = [...undoStackRef.current.slice(-49), { blocks: blocksRef.current, layout: layoutRef.current }];
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }
+
   // Merge a partial into page.layout and persist to backend.
   function patchLayout(partial: Record<string, unknown>) {
+    pushToHistory();
     const next = { ...layoutRef.current, ...partial };
     setLayout(next);
     if (!activeView || !appId) return;
@@ -403,7 +425,9 @@ export function ViewEditorPage() {
   }
 
   function handleBlocksChange(newBlocks: PageBlock[]) {
+    pushToHistory();
     setBlocks(newBlocks);
+    blocksRef.current = newBlocks;
     if (!activeView || !appId) return;
     updatePageMutation.mutate(
       { pageId: activeView, body: { blocks: newBlocks as unknown as Record<string, unknown>[] } },
@@ -415,6 +439,42 @@ export function ViewEditorPage() {
     handleBlocksChange(blocks.map((block) => (
       block.id === blockId ? { ...block, ...patch } : block
     )));
+  }
+
+  function handleUndo() {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    redoStackRef.current.push({ blocks: blocksRef.current, layout: layoutRef.current });
+    setBlocks(prev.blocks);
+    blocksRef.current = prev.blocks;
+    setLayout(prev.layout);
+    layoutRef.current = prev.layout;
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
+    if (activeView && appId) {
+      updatePageMutation.mutate(
+        { pageId: activeView, body: { blocks: prev.blocks as unknown as Record<string, unknown>[], layout: prev.layout } },
+        { onSuccess: () => _postRefetch(prev.layout) },
+      );
+    }
+  }
+
+  function handleRedo() {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    undoStackRef.current.push({ blocks: blocksRef.current, layout: layoutRef.current });
+    setBlocks(next.blocks);
+    blocksRef.current = next.blocks;
+    setLayout(next.layout);
+    layoutRef.current = next.layout;
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
+    if (activeView && appId) {
+      updatePageMutation.mutate(
+        { pageId: activeView, body: { blocks: next.blocks as unknown as Record<string, unknown>[], layout: next.layout } },
+        { onSuccess: () => _postRefetch(next.layout) },
+      );
+    }
   }
 
   function handleUpdateBlockConfig(blockId: string, patch: Record<string, unknown>) {
@@ -487,6 +547,8 @@ export function ViewEditorPage() {
           { pageId: activeView, body: { title: name, layout, blocks: blocks as unknown as Record<string, unknown>[] } },
           { onSuccess: () => _postRefetch() },
         ) : undefined}
+        onUndo={canUndo ? handleUndo : undefined}
+        onRedo={canRedo ? handleRedo : undefined}
       />
       <IconRail active={railModule} onChange={setRailModule} onCollapse={() => setNavCollapsed((v) => !v)} collapsed={navCollapsed} />
       {!navCollapsed && (
