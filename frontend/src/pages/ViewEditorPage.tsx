@@ -310,14 +310,14 @@ export function ViewEditorPage() {
     const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
     return blks.length === 0 || (isDataView && !lay.entity_id);
   });
-  const warningMessages = warningPages.map((p) => {
+  const warnings = warningPages.map((p) => {
     const lay = (p.layout ?? {}) as Record<string, unknown>;
     const blks = (p.blocks ?? []) as unknown[];
     const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
-    const name = (lay.name as string) ?? p.id;
-    if (blks.length === 0) return `«${name}» — нет блоков`;
-    if (isDataView && !lay.entity_id) return `«${name}» — не выбрана таблица`;
-    return `«${name}»`;
+    const name = (lay.name as string) || "Без названия";
+    if (blks.length === 0) return { pageId: p.id, message: `Страница «${name}» пустая`, hint: "Перейдите и добавьте хотя бы один блок" };
+    if (isDataView && !lay.entity_id) return { pageId: p.id, message: `Представление «${name}» не настроено`, hint: "Выберите таблицу данных для этого представления" };
+    return { pageId: p.id, message: `«${name}»`, hint: "" };
   });
 
   function _postRefetch(updatedLayout?: Record<string, unknown>) {
@@ -506,7 +506,7 @@ export function ViewEditorPage() {
             reorderPagesMutation.mutate(reorderItems);
           }}
           onPagePermissions={(id) => setPermissionsPageId(id)}
-          warningMessages={warningMessages}
+          warnings={warnings}
           systemGroups={systemGroups}
         />
       )}

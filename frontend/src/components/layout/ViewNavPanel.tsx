@@ -45,7 +45,7 @@ interface ViewNavPanelProps {
   onAddRecord?: (entityId: string) => void;
   onReorderViews?: (sectionId: string, orderedIds: string[]) => void;
   onPagePermissions?: (viewId: string) => void;
-  warningMessages?: string[];
+  warnings?: { message: string; hint: string; pageId: string }[];
   systemGroups?: SystemNavGroup[];
 }
 
@@ -60,7 +60,7 @@ export function ViewNavPanel({
   onAddRecord,
   onReorderViews,
   onPagePermissions,
-  warningMessages = [],
+  warnings = [],
   systemGroups = [],
 }: ViewNavPanelProps) {
   const [systemOpen, setSystemOpen] = useState(false);
@@ -132,7 +132,7 @@ export function ViewNavPanel({
           <h2 className="text-nav font-bold text-primary">{title}</h2>
         )}
         <div className="flex items-center gap-4 shrink-0">
-          {warningMessages.length > 0 && !searchOpen && (
+          {warnings.length > 0 && !searchOpen && (
             <div className="relative">
               <button
                 onClick={() => setWarningOpen((v) => !v)}
@@ -143,15 +143,24 @@ export function ViewNavPanel({
               </button>
               {warningOpen && (
                 <div
-                  className="absolute right-0 top-[28px] z-50 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] py-[10px] flex flex-col min-w-[230px]"
+                  className="absolute right-0 top-[28px] z-50 bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] py-[10px] flex flex-col min-w-[260px]"
                   onMouseLeave={() => setWarningOpen(false)}
                 >
-                  <p className="text-[12px] font-semibold text-primary/50 px-4 pb-[6px] uppercase tracking-wide">Предупреждения</p>
-                  {warningMessages.map((msg, i) => (
-                    <div key={i} className="flex items-start gap-2 px-4 py-[5px]">
+                  <p className="text-[12px] font-semibold text-primary/50 px-4 pb-[6px] uppercase tracking-wide">
+                    Предупреждения ({warnings.length})
+                  </p>
+                  {warnings.map((w, i) => (
+                    <button
+                      key={i}
+                      className="flex items-start gap-2 px-4 py-[6px] text-left hover:bg-primary/5 transition-colors"
+                      onClick={() => { onSelect(w.pageId); setWarningOpen(false); }}
+                    >
                       <span className="mt-[2px] shrink-0 w-[14px] h-[14px]"><WarningIcon /></span>
-                      <span className="text-[13px] text-primary leading-[1.4]">{msg}</span>
-                    </div>
+                      <span className="flex flex-col gap-[2px]">
+                        <span className="text-[13px] text-primary leading-[1.4]">{w.message}</span>
+                        <span className="text-[11px] text-primary/50 leading-[1.3]">{w.hint}</span>
+                      </span>
+                    </button>
                   ))}
                 </div>
               )}
