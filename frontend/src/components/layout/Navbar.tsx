@@ -53,10 +53,11 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
 
       {/* Right: action icons */}
       <div className="flex items-center gap-[30px]">
-        <NavIconButton label="Сохранить" icon={<SaveIcon />} onClick={onSave} disabled={!onSave} disabledTitle="Нет активной страницы" />
-        <div className="flex items-center gap-3">
-          <NavIconButton label="Отменить" icon={<UndoIcon />} onClick={onUndo} disabled={!onUndo} disabledTitle="Нет изменений для отмены" />
-          <NavIconButton label="Повторить" icon={<RedoIcon />} onClick={onRedo} disabled={!onRedo} disabledTitle="Нет изменений для повтора" />
+        <div className="flex items-center gap-1 bg-mainbg border border-primary/10 rounded-[10px] px-2 py-1.5">
+          <EditorToolButton label="Сохранить" icon={<SaveIcon />} onClick={onSave} disabled={!onSave} disabledTitle="Нет активной страницы" accent />
+          <div className="w-px h-4 bg-primary/15 mx-1" />
+          <EditorToolButton label="Отменить" icon={<UndoIcon />} onClick={onUndo} disabled={!onUndo} disabledTitle="Нет изменений для отмены" />
+          <EditorToolButton label="Повторить" icon={<RedoIcon />} onClick={onRedo} disabled={!onRedo} disabledTitle="Нет изменений для повтора" />
         </div>
         <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" onClick={() => navigate("/")} />
         <NavIconButton
@@ -290,15 +291,46 @@ function NavIconButton({
   );
 }
 
+function EditorToolButton({
+  label, icon, onClick, disabled, disabledTitle, accent,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  disabledTitle?: string;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      aria-label={label}
+      title={disabled ? (disabledTitle ?? label) : label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-[7px] text-[13px] font-medium transition-colors",
+        disabled
+          ? "opacity-30 cursor-default text-primary"
+          : accent
+            ? "bg-cta text-white hover:bg-cta/90"
+            : "text-primary hover:bg-primary/10",
+      )}
+    >
+      <span className="w-4 h-4 shrink-0 block [&>svg]:w-full [&>svg]:h-full">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
 /* ── Icon stubs — replace with your SVG assets ── */
 const iconCls = "w-[28px] h-[28px] stroke-current fill-none";
 
 function SaveIcon() {
   return (
     <svg viewBox="0 0 30 30" className={iconCls}>
-      <rect x="5" y="19" width="20" height="6" rx="1" stroke="#CBE3FF" strokeWidth="2"/>
-      <path d="M10 5 L10 12" stroke="#CBE3FF" strokeWidth="2"/>
-      <rect x="4" y="4" width="22" height="22" rx="2" stroke="#CBE3FF" strokeWidth="2"/>
+      <rect x="5" y="19" width="20" height="6" rx="1" strokeWidth="2"/>
+      <path d="M10 5 L10 12" strokeWidth="2"/>
+      <rect x="4" y="4" width="22" height="22" rx="2" strokeWidth="2"/>
     </svg>
   );
 }
@@ -306,8 +338,8 @@ function SaveIcon() {
 function UndoIcon() {
   return (
     <svg viewBox="0 0 28 28" className={iconCls}>
-      <path d="M6 6 L6 14 L14 14" stroke="#CBE3FF" strokeWidth="2" strokeLinecap="round"/>
-      <path d="M6 14 C6 20 12 24 19 21" stroke="#CBE3FF" strokeWidth="2" strokeLinecap="round" fill="none"/>
+      <path d="M6 6 L6 14 L14 14" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M6 14 C6 20 12 24 19 21" strokeWidth="2" strokeLinecap="round" fill="none"/>
     </svg>
   );
 }
@@ -315,8 +347,8 @@ function UndoIcon() {
 function RedoIcon() {
   return (
     <svg viewBox="0 0 28 28" className={iconCls} style={{ transform: "scaleX(-1)" }}>
-      <path d="M6 6 L6 14 L14 14" stroke="#CBE3FF" strokeWidth="2" strokeLinecap="round"/>
-      <path d="M6 14 C6 20 12 24 19 21" stroke="#CBE3FF" strokeWidth="2" strokeLinecap="round" fill="none"/>
+      <path d="M6 6 L6 14 L14 14" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M6 14 C6 20 12 24 19 21" strokeWidth="2" strokeLinecap="round" fill="none"/>
     </svg>
   );
 }
