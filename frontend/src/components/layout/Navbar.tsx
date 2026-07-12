@@ -53,10 +53,10 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
 
       {/* Right: action icons */}
       <div className="flex items-center gap-[30px]">
-        <NavIconButton label="Сохранить" icon={<SaveIcon />} onClick={onSave} disabled={!onSave} />
+        <NavIconButton label="Сохранить" icon={<SaveIcon />} onClick={onSave} disabled={!onSave} disabledTitle="Нет активной страницы" />
         <div className="flex items-center gap-3">
-          <NavIconButton label="Отменить" icon={<UndoIcon />} onClick={onUndo} disabled={!onUndo} />
-          <NavIconButton label="Повторить" icon={<RedoIcon />} onClick={onRedo} disabled={!onRedo} />
+          <NavIconButton label="Отменить" icon={<UndoIcon />} onClick={onUndo} disabled={!onUndo} disabledTitle="Нет изменений для отмены" />
+          <NavIconButton label="Повторить" icon={<RedoIcon />} onClick={onRedo} disabled={!onRedo} disabledTitle="Нет изменений для повтора" />
         </div>
         <NavIconButton label="Закрыть" icon={<CloseIcon />} highlight="mistake" onClick={() => navigate("/")} />
         <NavIconButton
@@ -264,22 +264,24 @@ function NavIconButton({
   highlight,
   onClick,
   disabled,
+  disabledTitle,
 }: {
   label: string;
   icon: React.ReactNode;
   highlight?: "mistake";
   onClick?: () => void;
   disabled?: boolean;
+  disabledTitle?: string;
 }) {
   return (
     <button
       aria-label={label}
-      title={disabled ? `${label} (в разработке)` : label}
+      title={disabled ? (disabledTitle ?? label) : label}
       onClick={onClick}
       disabled={disabled}
       className={cn(
         "w-7 h-7 flex items-center justify-center rounded transition-colors",
-        disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-mainbg",
+        disabled ? "opacity-30 cursor-default" : "hover:bg-mainbg",
         highlight === "mistake" && !disabled && "text-mistake"
       )}
     >
