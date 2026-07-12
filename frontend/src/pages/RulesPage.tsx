@@ -786,7 +786,7 @@ export function RulesPage() {
       {/* ── Rules list ── */}
       <main
         className="absolute bg-mainbg overflow-y-auto"
-        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1420 : 1130, height: 1010, transition: "left 0.2s, width 0.2s" }}
+        style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1250 : 960, height: 1010, transition: "left 0.2s, width 0.2s" }}
       >
         <div className="px-[40px] py-[28px]">
           <div className="flex items-center justify-between mb-6">
