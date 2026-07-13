@@ -487,6 +487,7 @@ export function EditColumnModal({
   columnName,
   columnType,
   entities,
+  availableColumns = [],
   onClose,
   onGoToData,
   onDone,
@@ -495,6 +496,7 @@ export function EditColumnModal({
   columnName: string;
   columnType: string;
   entities?: { id: string; display_name: string }[];
+  availableColumns?: string[];
   onClose: () => void;
   onGoToData?: () => void;
   onDone?: (name: string, type: string, opts: ColumnOptions) => void;
@@ -844,6 +846,7 @@ export function EditColumnModal({
       {showFormula && (
         <FormulaAssistantInline
           columnName={name || columnName}
+          availableColumns={availableColumns}
           onClose={() => setShowFormula(false)}
           onSave={(expr) => { setFormula(expr); setShowFormula(false); }}
         />

@@ -614,6 +614,7 @@ export function DatabasePage() {
           columnName="Новое поле"
           columnType="Текст"
           entities={entities.filter((e) => e.id !== entity.id)}
+          availableColumns={displayFields.map((f) => f.display_name)}
           onClose={() => setShowEditColumnModal(false)}
           onGoToData={() => setShowEditColumnModal(false)}
           onDone={(name, type, opts: ColumnOptions) => {
