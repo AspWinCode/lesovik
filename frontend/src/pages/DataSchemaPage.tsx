@@ -167,6 +167,7 @@ export function DataSchemaPage() {
   const [entityModal, setEntityModal] = useState<{ mode: "create" | "edit"; entity?: EntityRead } | null>(null);
   const [fieldModal, setFieldModal]   = useState<{ mode: "create" | "edit"; field?: FieldRead } | null>(null);
   const [relationModal, setRelationModal] = useState(false);
+  const [relationError, setRelationError] = useState<string | null>(null);
   const [deleteEntityId, setDeleteEntityId] = useState<string | null>(null);
   const [deleteFieldId, setDeleteFieldId]   = useState<{ entityId: string; fieldId: string } | null>(null);
   const [deleteRelationId, setDeleteRelationId] = useState<string | null>(null);
@@ -442,11 +443,19 @@ export function DataSchemaPage() {
         <RelationModal
           entities={entities}
           fromEntityId={activeEntity.id}
-          onClose={() => setRelationModal(false)}
-          onCreate={(data) =>
-            createRelationM.mutate(data, { onSuccess: () => setRelationModal(false) })
-          }
+          onClose={() => { setRelationModal(false); setRelationError(null); }}
+          onCreate={(data) => {
+            setRelationError(null);
+            createRelationM.mutate(data, {
+              onSuccess: () => { setRelationModal(false); setRelationError(null); },
+              onError: (err: unknown) => {
+                const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                setRelationError(detail ?? "Не удалось создать связь. Повторите попытку.");
+              },
+            });
+          }}
           saving={createRelationM.isPending}
+          error={relationError}
         />
       )}
 
@@ -1588,12 +1597,14 @@ function RelationModal({
   onClose,
   onCreate,
   saving,
+  error,
 }: {
   entities: EntityRead[];
   fromEntityId: string;
   onClose: () => void;
   onCreate: (d: RelationCreate) => void;
   saving: boolean;
+  error?: string | null;
 }) {
   const [toEntityId, setToEntityId]       = useState("");
   const [relationType, setRelationType]   = useState<RelationType>("one_to_many");
@@ -1800,17 +1811,22 @@ function RelationModal({
           </div>
         </div>
 
-        <div className="px-6 pb-6 flex justify-end gap-2 border-t border-cardbg pt-4">
-          <button onClick={onClose} className="px-4 py-2 text-[13px] text-primary/60 hover:text-primary">
-            Отмена
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving || !toEntityId || !effectiveFromField}
-            className="px-5 py-2 bg-cta text-white text-[13px] font-medium rounded-[10px] hover:bg-active disabled:opacity-50"
-          >
-            {saving ? "Создание…" : "Создать связь"}
-          </button>
+        <div className="px-6 pb-6 border-t border-cardbg pt-4">
+          {error && (
+            <p className="text-[12px] text-red-500 mb-3">{error}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-[13px] text-primary/60 hover:text-primary">
+              Отмена
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={saving || !toEntityId || !effectiveFromField}
+              className="px-5 py-2 bg-cta text-white text-[13px] font-medium rounded-[10px] hover:bg-active disabled:opacity-50"
+            >
+              {saving ? "Создание…" : "Создать связь"}
+            </button>
+          </div>
         </div>
       </div>
     </ModalOverlay>

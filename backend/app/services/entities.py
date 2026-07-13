@@ -43,6 +43,10 @@ class FieldConflictError(Exception):
     pass
 
 
+class RelationConflictError(Exception):
+    pass
+
+
 class EntityService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -312,6 +316,20 @@ class EntityService:
         # Fetch both entities (validates they belong to this app)
         from_entity = await self._fetch_entity(app_id, data.from_entity_id)
         to_entity = await self._fetch_entity(app_id, data.to_entity_id)
+
+        # Reject duplicate: same pair of entities with the same type already exists
+        existing = await self._db.execute(
+            select(Relation).where(
+                Relation.app_id == app_id,
+                Relation.from_entity_id == data.from_entity_id,
+                Relation.to_entity_id == data.to_entity_id,
+                Relation.relation_type == data.relation_type.value,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            raise RelationConflictError(
+                f"Relation {data.relation_type.value} between these entities already exists"
+            )
 
         relation = Relation(
             app_id=app_id,

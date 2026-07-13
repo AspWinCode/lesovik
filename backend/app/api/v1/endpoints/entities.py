@@ -22,6 +22,7 @@ from app.services.entities import (
     EntityService,
     FieldConflictError,
     FieldNotFoundError,
+    RelationConflictError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -203,6 +204,8 @@ async def create_relation(
         return await EntityService(db).create_relation(app_id, body)
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found") from exc
+    except RelationConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.delete("/relations/{relation_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["relations"])
