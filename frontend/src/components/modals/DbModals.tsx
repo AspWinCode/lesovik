@@ -386,6 +386,7 @@ export function EditTableModal({
         return (
           <FormulaAssistantInline
             columnName={col?.name ?? ""}
+            availableColumns={cols.filter((c) => c.id !== formulaColId).map((c) => c.name)}
             onClose={() => setFormulaColId(null)}
             onSave={(expr) => {
               updateCol(formulaColId, { formula: expr } as Partial<TableColumn>);
@@ -2039,10 +2040,12 @@ const FORMULA_FUNCTIONS = [
 
 function FormulaAssistantInline({
   columnName,
+  availableColumns = [],
   onClose,
   onSave,
 }: {
   columnName: string;
+  availableColumns?: string[];
   onClose: () => void;
   onSave: (expr: string) => void;
 }) {
@@ -2131,19 +2134,36 @@ function FormulaAssistantInline({
             ))}
           </div>
 
-          {/* Functions list */}
-          <div className="grid grid-cols-3 gap-2 max-h-[160px] overflow-y-auto">
-            {FORMULA_FUNCTIONS.map((fn) => (
-              <button
-                key={fn.name}
-                onClick={() => setExpr((prev) => (prev === "=" ? `=${fn.name}` : prev + fn.name))}
-                className="flex flex-col items-start px-3 py-2 rounded-[8px] bg-cardbg hover:bg-cta/10 hover:border-cta border border-transparent transition-colors text-left"
-              >
-                <span className="text-[13px] font-semibold text-cta">{fn.name}</span>
-                <span className="text-[11px] text-primary/50">{fn.desc}</span>
-              </button>
-            ))}
-          </div>
+          {/* Tab content */}
+          {tab === "example" ? (
+            <div className="grid grid-cols-3 gap-2 max-h-[160px] overflow-y-auto">
+              {FORMULA_FUNCTIONS.map((fn) => (
+                <button
+                  key={fn.name}
+                  onClick={() => setExpr((prev) => (prev === "=" ? `=${fn.name}` : prev + fn.name))}
+                  className="flex flex-col items-start px-3 py-2 rounded-[8px] bg-cardbg hover:bg-cta/10 hover:border-cta border border-transparent transition-colors text-left"
+                >
+                  <span className="text-[13px] font-semibold text-cta">{fn.name}</span>
+                  <span className="text-[11px] text-primary/50">{fn.desc}</span>
+                </button>
+              ))}
+            </div>
+          ) : availableColumns.length > 0 ? (
+            <div className="grid grid-cols-3 gap-2 max-h-[160px] overflow-y-auto">
+              {availableColumns.map((col) => (
+                <button
+                  key={col}
+                  onClick={() => setExpr((prev) => prev + `[${col}]`)}
+                  className="flex flex-col items-start px-3 py-2 rounded-[8px] bg-cardbg hover:bg-cta/10 hover:border-cta border border-transparent transition-colors text-left"
+                >
+                  <span className="text-[13px] font-semibold text-primary">[{col}]</span>
+                  <span className="text-[11px] text-primary/50">поле</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[13px] text-primary/40 text-center py-6">Нет доступных полей</p>
+          )}
 
           {/* Actions */}
           <div className="flex justify-end gap-3 pt-1">
@@ -2323,6 +2343,7 @@ export function VirtualColumnModal({
       {showFormula && (
         <FormulaAssistantInline
           columnName={name || "Новый столбец"}
+          availableColumns={colOptions}
           onClose={() => setShowFormula(false)}
           onSave={(expr) => { setFormula(expr); setShowFormula(false); }}
         />
