@@ -15,6 +15,7 @@ import {
   useDeleteField,
   useRelations,
   useCreateRelation,
+  useUpdateRelation,
   useDeleteRelation,
 } from "@/shared/hooks/useEntities";
 import type {
@@ -26,6 +27,7 @@ import type {
   RelationCreate,
   RelationRead,
   RelationType,
+  RelationUpdate,
 } from "@/shared/api/entities";
 
 // ─────────────────────────────────────────────
@@ -80,11 +82,18 @@ const RELATION_LABELS: Record<RelationType, string> = {
   many_to_many: "Многие ко многим",
 };
 
-const RELATION_BADGE: Record<RelationType, string> = {
+const RELATION_BADGE: Record<RelationType | "many_to_one", string> = {
   one_to_one:   "1:1",
   one_to_many:  "1:N",
+  many_to_one:  "N:1",
   many_to_many: "N:M",
 };
+
+function effectiveRelationType(r: RelationRead, activeEntityId: string): RelationType | "many_to_one" {
+  if (r.from_entity_id === activeEntityId) return r.relation_type;
+  if (r.relation_type === "one_to_many") return "many_to_one";
+  return r.relation_type;
+}
 
 // ─────────────────────────────────────────────
 // Formula helpers
@@ -158,6 +167,7 @@ export function DataSchemaPage() {
   const updateFieldM   = useUpdateField(appId);
   const deleteFieldM   = useDeleteField(appId);
   const createRelationM = useCreateRelation(appId);
+  const updateRelationM = useUpdateRelation(appId);
   const deleteRelationM = useDeleteRelation(appId);
 
   const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
@@ -168,6 +178,8 @@ export function DataSchemaPage() {
   const [fieldModal, setFieldModal]   = useState<{ mode: "create" | "edit"; field?: FieldRead } | null>(null);
   const [relationModal, setRelationModal] = useState(false);
   const [relationError, setRelationError] = useState<string | null>(null);
+  const [editRelation, setEditRelation] = useState<RelationRead | null>(null);
+  const [editRelationError, setEditRelationError] = useState<string | null>(null);
   const [deleteEntityId, setDeleteEntityId] = useState<string | null>(null);
   const [deleteFieldId, setDeleteFieldId]   = useState<{ entityId: string; fieldId: string } | null>(null);
   const [deleteRelationId, setDeleteRelationId] = useState<string | null>(null);
@@ -387,6 +399,7 @@ export function DataSchemaPage() {
                   entities={entities}
                   activeEntityId={activeEntity.id}
                   onAddRelation={() => setRelationModal(true)}
+                  onEditRelation={(r) => { setEditRelation(r); setEditRelationError(null); }}
                   onDeleteRelation={(r) => setDeleteRelationId(r.id)}
                 />
               )}
@@ -456,6 +469,29 @@ export function DataSchemaPage() {
           }}
           saving={createRelationM.isPending}
           error={relationError}
+        />
+      )}
+
+      {editRelation && (
+        <RelationEditModal
+          relation={editRelation}
+          entities={entities}
+          onClose={() => { setEditRelation(null); setEditRelationError(null); }}
+          onUpdate={(body) => {
+            setEditRelationError(null);
+            updateRelationM.mutate(
+              { relationId: editRelation.id, body },
+              {
+                onSuccess: () => { setEditRelation(null); setEditRelationError(null); },
+                onError: (err: unknown) => {
+                  const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                  setEditRelationError(detail ?? "Не удалось сохранить изменения.");
+                },
+              },
+            );
+          }}
+          saving={updateRelationM.isPending}
+          error={editRelationError}
         />
       )}
 
@@ -703,12 +739,14 @@ function RelationsTab({
   entities,
   activeEntityId,
   onAddRelation,
+  onEditRelation,
   onDeleteRelation,
 }: {
   relations: RelationRead[];
   entities: EntityRead[];
   activeEntityId: string;
   onAddRelation: () => void;
+  onEditRelation: (r: RelationRead) => void;
   onDeleteRelation: (r: RelationRead) => void;
 }) {
   const entityName = (id: string) =>
@@ -756,27 +794,17 @@ function RelationsTab({
                     "bg-cta/10 text-cta",
                   )}
                 >
-                  {RELATION_BADGE[r.relation_type as RelationType]}
+                  {RELATION_BADGE[effectiveRelationType(r, activeEntityId)]}
                 </span>
 
                 <div className="flex items-center gap-2 flex-1 min-w-0 text-[13px]">
-                  <span
-                    className={cn(
-                      "font-medium",
-                      isFrom ? "text-cta" : "text-primary/60",
-                    )}
-                  >
+                  <span className={cn("font-medium", isFrom ? "text-cta" : "text-primary/60")}>
                     {entityName(r.from_entity_id)}
                   </span>
                   <svg viewBox="0 0 24 24" className="w-4 h-4 text-primary/30 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M5 12h14M15 8l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  <span
-                    className={cn(
-                      "font-medium",
-                      !isFrom ? "text-cta" : "text-primary/60",
-                    )}
-                  >
+                  <span className={cn("font-medium", !isFrom ? "text-cta" : "text-primary/60")}>
                     {entityName(r.to_entity_id)}
                   </span>
                   {r.display_name && (
@@ -789,14 +817,26 @@ function RelationsTab({
                   {r.to_field_name && ` → ${r.to_field_name}`}
                 </span>
 
-                <button
-                  onClick={() => onDeleteRelation(r)}
-                  className="w-7 h-7 flex items-center justify-center rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-mainbg text-[#D32F2F]/60"
-                >
-                  <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => onEditRelation(r)}
+                    className="w-7 h-7 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-primary/40 hover:text-primary"
+                    title="Редактировать"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M11 2l3 3-8 8H3v-3l8-8z" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => onDeleteRelation(r)}
+                    className="w-7 h-7 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-[#D32F2F]/60"
+                    title="Удалить"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -1825,6 +1865,118 @@ function RelationModal({
               className="px-5 py-2 bg-cta text-white text-[13px] font-medium rounded-[10px] hover:bg-active disabled:opacity-50"
             >
               {saving ? "Создание…" : "Создать связь"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+// ─────────────────────────────────────────────
+// RelationEditModal
+// ─────────────────────────────────────────────
+
+function RelationEditModal({
+  relation,
+  entities,
+  onClose,
+  onUpdate,
+  saving,
+  error,
+}: {
+  relation: RelationRead;
+  entities: EntityRead[];
+  onClose: () => void;
+  onUpdate: (body: RelationUpdate) => void;
+  saving: boolean;
+  error?: string | null;
+}) {
+  const fromEntity = entities.find((e) => e.id === relation.from_entity_id);
+  const toEntity   = entities.find((e) => e.id === relation.to_entity_id);
+
+  const [displayName,   setDisplayName]   = useState(relation.display_name ?? "");
+  const [fromFieldName, setFromFieldName] = useState(relation.from_field_name);
+  const [toFieldName,   setToFieldName]   = useState(relation.to_field_name ?? "");
+
+  const handleSubmit = () => {
+    const body: RelationUpdate = {};
+    if (displayName !== (relation.display_name ?? "")) body.display_name = displayName || null;
+    if (fromFieldName !== relation.from_field_name) body.from_field_name = fromFieldName;
+    if (toFieldName !== (relation.to_field_name ?? "")) body.to_field_name = toFieldName || null;
+    onUpdate(body);
+  };
+
+  return (
+    <ModalOverlay onClose={onClose}>
+      <div className="bg-white rounded-[20px] shadow-2xl w-[480px]">
+        <div className="px-6 pt-6 pb-4 border-b border-cardbg">
+          <h3 className="text-[18px] font-bold text-primary">Редактировать связь</h3>
+          <p className="text-[12px] text-primary/50 mt-1">
+            Тип и сущности изменить нельзя — только имена полей и название.
+          </p>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {/* Readonly: тип + сущности */}
+          <div className="flex items-center gap-3 px-3 py-2.5 bg-mainbg rounded-[10px]">
+            <span className="px-2 py-0.5 text-[12px] font-bold font-mono rounded bg-cta/10 text-cta shrink-0">
+              {RELATION_BADGE[relation.relation_type]}
+            </span>
+            <span className="text-[13px] font-medium text-primary">
+              {fromEntity?.display_name ?? "…"}
+            </span>
+            <svg viewBox="0 0 24 24" className="w-4 h-4 text-primary/30 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M5 12h14M15 8l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-[13px] font-medium text-primary">
+              {toEntity?.display_name ?? "…"}
+            </span>
+          </div>
+
+          {/* display_name */}
+          <FormField label="Название связи (опц.)">
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Например: Менеджер по клиентам"
+              className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
+            />
+          </FormField>
+
+          {/* from_field_name */}
+          <FormField label={`Поле на «${fromEntity?.display_name ?? "…"}»`}>
+            <input
+              value={fromFieldName}
+              onChange={(e) => setFromFieldName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+              className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
+            />
+          </FormField>
+
+          {/* to_field_name */}
+          {relation.to_field_name !== null && (
+            <FormField label={`Поле на «${toEntity?.display_name ?? "…"}»`}>
+              <input
+                value={toFieldName}
+                onChange={(e) => setToFieldName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
+              />
+            </FormField>
+          )}
+        </div>
+
+        <div className="px-6 pb-6 border-t border-cardbg pt-4">
+          {error && <p className="text-[12px] text-red-500 mb-3">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-[13px] text-primary/60 hover:text-primary">
+              Отмена
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={saving || !fromFieldName}
+              className="px-5 py-2 bg-cta text-white text-[13px] font-medium rounded-[10px] hover:bg-active disabled:opacity-50"
+            >
+              {saving ? "Сохранение…" : "Сохранить"}
             </button>
           </div>
         </div>

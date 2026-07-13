@@ -14,6 +14,7 @@ from app.schemas.entities import (
     FieldUpdate,
     RelationCreate,
     RelationRead,
+    RelationUpdate,
 )
 from app.services.apps import AppNotFoundError, AppPermissionError, AppService
 from app.services.entities import (
@@ -205,6 +206,19 @@ async def create_relation(
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found") from exc
     except RelationConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.patch("/relations/{relation_id}", response_model=RelationRead, tags=["relations"])
+async def update_relation(
+    app_id: uuid.UUID, relation_id: uuid.UUID, body: RelationUpdate, current_user: AuthDep, db: DbDep
+) -> RelationRead:
+    await _check_app_access(app_id, current_user, db)
+    try:
+        return await EntityService(db).update_relation(app_id, relation_id, body)
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relation not found") from exc
+    except FieldConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 

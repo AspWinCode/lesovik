@@ -9,12 +9,14 @@ import {
   updateField,
   listRelations,
   createRelation,
+  updateRelation,
   deleteRelation,
   type EntityCreate,
   type EntityUpdate,
   type FieldCreate,
   type FieldUpdate,
   type RelationCreate,
+  type RelationUpdate,
 } from "../api/entities";
 
 const KEY = (appId: string) => ["entities", appId] as const;
@@ -100,6 +102,18 @@ export function useCreateRelation(appId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: RelationCreate) => createRelation(appId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: REL_KEY(appId) });
+      void qc.invalidateQueries({ queryKey: KEY(appId) });
+    },
+  });
+}
+
+export function useUpdateRelation(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ relationId, body }: { relationId: string; body: RelationUpdate }) =>
+      updateRelation(appId, relationId, body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: REL_KEY(appId) });
       void qc.invalidateQueries({ queryKey: KEY(appId) });

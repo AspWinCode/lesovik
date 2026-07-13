@@ -16,6 +16,7 @@ from app.schemas.entities import (
     FieldUpdate,
     RelationCreate,
     RelationRead,
+    RelationUpdate,
 )
 
 logger = structlog.get_logger(__name__)
@@ -317,6 +318,10 @@ class EntityService:
         from_entity = await self._fetch_entity(app_id, data.from_entity_id)
         to_entity = await self._fetch_entity(app_id, data.to_entity_id)
 
+        # Reject self-relations
+        if data.from_entity_id == data.to_entity_id:
+            raise RelationConflictError("Cannot create a relation from an entity to itself")
+
         # Reject duplicate: same pair of entities with the same type already exists
         existing = await self._db.execute(
             select(Relation).where(
@@ -370,6 +375,61 @@ class EntityService:
             )
 
         logger.info("relation_created", relation_id=str(relation.id), app_id=str(app_id))
+        return RelationRead.model_validate(relation)
+
+    async def update_relation(
+        self, app_id: uuid.UUID, relation_id: uuid.UUID, data: RelationUpdate
+    ) -> RelationRead:
+        result = await self._db.execute(
+            select(Relation).where(Relation.id == relation_id, Relation.app_id == app_id)
+        )
+        relation = result.scalar_one_or_none()
+        if relation is None:
+            raise EntityNotFoundError(str(relation_id))
+
+        if data.display_name is not None:
+            relation.display_name = data.display_name or None
+
+        # Rename auto-created fields when field names change
+        for new_name, entity_id in (
+            (data.from_field_name, relation.from_entity_id),
+            (data.to_field_name, relation.to_entity_id),
+        ):
+            if new_name is None:
+                continue
+            fields_result = await self._db.execute(
+                select(Field).where(
+                    Field.app_id == app_id,
+                    Field.entity_id == entity_id,
+                    Field.field_type == "relation",
+                )
+            )
+            target_field = next(
+                (f for f in fields_result.scalars() if f.field_options.get("relation_id") == str(relation_id)),
+                None,
+            )
+            if target_field is None:
+                continue
+            if target_field.name == new_name:
+                continue
+            # Check no other field with new name exists on this entity
+            conflict = await self._db.execute(
+                select(Field).where(
+                    Field.entity_id == entity_id,
+                    Field.name == new_name,
+                )
+            )
+            if conflict.scalar_one_or_none() is not None:
+                raise FieldConflictError(f"Field '{new_name}' already exists on entity")
+            target_field.name = new_name
+            # Keep relation row in sync
+            if entity_id == relation.from_entity_id:
+                relation.from_field_name = new_name
+            else:
+                relation.to_field_name = new_name
+
+        await self._db.flush()
+        logger.info("relation_updated", relation_id=str(relation_id), app_id=str(app_id))
         return RelationRead.model_validate(relation)
 
     async def delete_relation(self, app_id: uuid.UUID, relation_id: uuid.UUID) -> None:

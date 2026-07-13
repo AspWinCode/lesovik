@@ -176,6 +176,17 @@ export async function createRelation(appId: string, body: RelationCreate): Promi
   return data;
 }
 
+export interface RelationUpdate {
+  display_name?: string | null;
+  from_field_name?: string | null;
+  to_field_name?: string | null;
+}
+
+export async function updateRelation(appId: string, relationId: string, body: RelationUpdate): Promise<RelationRead> {
+  const { data } = await apiClient.patch<RelationRead>(`/apps/${appId}/relations/${relationId}`, body);
+  return data;
+}
+
 export async function deleteRelation(appId: string, relationId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}/relations/${relationId}`);
 }
