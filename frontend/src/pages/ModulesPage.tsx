@@ -8,7 +8,7 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useInstallModule, useModules, useUninstallModule } from "@/shared/hooks/useModules";
 
-const ALL = "All";
+const ALL = "Все";
 
 function ModuleCard({
   mod,
@@ -41,22 +41,22 @@ function ModuleCard({
             <span className="text-[15px] font-semibold text-primary truncate">{mod.name}</span>
             {mod.installed && (
               <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-cta/10 text-cta">
-                Installed
+                Установлен
               </span>
             )}
           </div>
           <div className="text-[12px] text-primary/45 mt-1">
-            {mod.category ?? "General"} · v{mod.current_version ?? "n/a"}
+            {mod.category ?? "Общее"} · v{mod.current_version ?? "n/a"}
           </div>
         </div>
       </div>
 
       <p className="text-[13px] text-primary/65 leading-relaxed min-h-[54px]">
-        {mod.description ?? "Business module"}
+        {mod.description ?? "Бизнес-модуль"}
       </p>
 
       <div className="text-[12px] text-primary/45 min-h-[34px]">
-        {mod.dependencies.length ? `Requires: ${mod.dependencies.join(", ")}` : "No dependencies"}
+        {mod.dependencies.length ? `Требует: ${mod.dependencies.join(", ")}` : "Нет зависимостей"}
       </div>
 
       <button
@@ -69,7 +69,7 @@ function ModuleCard({
             : "bg-cta text-white hover:bg-cta/90",
         )}
       >
-        {mod.installed ? "Remove module" : "Install"}
+        {mod.installed ? "Удалить" : "Установить"}
       </button>
     </div>
   );
@@ -172,13 +172,13 @@ export function ModulesPage() {
     }
     const conflictNote = result.conflicts.length > 0 ? `, ${result.conflicts.length} коллизий` : "";
     showToast(
-      `Installed ${result.module.name}: ${result.entities_created} entities, ${result.fields_created} fields${conflictNote}`,
+      `Установлен «${result.module.name}»: ${result.entities_created} таблиц, ${result.fields_created} полей${conflictNote}`,
     );
   }
 
   async function remove(code: string, name: string) {
     await uninstallMutation.mutateAsync(code);
-    showToast(`Removed ${name}`);
+    showToast(`Модуль «${name}» удалён`);
   }
 
   return (
@@ -193,13 +193,13 @@ export function ModulesPage() {
         <div className="px-[48px] py-[32px]">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-[28px] font-bold text-primary">Module catalog</h1>
+              <h1 className="text-[28px] font-bold text-primary">Каталог модулей</h1>
               <p className="text-[15px] text-primary/50 mt-1">
-                Install business modules into the active app. Dependencies are added automatically.
+                Устанавливайте бизнес-модули в активное приложение. Зависимости добавляются автоматически.
               </p>
             </div>
             <div className="flex items-center gap-2 text-[14px] text-primary/45">
-              <span className="font-medium text-primary">{installedCount}</span> installed of {modules.length}
+              <span className="font-medium text-primary">{installedCount}</span> установлено из {modules.length}
             </div>
           </div>
 
@@ -207,7 +207,7 @@ export function ModulesPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search modules"
+              placeholder="Поиск модулей..."
               className="h-[38px] w-[260px] border border-cardbg rounded-[8px] px-3 text-[14px] bg-white focus:outline-none focus:border-cta"
             />
             <div className="flex flex-wrap gap-2">
@@ -238,16 +238,16 @@ export function ModulesPage() {
 
           {!app && (
             <div className="bg-white border border-cardbg rounded-[8px] p-5 text-[14px] text-primary/60">
-              Create or select an app before installing modules.
+              Создайте или выберите приложение перед установкой модулей.
             </div>
           )}
 
           {modulesQuery.isLoading ? (
-            <div className="text-[14px] text-primary/50">Loading modules...</div>
+            <div className="text-[14px] text-primary/50">Загрузка модулей...</div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center py-20 text-center">
-              <p className="text-[17px] font-semibold text-primary mb-2">No modules found</p>
-              <p className="text-[14px] text-primary/40">Change search or category filter</p>
+              <p className="text-[17px] font-semibold text-primary mb-2">Модули не найдены</p>
+              <p className="text-[14px] text-primary/40">Измените поиск или фильтр категории</p>
             </div>
           ) : (
             <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>

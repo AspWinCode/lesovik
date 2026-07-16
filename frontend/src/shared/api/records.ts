@@ -97,6 +97,46 @@ export async function previewImport(appId: string, entityId: string, file: File)
   return data;
 }
 
+/* ── File attachments ── */
+
+export interface RecordFileRead {
+  id: string;
+  field_name: string;
+  original_name: string;
+  size: number;
+  content_type: string;
+  uploaded_at: string;
+}
+
+export async function uploadRecordFile(
+  appId: string,
+  entityId: string,
+  recordId: string,
+  fieldName: string,
+  file: File,
+): Promise<RecordFileRead> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<RecordFileRead>(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}/files`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" }, params: { field_name: fieldName } },
+  );
+  return data;
+}
+
+export async function getRecordFileDownloadUrl(
+  appId: string,
+  entityId: string,
+  recordId: string,
+  fileId: string,
+): Promise<{ url: string }> {
+  const { data } = await apiClient.get<{ url: string }>(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}/files/${fileId}/download`,
+  );
+  return data;
+}
+
 export async function importRecords(
   appId: string,
   entityId: string,

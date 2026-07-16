@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities, useCreateEntity, useCreateField, useRelations, useCreateRelation, useDeleteRelation } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
+import { uploadRecordFile, getRecordFileDownloadUrl } from "@/shared/api/records";
 import type { FieldRead, FieldType } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
 import { EditTableModal, EditColumnModal, RelationsModal, COLUMN_TYPE_TO_FIELD_TYPE, type ColumnOptions, type RelationItem } from "@/components/modals/DbModals";
@@ -531,6 +532,7 @@ export function DatabasePage() {
                       {displayFields.map((f) => {
                         const raw = rec.payload[f.name];
                         const et = effectiveType(f);
+                        const isFile = et === "file" || et === "image";
                         return (
                           <td
                             key={f.id}
@@ -539,7 +541,15 @@ export function DatabasePage() {
                               et === "number" || et === "decimal" ? "text-right" : ""
                             )}
                           >
-                            {isActive && quickEdit && canInlineEdit(et) ? (
+                            {isFile && appId ? (
+                              <FileCell
+                                appId={appId}
+                                entityId={entity.id}
+                                recordId={rec.id}
+                                field={f}
+                                value={raw ? String(raw) : ""}
+                              />
+                            ) : isActive && quickEdit && canInlineEdit(et) ? (
                               <InlineEdit
                                 field={f}
                                 value={editValues[f.name] ?? ""}
@@ -807,6 +817,18 @@ function CellValue({ value, field }: { value: unknown; field: FieldRead }) {
     return <RelationCellDisplay field={field} value={String(value)} />;
   }
 
+  if (et === "file" || et === "image") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-[#EBF4FF] text-cta text-[12px] font-medium">
+        <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M7 1H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4L7 1z" />
+          <path d="M7 1v3h3" />
+        </svg>
+        {String(value).slice(0, 8)}…
+      </span>
+    );
+  }
+
   return <span className="text-primary truncate">{String(value)}</span>;
 }
 
@@ -1070,6 +1092,78 @@ function RelationPickerInput({ field, value, onChange, required }: {
   );
 }
 
+/* ── File/image cell — upload + download for existing records ── */
+function FileCell({
+  appId, entityId, recordId, field, value,
+}: {
+  appId: string; entityId: string; recordId: string; field: FieldRead; value: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const updateRecord = useUpdateRecord(appId, entityId);
+
+  const handleFile = useCallback(async (file: File) => {
+    setUploading(true);
+    try {
+      const result = await uploadRecordFile(appId, entityId, recordId, field.name, file);
+      updateRecord.mutate({ recordId, payload: { [field.name]: result.id } });
+    } finally {
+      setUploading(false);
+    }
+  }, [appId, entityId, recordId, field.name, updateRecord]);
+
+  async function handleDownload() {
+    if (!value) return;
+    try {
+      const { url } = await getRecordFileDownloadUrl(appId, entityId, recordId, value);
+      window.open(url, "_blank");
+    } catch { /* presigned URL error — ignore */ }
+  }
+
+  if (uploading) return <span className="text-primary/40 text-[12px]">Загрузка…</span>;
+
+  return (
+    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+      {value ? (
+        <>
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-[#EBF4FF] text-cta text-[12px] font-medium hover:bg-cta/20 transition-colors"
+          >
+            <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M6 2v6M3 6l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2 10h8" strokeLinecap="round" />
+            </svg>
+            Скачать
+          </button>
+          <button
+            onClick={() => inputRef.current?.click()}
+            className="text-[11px] text-primary/40 hover:text-primary transition-colors"
+          >
+            Заменить
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={() => inputRef.current?.click()}
+          className="flex items-center gap-1 text-[12px] text-primary/40 hover:text-cta transition-colors"
+        >
+          <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M2 9v2h8V9M6 2v6M4 4l2-2 2 2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Прикрепить
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+      />
+    </div>
+  );
+}
+
 /* ── Field input for create form ── */
 function FieldInput({ field, et, value, onChange, required }: {
   field: FieldRead; et: string; value: string;
@@ -1142,6 +1236,10 @@ function FieldInput({ field, et, value, onChange, required }: {
 
   if (et === "relation") return (
     <RelationPickerInput field={field} value={value} onChange={onChange} required={required} />
+  );
+
+  if (et === "file" || et === "image") return (
+    <p className="text-[13px] text-primary/50 py-2">Файл можно прикрепить после сохранения записи.</p>
   );
 
   return (
