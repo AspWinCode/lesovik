@@ -68,6 +68,7 @@ export function DatabasePage() {
   const [filterRules, setFilterRules] = useState<FilterRule[]>([]);
   const [showViewDropdown, setShowViewDropdown] = useState(false);
   const [quickEdit, setQuickEdit] = useState(true);
+  const [showSystemFields, setShowSystemFields] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Data ── */
@@ -91,7 +92,7 @@ export function DatabasePage() {
   const recordsQuery = useRecords(appId, entity?.id, { limit: 100 });
   const records = recordsQuery.data?.items ?? [];
 
-  const displayFields: FieldRead[] = entity?.fields.filter((f) => !f.is_system) ?? [];
+  const displayFields: FieldRead[] = entity?.fields.filter((f) => showSystemFields || !f.is_system) ?? [];
 
   const filteredRecords = filterRules.length === 0 ? records : records.filter((rec) =>
     filterRules.every((rule) => {
@@ -310,6 +311,22 @@ export function DatabasePage() {
         />
         <DropdownButton icon={<SortIcon />}   label="Сортировка" onClick={() => setShowSortModal(true)} />
         <button
+          onClick={() => setShowSystemFields((v) => !v)}
+          title={showSystemFields ? "Скрыть системные поля" : "Показать системные поля"}
+          className={cn(
+            "flex items-center gap-1.5 h-[30px] px-3 rounded-[6px] border text-[13px] transition-colors",
+            showSystemFields
+              ? "border-cta bg-cta/10 text-cta"
+              : "border-cardbg text-primary/60 hover:bg-mainbg hover:text-primary"
+          )}
+        >
+          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" />
+            <rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" />
+          </svg>
+          Системные поля
+        </button>
+        <button
           onClick={() => { setQuickEdit((v) => !v); setActiveRow(null); setEditValues({}); }}
           title={quickEdit ? "Выключить быстрое редактирование" : "Включить быстрое редактирование"}
           className={cn(
@@ -467,8 +484,14 @@ export function DatabasePage() {
                   >
                     <div className="flex items-center gap-1">
                       <ColTypeIcon type={f.field_type} />
-                      <span>{f.display_name}</span>
-                      <SortArrows />
+                      <span className={f.is_system ? "text-primary/50" : ""}>{f.display_name}</span>
+                      {f.is_system ? (
+                        <svg viewBox="0 0 12 12" className="w-3 h-3 text-primary/30 shrink-0" fill="currentColor">
+                          <path d="M9 5H8V4a2 2 0 0 0-4 0v1H3a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1ZM5 4a1 1 0 0 1 2 0v1H5V4Z" />
+                        </svg>
+                      ) : (
+                        <SortArrows />
+                      )}
                     </div>
                   </th>
                 ))}
