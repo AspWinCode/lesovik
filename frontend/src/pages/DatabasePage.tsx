@@ -855,6 +855,23 @@ function InlineEdit({
     );
   }
 
+  if (et === "phone") {
+    return (
+      <input
+        type="tel"
+        value={value}
+        autoFocus={autoFocus}
+        inputMode="tel"
+        placeholder="+7 (___) ___-__-__"
+        onChange={(e) => onChange(e.target.value.replace(/[^\d+\-\s()()]/g, ""))}
+        onBlur={onBlur}
+        onFocus={onFocus}
+        onKeyDown={(e) => e.key === "Enter" && onEnter()}
+        className={base}
+      />
+    );
+  }
+
   if (et === "relation") {
     return (
       <RelationPickerInput
@@ -1059,7 +1076,16 @@ function FieldInput({ field, et, value, onChange, required }: {
   );
 
   if (et === "phone") return (
-    <input type="tel" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
+    <input
+      type="tel"
+      value={value}
+      required={required}
+      inputMode="tel"
+      pattern="[+\d\s\-\(\)]*"
+      placeholder="+7 (___) ___-__-__"
+      onChange={(e) => onChange(e.target.value.replace(/[^\d+\-\s()()]/g, ""))}
+      className={base}
+    />
   );
 
   if (et === "relation") return (
