@@ -435,12 +435,29 @@ export function DataSchemaPage() {
           entity={activeEntity}
           entities={entities}
           onClose={() => setFieldModal(null)}
-          onCreate={(data) =>
-            createFieldM.mutate(
-              { entityId: activeEntity.id, body: data },
-              { onSuccess: () => setFieldModal(null) },
-            )
-          }
+          onCreate={(data) => {
+            // Relation fields must go through the relation endpoint so that a
+            // metamodel.relation row is created (and the Relations tab shows it).
+            if (
+              data.field_type === "relation" &&
+              (data.field_options?.target_entity_id as string | undefined)
+            ) {
+              createRelationM.mutate(
+                {
+                  from_entity_id: activeEntity.id,
+                  to_entity_id: data.field_options!.target_entity_id as string,
+                  relation_type: ((data.field_options?.relation_type as string) ?? "one_to_many") as RelationType,
+                  from_field_name: data.name,
+                },
+                { onSuccess: () => setFieldModal(null) },
+              );
+            } else {
+              createFieldM.mutate(
+                { entityId: activeEntity.id, body: data },
+                { onSuccess: () => setFieldModal(null) },
+              );
+            }
+          }}
           onUpdate={(data) => {
             if (!fieldModal.field) return;
             updateFieldM.mutate(
@@ -448,7 +465,7 @@ export function DataSchemaPage() {
               { onSuccess: () => setFieldModal(null) },
             );
           }}
-          saving={createFieldM.isPending || updateFieldM.isPending}
+          saving={createFieldM.isPending || updateRelationM.isPending || updateFieldM.isPending}
         />
       )}
 
@@ -1225,13 +1242,30 @@ function FieldModal({
                     className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
                   >
                     <option value="">Выберите сущность…</option>
-                    {entities.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.icon ?? "📋"} {e.display_name}
-                      </option>
-                    ))}
+                    {entities
+                      .filter((e) => e.id !== entity.id)
+                      .map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.icon ?? "📋"} {e.display_name}
+                        </option>
+                      ))}
                   </select>
                 </FormField>
+                {mode === "create" && (
+                  <FormField label="Тип связи">
+                    <select
+                      value={(fieldOptions.relation_type as string) ?? "one_to_many"}
+                      onChange={(e) =>
+                        setFieldOptions((p) => ({ ...p, relation_type: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
+                    >
+                      <option value="one_to_one">Один к одному (1:1)</option>
+                      <option value="one_to_many">Один ко многим (1:N)</option>
+                      <option value="many_to_many">Многие ко многим (N:M)</option>
+                    </select>
+                  </FormField>
+                )}
               </div>
             )}
 

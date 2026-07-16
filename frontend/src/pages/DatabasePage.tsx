@@ -855,6 +855,17 @@ function InlineEdit({
     );
   }
 
+  if (et === "relation") {
+    return (
+      <RelationPickerInput
+        field={field}
+        value={value}
+        onChange={onChange}
+        required={false}
+      />
+    );
+  }
+
   return (
     <input type="text" value={value} autoFocus={autoFocus}
       onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
@@ -944,6 +955,52 @@ function CreateRecordModal({
   );
 }
 
+/* ── Relation record picker — loads records from the target entity ── */
+function RelationPickerInput({ field, value, onChange, required }: {
+  field: FieldRead; value: string; onChange: (v: string) => void; required: boolean;
+}) {
+  const targetEntityId = field.field_options?.target_entity_id as string | undefined;
+  const appsQ = useApps();
+  const appId = appsQ.data?.items[0]?.id;
+  const recordsQ = useRecords(appId, targetEntityId, { limit: 200 });
+  const records = recordsQ.data?.items ?? [];
+
+  const base = "w-full h-[40px] bg-mainbg border border-cardbg rounded-[8px] px-3 text-[15px] text-primary focus:outline-none focus:border-cta transition-colors appearance-none";
+
+  if (!targetEntityId) {
+    return (
+      <input
+        type="text"
+        value={value}
+        required={required}
+        placeholder="ID записи"
+        onChange={(e) => onChange(e.target.value)}
+        className={base}
+      />
+    );
+  }
+
+  function recordLabel(payload: Record<string, unknown>): string {
+    for (const key of ["name", "title", "display_name", "label", "subject"]) {
+      if (payload[key]) return String(payload[key]).slice(0, 80);
+    }
+    const first = Object.values(payload).find((v) => v !== null && v !== undefined && typeof v === "string");
+    return first ? String(first).slice(0, 80) : "(без названия)";
+  }
+
+  return (
+    <select value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base}>
+      <option value="">— Выберите запись —</option>
+      {records.map((r) => (
+        <option key={r.id} value={r.id}>
+          {recordLabel(r.payload as Record<string, unknown>)}
+        </option>
+      ))}
+      {recordsQ.isLoading && <option disabled>Загрузка…</option>}
+    </select>
+  );
+}
+
 /* ── Field input for create form ── */
 function FieldInput({ field, et, value, onChange, required }: {
   field: FieldRead; et: string; value: string;
@@ -1005,13 +1062,17 @@ function FieldInput({ field, et, value, onChange, required }: {
     <input type="tel" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
   );
 
+  if (et === "relation") return (
+    <RelationPickerInput field={field} value={value} onChange={onChange} required={required} />
+  );
+
   return (
     <input type="text" value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base} />
   );
 }
 
 function canInlineEdit(et: string): boolean {
-  return ["text", "long_text", "number", "decimal", "email", "phone", "url", "date", "datetime", "boolean", "select"].includes(et);
+  return ["text", "long_text", "number", "decimal", "email", "phone", "url", "date", "datetime", "boolean", "select", "relation"].includes(et);
 }
 
 /* ── Small helpers ── */
