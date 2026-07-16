@@ -803,6 +803,10 @@ function CellValue({ value, field }: { value: unknown; field: FieldRead }) {
     return <span className="text-primary font-mono">{String(value)}</span>;
   }
 
+  if (et === "relation") {
+    return <RelationCellDisplay field={field} value={String(value)} />;
+  }
+
   return <span className="text-primary truncate">{String(value)}</span>;
 }
 
@@ -995,6 +999,39 @@ function CreateRecordModal({
   );
 }
 
+function recordLabel(payload: Record<string, unknown>): string {
+  for (const key of ["name", "title", "display_name", "label", "subject"]) {
+    if (payload[key]) return String(payload[key]).slice(0, 80);
+  }
+  const first = Object.values(payload).find(
+    (v) => v !== null && v !== undefined && (typeof v === "string" || typeof v === "number")
+  );
+  return first !== undefined ? String(first).slice(0, 80) : "(без названия)";
+}
+
+/* ── Relation cell display — resolves UUID → label from the target entity ── */
+function RelationCellDisplay({ field, value }: { field: FieldRead; value: string }) {
+  const targetEntityId = field.field_options?.target_entity_id as string | undefined;
+  const appsQ = useApps();
+  const appId = appsQ.data?.items[0]?.id;
+  const recordsQ = useRecords(appId, targetEntityId, { limit: 200 });
+  const records = recordsQ.data?.items ?? [];
+
+  if (!value) return <span className="text-primary/25">—</span>;
+  if (!targetEntityId) return <span className="text-primary/40 font-mono text-[11px]">{value.slice(0, 8)}…</span>;
+  if (recordsQ.isLoading) return <span className="text-primary/30 text-[12px]">…</span>;
+
+  const linked = records.find((r) => r.id === value);
+  if (!linked) return <span className="text-primary/40 font-mono text-[11px]">{value.slice(0, 8)}…</span>;
+
+  const label = recordLabel(linked.payload as Record<string, unknown>);
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-[#EBF4FF] text-cta text-[12px] font-medium max-w-[200px] truncate">
+      {label}
+    </span>
+  );
+}
+
 /* ── Relation record picker — loads records from the target entity ── */
 function RelationPickerInput({ field, value, onChange, required }: {
   field: FieldRead; value: string; onChange: (v: string) => void; required: boolean;
@@ -1018,14 +1055,6 @@ function RelationPickerInput({ field, value, onChange, required }: {
         className={base}
       />
     );
-  }
-
-  function recordLabel(payload: Record<string, unknown>): string {
-    for (const key of ["name", "title", "display_name", "label", "subject"]) {
-      if (payload[key]) return String(payload[key]).slice(0, 80);
-    }
-    const first = Object.values(payload).find((v) => v !== null && v !== undefined && typeof v === "string");
-    return first ? String(first).slice(0, 80) : "(без названия)";
   }
 
   return (
