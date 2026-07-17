@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AuthDep, DbDep
 from app.schemas.modules import AppModuleRead, ModuleInstallResult, ModuleRead
-from app.services.modules import ModuleNotFoundError, ModulePermissionError, ModuleService
+from app.services.modules import ModuleDependencyError, ModuleNotFoundError, ModulePermissionError, ModuleService
 
 router = APIRouter(tags=["modules"])
 
@@ -61,6 +61,8 @@ async def uninstall_module(
             actor_id=current_user.user_id,
             is_admin=current_user.has_role("platform_admin"),
         )
+    except ModuleDependencyError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ModuleNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ModulePermissionError as exc:
