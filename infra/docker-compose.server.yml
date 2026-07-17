@@ -44,6 +44,19 @@ services:
       - miniodata:/data
     restart: unless-stopped
 
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: lesovik-clamav
+    volumes:
+      - clamavdata:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
   backend:
     build:
       context: ../backend
@@ -62,6 +75,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     ports:
       - "127.0.0.1:8001:8000"   # localhost-only, for debugging
@@ -84,6 +99,37 @@ services:
       redis:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  sandbox-worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: lesovik-sandbox-worker
+    command: >
+      celery -A app.worker.celery_app worker
+        --loglevel=info --concurrency=2
+        --queues=sandbox
+    env_file: .env
+    environment:
+      APP_ENV: production
+      SANDBOX_MODE: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping --timeout=5 | grep -q pong"]
@@ -109,3 +155,4 @@ volumes:
   pgdata:
   redisdata:
   miniodata:
+  clamavdata:
