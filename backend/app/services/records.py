@@ -1,5 +1,7 @@
 """RecordService: CRUD with JSONB payload, filter engine, cursor pagination, field validation."""
 import base64
+import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -132,11 +134,93 @@ def _validate_payload(
             continue
         _validate_field_value(field, name, value)
 
+    # Conditional-required validation (validation_rules.extra_conditions).
+    # Only enforced when every referenced field is present in this payload —
+    # a partial PATCH that doesn't touch those fields is left unevaluated.
+    for field in field_map.values():
+        rules = field.validation_rules or {}
+        conds_raw = rules.get("extra_conditions") or []
+        if not conds_raw or not _conditions_met(conds_raw, payload):
+            continue
+        if field.name not in payload or payload.get(field.name) is None:
+            msg = rules.get("custom_message") or (
+                f"Field '{field.name}' is required because its conditions are met"
+            )
+            raise RecordValidationError(msg)
+
+
+def _conditions_met(conds_raw: list[Any], payload: dict[str, Any]) -> bool:
+    """True only if every condition is present in payload and holds."""
+    conditions = []
+    for raw in conds_raw:
+        try:
+            cond = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return False
+        conditions.append(cond)
+
+    if not conditions:
+        return False
+
+    for cond in conditions:
+        field_name = cond.get("field")
+        if field_name is None or field_name not in payload:
+            return False
+        if not _eval_compare(payload.get(field_name), cond.get("op"), cond.get("value")):
+            return False
+    return True
+
+
+def _eval_compare(actual: Any, op: str | None, expected: Any) -> bool:
+    if op == "is_null":
+        return actual is None
+    if op == "is_not_null":
+        return actual is not None
+    if actual is None:
+        return False
+    if op == "contains":
+        return str(expected) in str(actual)
+    try:
+        a, b = float(actual), float(expected)
+        return {
+            "eq": a == b, "ne": a != b,
+            "gt": a > b, "gte": a >= b,
+            "lt": a < b, "lte": a <= b,
+        }.get(op, False)
+    except (TypeError, ValueError):
+        pass
+    s_actual = str(actual)
+    s_expected = str(expected)
+    if op == "eq":
+        return s_actual == s_expected
+    if op == "ne":
+        return s_actual != s_expected
+    return False
+
+
+def _parse_date_value(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, str):
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    raise ValueError("not a date")
+
 
 def _validate_field_value(field: Field, name: str, value: Any) -> None:
+    rules = field.validation_rules or {}
+    try:
+        _check_field_value(field, name, value, rules)
+    except RecordValidationError:
+        custom_message = rules.get("custom_message")
+        if custom_message:
+            raise RecordValidationError(custom_message) from None
+        raise
+
+
+def _check_field_value(field: Field, name: str, value: Any, rules: dict) -> None:
     ft = field.field_type
     opts = field.field_options or {}
-    rules = field.validation_rules or {}
 
     if value is None:
         if field.is_required:
@@ -146,8 +230,19 @@ def _validate_field_value(field: Field, name: str, value: Any) -> None:
     if ft in ("text", "long_text", "rich_text", "url", "email", "phone"):
         if not isinstance(value, str):
             raise RecordValidationError(f"Field '{name}' expects string, got {type(value).__name__}")
+        if "min_length" in rules and len(value) < rules["min_length"]:
+            raise RecordValidationError(f"Field '{name}' below min_length {rules['min_length']}")
         if "max_length" in rules and len(value) > rules["max_length"]:
             raise RecordValidationError(f"Field '{name}' exceeds max_length {rules['max_length']}")
+        if "pattern" in rules:
+            try:
+                ok = re.fullmatch(rules["pattern"], value) is not None
+            except re.error:
+                ok = True  # a broken stored regex shouldn't block every write
+            if not ok:
+                raise RecordValidationError(
+                    rules.get("pattern_message") or f"Field '{name}' does not match required pattern"
+                )
         if ft == "email" and "@" not in value:
             raise RecordValidationError(f"Field '{name}' is not a valid email")
 
@@ -166,10 +261,27 @@ def _validate_field_value(field: Field, name: str, value: Any) -> None:
         if not isinstance(value, bool):
             raise RecordValidationError(f"Field '{name}' expects boolean")
 
+    elif ft in ("date", "datetime"):
+        try:
+            dt = _parse_date_value(value)
+        except (TypeError, ValueError) as exc:
+            raise RecordValidationError(f"Field '{name}' expects an ISO date/datetime string") from exc
+        if "min_date" in rules and dt < _parse_date_value(rules["min_date"]):
+            raise RecordValidationError(f"Field '{name}' is before minimum date {rules['min_date']}")
+        if "max_date" in rules and dt > _parse_date_value(rules["max_date"]):
+            raise RecordValidationError(f"Field '{name}' is after maximum date {rules['max_date']}")
+        if rules.get("future_only") and dt <= datetime.now(UTC):
+            raise RecordValidationError(f"Field '{name}' must be a future date")
+        if rules.get("past_only") and dt >= datetime.now(UTC):
+            raise RecordValidationError(f"Field '{name}' must be a past date")
+
     elif ft == "select":
         choices = [c["value"] for c in opts.get("choices", [])]
         if choices and value not in choices:
             raise RecordValidationError(f"Field '{name}': {value!r} not in choices {choices}")
+        allowed = rules.get("allowed_values")
+        if allowed and value not in allowed:
+            raise RecordValidationError(f"Field '{name}': {value!r} not in allowed values {allowed}")
 
     elif ft == "autonumber":
         # Auto-filled by SequenceService — never sent by the user; skip validation
@@ -183,6 +295,15 @@ def _validate_field_value(field: Field, name: str, value: Any) -> None:
             invalid = [v for v in value if v not in choices]
             if invalid:
                 raise RecordValidationError(f"Field '{name}': invalid choices {invalid}")
+        allowed = rules.get("allowed_values")
+        if allowed:
+            invalid = [v for v in value if v not in allowed]
+            if invalid:
+                raise RecordValidationError(f"Field '{name}': values not allowed {invalid}")
+        if "min_selected" in rules and len(value) < rules["min_selected"]:
+            raise RecordValidationError(f"Field '{name}' requires at least {rules['min_selected']} selected")
+        if "max_selected" in rules and len(value) > rules["max_selected"]:
+            raise RecordValidationError(f"Field '{name}' allows at most {rules['max_selected']} selected")
 
 
 # ------------------------------------------------------------------
