@@ -1,176 +1,78 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
-import { EDITOR_DRAFT_KEY } from "./EditorPage";
+import { useApps, usePublishApp } from "@/shared/hooks/useApps";
+import { useActiveApp } from "@/shared/hooks/useActiveApp";
+import { usePages } from "@/shared/hooks/usePages";
 
 type Device = "desktop" | "tablet" | "mobile";
 
 const DEVICE_SIZES: Record<Device, { w: number; h: number; label: string }> = {
-  desktop: { w: 1200, h: 750, label: "Десктоп" },
-  tablet:  { w: 768,  h: 960, label: "Планшет" },
-  mobile:  { w: 375,  h: 667, label: "Мобильный" },
+  desktop: { w: 1200, h: 750,  label: "Десктоп" },
+  tablet:  { w: 768,  h: 960,  label: "Планшет" },
+  mobile:  { w: 375,  h: 667,  label: "Мобильный" },
 };
-
-/* ── Types matching EditorPage ── */
-interface ElementBasic {
-  text: string;
-  width: string;
-  height: string;
-  paddingX: string;
-  paddingY: string;
-  btnVariant: "primary" | "secondary" | "danger";
-  btnSize: "sm" | "md" | "lg";
-}
-interface ElementEvent {
-  onClick: "none" | "navigate" | "submit" | "custom";
-  navigateTo: string;
-  customJs: string;
-  onChange: "none" | "validate" | "custom";
-}
-interface EditorDraft {
-  basicMap: Record<string, ElementBasic>;
-  styleMap: Record<string, Record<string, string>>;
-  eventMap: Record<string, ElementEvent>;
-}
-
-const DEFAULT_DRAFT: EditorDraft = {
-  basicMap: {
-    "heading":       { text: "Заголовок страницы", width: "100%", height: "auto", paddingX: "12", paddingY: "8", btnVariant: "primary", btnSize: "md" },
-    "btn-primary":   { text: "Сохранить",          width: "auto", height: "auto", paddingX: "16", paddingY: "8", btnVariant: "primary", btnSize: "md" },
-    "btn-secondary": { text: "Отмена",             width: "auto", height: "auto", paddingX: "16", paddingY: "8", btnVariant: "secondary", btnSize: "md" },
-    "btn-danger":    { text: "Удалить",            width: "auto", height: "auto", paddingX: "16", paddingY: "8", btnVariant: "danger", btnSize: "md" },
-  },
-  styleMap: {},
-  eventMap: {
-    "heading":       { onClick: "none", navigateTo: "", customJs: "", onChange: "none" },
-    "btn-primary":   { onClick: "none", navigateTo: "", customJs: "", onChange: "none" },
-    "btn-secondary": { onClick: "none", navigateTo: "", customJs: "", onChange: "none" },
-    "btn-danger":    { onClick: "none", navigateTo: "", customJs: "", onChange: "none" },
-  },
-};
-
-const MOCK_ROWS = [
-  { id: 1, name: "Клиент А", status: "Активен",  date: "12.01.2025" },
-  { id: 2, name: "Клиент Б", status: "Архив",     date: "08.01.2025" },
-  { id: 3, name: "Клиент В", status: "Активен",  date: "05.01.2025" },
-  { id: 4, name: "Клиент Г", status: "Ожидание", date: "02.01.2025" },
-  { id: 5, name: "Клиент Д", status: "Активен",  date: "29.12.2024" },
-];
 
 export function PreviewPage() {
   const [device, setDevice] = useState<Device>("desktop");
-  const [draft, setDraft] = useState<EditorDraft>(DEFAULT_DRAFT);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [activePage, setActivePage] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(EDITOR_DRAFT_KEY);
-      if (raw) setDraft(JSON.parse(raw) as EditorDraft);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const appsQuery  = useApps();
+  const app        = useActiveApp(appsQuery.data?.items ?? []);
+  const pagesQuery = usePages(app?.id);
+  const pages      = (pagesQuery.data ?? []).slice().sort((a, b) => a.nav_order - b.nav_order);
 
-  const showFeedback = useCallback((msg: string) => {
-    setFeedback(msg);
-    setTimeout(() => setFeedback(null), 2500);
-  }, []);
-
-  function executeEvent(id: string) {
-    const ev = draft.eventMap[id];
-    if (!ev || ev.onClick === "none") return;
-
-    if (ev.onClick === "navigate") {
-      const to = ev.navigateTo?.trim();
-      if (!to) { showFeedback("Не задан адрес для перехода"); return; }
-      if (to.startsWith("http://") || to.startsWith("https://")) {
-        window.open(to, "_blank", "noopener");
-      } else {
-        navigate(to);
-      }
-      return;
-    }
-
-    if (ev.onClick === "submit") {
-      showFeedback("Форма отправлена");
-      return;
-    }
-
-    if (ev.onClick === "custom") {
-      try {
-        // eslint-disable-next-line no-new-func
-        new Function(ev.customJs)();
-      } catch (err) {
-        showFeedback("Ошибка в скрипте: " + String(err));
-      }
-    }
-  }
-
-  function renderBtn(id: string) {
-    const b = draft.basicMap[id];
-    if (!b) return null;
-    const ev = draft.eventMap[id];
-    const hasAction = ev && ev.onClick !== "none";
-
-    const sizeClass = b.btnSize === "sm"
-      ? "px-3 py-1 text-[12px]"
-      : b.btnSize === "lg"
-      ? "px-6 py-3 text-[15px]"
-      : "px-4 py-2 text-[13px]";
-
-    const variantClass =
-      b.btnVariant === "primary"   ? "bg-cta text-white hover:bg-active" :
-      b.btnVariant === "secondary" ? "border border-cardbg text-primary hover:bg-mainbg" :
-                                     "bg-[#DC2626] text-white hover:bg-[#B91C1C]";
-
-    return (
-      <button
-        key={id}
-        onClick={() => executeEvent(id)}
-        title={hasAction ? `Действие: ${ev.onClick}` : undefined}
-        className={cn(
-          "rounded-[6px] font-medium transition-colors relative",
-          sizeClass,
-          variantClass,
-          hasAction && "ring-2 ring-offset-1 ring-cta/40"
-        )}
-      >
-        {b.text}
-        {hasAction && (
-          <span className="absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full bg-cta border-2 border-white" title={ev.onClick} />
-        )}
-      </button>
-    );
-  }
+  const publishMutation = usePublishApp();
 
   const { w, h } = DEVICE_SIZES[device];
-  const availW = 1860;
-  const availH = 940;
-  const scale = Math.min(1, availW / (w + 40), availH / (h + 40));
+  const scale = Math.min(1, 1680 / (w + 40), 880 / (h + 60));
+
+  const currentPageId = activePage ?? pages[0]?.id ?? null;
+  const iframeSrc = app
+    ? `/runtime?app=${app.id}&preview=true${currentPageId ? `&page=${currentPageId}` : ""}`
+    : null;
+
+  const publishedAt = (app as (typeof app & { published_at?: string | null }) | undefined)?.published_at;
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden flex flex-col">
+
       {/* ── Top bar ── */}
-      <header className="flex items-center justify-between px-6 h-[60px] border-b border-cardbg bg-white shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between px-6 h-[60px] border-b border-cardbg bg-white shrink-0 z-10">
+        <div className="flex items-center gap-[10px]">
           <button
             onClick={() => navigate(-1)}
             className="w-8 h-8 flex items-center justify-center rounded-[6px] text-primary/60 hover:text-primary hover:bg-mainbg transition-colors"
           >
             <BackIcon />
           </button>
-          <span className="text-[16px] font-semibold text-primary">Предпросмотр</span>
+          <span className="text-[16px] font-semibold text-primary">
+            {app ? app.name : "Предпросмотр"}
+          </span>
+          {app?.is_published && (
+            <span className="h-[20px] px-[8px] flex items-center rounded-[10px] bg-green-100 text-green-700 text-[11px] font-medium">
+              Опубликовано
+            </span>
+          )}
+          {publishedAt && (
+            <span className="text-[12px] text-primary/35">
+              {new Date(publishedAt).toLocaleString("ru", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-1 bg-mainbg rounded-[8px] p-1">
-          {(Object.entries(DEVICE_SIZES) as [Device, typeof DEVICE_SIZES[Device]][]).map(([key, { label }]) => (
+        {/* Device switcher */}
+        <div className="flex items-center gap-[4px] bg-mainbg rounded-[8px] p-[4px]">
+          {(Object.entries(DEVICE_SIZES) as [Device, { w: number; h: number; label: string }][]).map(([key, { label }]) => (
             <button
               key={key}
               onClick={() => setDevice(key)}
               className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-[6px] text-[13px] transition-colors",
-                device === key ? "bg-white text-cta shadow-sm font-medium" : "text-primary/60 hover:text-primary"
+                "flex items-center gap-[6px] px-[14px] py-[6px] rounded-[6px] text-[13px] transition-colors",
+                device === key
+                  ? "bg-white text-cta shadow-sm font-medium"
+                  : "text-primary/60 hover:text-primary",
               )}
             >
               {key === "desktop" && <DesktopIcon />}
@@ -181,85 +83,115 @@ export function PreviewPage() {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-[13px] text-primary/50">
-            <span className="w-2.5 h-2.5 rounded-full bg-cta/40 inline-block" />
-            Активные кнопки отмечены синей точкой
-          </div>
+        <div className="flex items-center gap-[8px]">
+          <button
+            onClick={() => app && publishMutation.mutate(app.id)}
+            disabled={publishMutation.isPending || !app}
+            className="flex items-center gap-[6px] h-[34px] px-[14px] bg-cta text-white text-[13px] font-medium rounded-btn hover:bg-active transition-colors disabled:opacity-60"
+          >
+            <PublishIcon />
+            {publishMutation.isPending
+              ? "Публикация…"
+              : app?.is_published
+              ? "Переопубликовать"
+              : "Опубликовать"}
+          </button>
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center gap-2 bg-mainbg text-primary text-[14px] rounded-[20px] px-4 py-1.5 hover:bg-cardbg transition-colors"
+            className="flex items-center gap-[6px] h-[34px] px-[12px] bg-mainbg text-primary text-[13px] rounded-btn hover:bg-cardbg transition-colors"
           >
-            <span className="text-[16px] leading-none">✕</span>
+            <CloseIcon />
             Закрыть
           </button>
         </div>
       </header>
 
-      {/* ── Preview area ── */}
-      <div className="flex-1 bg-mainbg flex items-center justify-center overflow-hidden relative">
-        {/* Feedback toast */}
-        {feedback && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-primary text-white text-[14px] font-medium px-5 py-2.5 rounded-[8px] shadow-lg pointer-events-none animate-fade-in">
-            {feedback}
-          </div>
-        )}
+      <div className="flex flex-1 overflow-hidden">
 
-        <div
-          style={{
-            width: w, height: h,
-            transform: `scale(${scale})`,
-            transformOrigin: "center center",
-          }}
-          className="bg-white rounded-[12px] shadow-2xl overflow-hidden flex flex-col border border-cardbg"
-        >
-          {/* App header */}
-          <div className="bg-primary px-6 py-3 flex items-center gap-3 shrink-0">
-            <div className="w-7 h-7 rounded-[6px] bg-cta flex items-center justify-center">
-              <span className="text-white text-[11px] font-bold">A</span>
-            </div>
-            <span className="text-white text-[15px] font-semibold">Предпросмотр приложения</span>
-          </div>
-
-          {/* Canvas content — mirrors EditorPage layout */}
-          <div className="flex-1 relative overflow-hidden bg-white p-6 flex flex-col gap-6">
-            {/* Heading */}
-            <div className="flex items-center h-10">
-              <span className="text-[20px] font-bold text-primary">
-                {draft.basicMap["heading"]?.text ?? "Заголовок страницы"}
+        {/* ── Pages sidebar ── */}
+        {pages.length > 0 && (
+          <aside className="w-[220px] border-r border-cardbg bg-white flex flex-col shrink-0">
+            <div className="px-[16px] py-[10px] border-b border-cardbg">
+              <span className="text-[11px] font-semibold text-primary/40 uppercase tracking-wide">
+                Страницы
               </span>
             </div>
-
-            {/* Table */}
-            <div className="flex-1 overflow-auto">
-              <div className="bg-[#F5F6F8] rounded-t-[4px] grid grid-cols-4 border border-cardbg">
-                {["Название", "Статус", "Дата", "Пользователь"].map((col) => (
-                  <div key={col} className="px-3 py-2 text-[12px] font-semibold text-primary border-r last:border-r-0 border-cardbg">{col}</div>
-                ))}
-              </div>
-              {MOCK_ROWS.map((row) => (
-                <div key={row.id} className="grid grid-cols-4 border-x border-b border-cardbg hover:bg-mainbg transition-colors cursor-pointer">
-                  <div className="px-3 py-2 text-[12px] text-primary border-r border-cardbg">{row.name}</div>
-                  <div className="px-3 py-2 border-r border-cardbg">
-                    <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-[20px]",
-                      row.status === "Активен"  ? "bg-[#E8F5E9] text-[#2E7D32]" :
-                      row.status === "Архив"    ? "bg-[#F5F6F8] text-primary/60" :
-                                                  "bg-[#FFF8E1] text-[#E65100]"
-                    )}>{row.status}</span>
-                  </div>
-                  <div className="px-3 py-2 text-[12px] text-primary/60 border-r border-cardbg">{row.date}</div>
-                  <div className="px-3 py-2 text-[12px] text-primary/60">user@app.ru</div>
-                </div>
-              ))}
+            <nav className="flex-1 overflow-y-auto py-[4px]">
+              {pages.map((page) => {
+                const isActive = (activePage ?? pages[0]?.id) === page.id;
+                return (
+                  <button
+                    key={page.id}
+                    onClick={() => setActivePage(page.id)}
+                    className={cn(
+                      "w-full flex items-center gap-[8px] text-left px-[16px] py-[9px] text-[13px] transition-colors",
+                      isActive
+                        ? "bg-[#EBF4FF] text-cta font-medium"
+                        : "text-primary/70 hover:bg-mainbg",
+                    )}
+                  >
+                    {page.icon ? (
+                      <span className="text-[14px] leading-none shrink-0">{page.icon}</span>
+                    ) : (
+                      <PageIcon className="w-3.5 h-3.5 shrink-0 text-primary/30" />
+                    )}
+                    <span className="flex-1 truncate">{page.title}</span>
+                    {page.is_published && (
+                      <span
+                        className="w-[6px] h-[6px] rounded-full bg-green-400 shrink-0"
+                        title="Опубликована"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="border-t border-cardbg px-[16px] py-[10px]">
+              <p className="text-[11px] text-primary/30">
+                {pages.filter((p) => p.is_published).length} из {pages.length} опубликовано
+              </p>
             </div>
+          </aside>
+        )}
 
-            {/* Buttons */}
-            <div className="flex flex-wrap gap-3 shrink-0">
-              {renderBtn("btn-primary")}
-              {renderBtn("btn-secondary")}
-              {renderBtn("btn-danger")}
-            </div>
+        {/* ── Preview canvas ── */}
+        <div className="flex-1 bg-[#DDE3EC] flex flex-col items-center justify-center overflow-hidden relative">
+          {/* Size pill */}
+          <div className="absolute top-[10px] left-1/2 -translate-x-1/2 bg-black/20 text-white text-[11px] px-[10px] py-[3px] rounded-full select-none pointer-events-none">
+            {w} × {h} · {Math.round(scale * 100)}%
           </div>
+
+          {iframeSrc ? (
+            <div
+              style={{
+                width: w,
+                height: h,
+                transform: `scale(${scale})`,
+                transformOrigin: "center center",
+                flexShrink: 0,
+              }}
+              className="rounded-[12px] shadow-2xl overflow-hidden bg-white"
+            >
+              <iframe
+                key={`${app?.id}-${currentPageId}-${device}`}
+                src={iframeSrc}
+                width={w}
+                height={h}
+                className="w-full h-full border-0 block"
+                title="Предпросмотр приложения"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+              />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-[10px]">
+              <div className="w-14 h-14 rounded-full bg-white/40 flex items-center justify-center">
+                <DesktopIcon className="w-6 h-6 text-white/60" />
+              </div>
+              <p className="text-[14px] text-white/60">
+                {appsQuery.isLoading ? "Загрузка приложения…" : "Нет приложений"}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -267,17 +199,58 @@ export function PreviewPage() {
 }
 
 /* ── Icons ── */
-const S = "currentColor";
 
 function BackIcon() {
-  return <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><path d="M10 4L6 8l4 4" stroke={S} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+      <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
-function DesktopIcon() {
-  return <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><rect x="1" y="2" width="14" height="10" rx="1.5" stroke={S} strokeWidth="1.5" /><path d="M5 14h6M8 12v2" stroke={S} strokeWidth="1.5" strokeLinecap="round" /></svg>;
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5">
+      <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function PublishIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+      <path d="M8 2v8M5 5l3-3 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 12h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function PageIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 14 16" fill="none">
+      <rect x="1" y="1" width="10" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4 5h6M4 8h6M4 11h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  );
+}
+function DesktopIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className ?? "w-4 h-4"}>
+      <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M5 14h6M8 12v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
 }
 function TabletIcon() {
-  return <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke={S} strokeWidth="1.5" /><circle cx="8" cy="12.5" r="0.75" fill={S} /></svg>;
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+      <rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="8" cy="12.5" r="0.75" fill="currentColor" />
+    </svg>
+  );
 }
 function MobileIcon() {
-  return <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><rect x="4" y="1" width="8" height="14" rx="1.5" stroke={S} strokeWidth="1.5" /><circle cx="8" cy="12.5" r="0.75" fill={S} /></svg>;
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
+      <rect x="4" y="1" width="8" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="8" cy="12.5" r="0.75" fill="currentColor" />
+    </svg>
+  );
 }
