@@ -2,28 +2,41 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activateWorkflow,
   assignInstance,
+  cancelInstance,
   createApprovalChain,
   createState,
+  createTransition,
   createWorkflow,
   deactivateWorkflow,
   decideChainLevel,
   deleteApprovalChain,
   deleteState,
+  deleteTransition,
   deleteWorkflow,
+  executeTransition,
+  getAvailableTransitions,
+  getTransitionLog,
   listApprovalChains,
   listChainInstances,
   listInstances,
   listStates,
+  listTransitions,
   listWorkflows,
+  startInstance,
   updateApprovalChain,
   updateState,
+  updateTransition,
   updateWorkflow,
   type ApprovalChainDefCreate,
   type ApprovalChainDefUpdate,
   type ApprovalDecisionRequest,
   type AssignInstanceRequest,
+  type StartInstanceRequest,
   type StateDefCreate,
   type StateDefUpdate,
+  type TransitionDefCreate,
+  type TransitionDefUpdate,
+  type TransitionRequest,
   type WorkflowDefCreate,
   type WorkflowDefUpdate,
 } from "../api/workflows";
@@ -205,5 +218,109 @@ export function useDecideChainLevel(appId: string, workflowId: string, instanceI
       void qc.invalidateQueries({ queryKey: CHAIN_INSTANCES_KEY(appId, workflowId, instanceId) });
       void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) });
     },
+  });
+}
+
+// ------------------------------------------------------------------
+// Transitions
+// ------------------------------------------------------------------
+
+const TRANSITIONS_KEY = (appId: string, workflowId: string) =>
+  ["workflow-transitions", appId, workflowId] as const;
+
+export function useWorkflowTransitions(appId: string | undefined, workflowId: string | undefined) {
+  return useQuery({
+    queryKey: TRANSITIONS_KEY(appId ?? "", workflowId ?? ""),
+    queryFn: () => listTransitions(appId!, workflowId!),
+    enabled: !!appId && !!workflowId,
+  });
+}
+
+export function useCreateTransition(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: TransitionDefCreate) => createTransition(appId, workflowId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: TRANSITIONS_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useUpdateTransition(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ transitionId, body }: { transitionId: string; body: TransitionDefUpdate }) =>
+      updateTransition(appId, workflowId, transitionId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: TRANSITIONS_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useDeleteTransition(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (transitionId: string) => deleteTransition(appId, workflowId, transitionId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: TRANSITIONS_KEY(appId, workflowId) }); },
+  });
+}
+
+// ------------------------------------------------------------------
+// Instance runtime ops
+// ------------------------------------------------------------------
+
+const AVAILABLE_TRANSITIONS_KEY = (appId: string, workflowId: string, instanceId: string) =>
+  ["available-transitions", appId, workflowId, instanceId] as const;
+
+const TRANSITION_LOG_KEY = (appId: string, workflowId: string, instanceId: string) =>
+  ["transition-log", appId, workflowId, instanceId] as const;
+
+export function useStartInstance(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: StartInstanceRequest) => startInstance(appId, workflowId, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useAvailableTransitions(
+  appId: string | undefined,
+  workflowId: string | undefined,
+  instanceId: string | undefined,
+) {
+  return useQuery({
+    queryKey: AVAILABLE_TRANSITIONS_KEY(appId ?? "", workflowId ?? "", instanceId ?? ""),
+    queryFn: () => getAvailableTransitions(appId!, workflowId!, instanceId!),
+    enabled: !!appId && !!workflowId && !!instanceId,
+  });
+}
+
+export function useExecuteTransition(appId: string, workflowId: string, instanceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: TransitionRequest) => executeTransition(appId, workflowId, instanceId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) });
+      void qc.invalidateQueries({ queryKey: AVAILABLE_TRANSITIONS_KEY(appId, workflowId, instanceId) });
+      void qc.invalidateQueries({ queryKey: TRANSITION_LOG_KEY(appId, workflowId, instanceId) });
+      void qc.invalidateQueries({ queryKey: CHAIN_INSTANCES_KEY(appId, workflowId, instanceId) });
+    },
+  });
+}
+
+export function useCancelInstance(appId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ instanceId, reason }: { instanceId: string; reason?: string }) =>
+      cancelInstance(appId, workflowId, instanceId, reason),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useTransitionLog(
+  appId: string | undefined,
+  workflowId: string | undefined,
+  instanceId: string | undefined,
+) {
+  return useQuery({
+    queryKey: TRANSITION_LOG_KEY(appId ?? "", workflowId ?? "", instanceId ?? ""),
+    queryFn: () => getTransitionLog(appId!, workflowId!, instanceId!),
+    enabled: !!appId && !!workflowId && !!instanceId,
   });
 }

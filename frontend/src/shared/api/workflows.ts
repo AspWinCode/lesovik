@@ -313,6 +313,185 @@ export async function deleteApprovalChain(
 }
 
 // ------------------------------------------------------------------
+// TransitionDef
+// ------------------------------------------------------------------
+
+export interface TransitionDefRead {
+  id: string;
+  workflow_id: string;
+  name: string;
+  display_name: string;
+  from_state: string;
+  to_state: string;
+  guard_conditions: Record<string, unknown>;
+  actions: Record<string, unknown>[];
+  required_roles: string[];
+}
+
+export interface TransitionDefCreate {
+  name: string;
+  display_name: string;
+  from_state: string;
+  to_state: string;
+  guard_conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>[];
+  required_roles?: string[];
+}
+
+export interface TransitionDefUpdate {
+  display_name?: string;
+  from_state?: string;
+  to_state?: string;
+  guard_conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>[];
+  required_roles?: string[];
+}
+
+export async function listTransitions(appId: string, workflowId: string): Promise<TransitionDefRead[]> {
+  const { data } = await apiClient.get<TransitionDefRead[]>(
+    `/apps/${appId}/workflows/${workflowId}/transitions`,
+  );
+  return data;
+}
+
+export async function createTransition(
+  appId: string,
+  workflowId: string,
+  body: TransitionDefCreate,
+): Promise<TransitionDefRead> {
+  const { data } = await apiClient.post<TransitionDefRead>(
+    `/apps/${appId}/workflows/${workflowId}/transitions`,
+    body,
+  );
+  return data;
+}
+
+export async function updateTransition(
+  appId: string,
+  workflowId: string,
+  transitionId: string,
+  body: TransitionDefUpdate,
+): Promise<TransitionDefRead> {
+  const { data } = await apiClient.patch<TransitionDefRead>(
+    `/apps/${appId}/workflows/${workflowId}/transitions/${transitionId}`,
+    body,
+  );
+  return data;
+}
+
+export async function deleteTransition(
+  appId: string,
+  workflowId: string,
+  transitionId: string,
+): Promise<void> {
+  await apiClient.delete(`/apps/${appId}/workflows/${workflowId}/transitions/${transitionId}`);
+}
+
+// ------------------------------------------------------------------
+// Workflow instance runtime
+// ------------------------------------------------------------------
+
+export interface StartInstanceRequest {
+  record_id: string;
+  record_payload?: Record<string, unknown>;
+}
+
+export interface AvailableTransitionRead {
+  name: string;
+  display_name: string;
+  to_state: string;
+  requires_roles: string[];
+}
+
+export interface TransitionRequest {
+  transition_name: string;
+  record_payload?: Record<string, unknown>;
+}
+
+export interface TransitionResponse {
+  instance: WorkflowInstanceRead;
+  field_mutations: Record<string, unknown>[];
+  notifications: Record<string, unknown>[];
+  webhooks: Record<string, unknown>[];
+  errors: string[];
+}
+
+export interface TransitionLogRead {
+  id: string;
+  instance_id: string;
+  workflow_id: string;
+  from_state: string | null;
+  to_state: string;
+  transition_id: string | null;
+  actor_id: string | null;
+  executed_at: string;
+  duration_ms: number | null;
+  error: string | null;
+}
+
+export async function startInstance(
+  appId: string,
+  workflowId: string,
+  body: StartInstanceRequest,
+): Promise<WorkflowInstanceRead> {
+  const { data } = await apiClient.post<WorkflowInstanceRead>(
+    `/apps/${appId}/workflows/${workflowId}/instances`,
+    body,
+  );
+  return data;
+}
+
+export async function getAvailableTransitions(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+): Promise<AvailableTransitionRead[]> {
+  const { data } = await apiClient.get<AvailableTransitionRead[]>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/transitions`,
+  );
+  return data;
+}
+
+export async function executeTransition(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+  body: TransitionRequest,
+): Promise<TransitionResponse> {
+  const { data } = await apiClient.post<TransitionResponse>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/transition`,
+    body,
+  );
+  return data;
+}
+
+export async function cancelInstance(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+  reason?: string,
+): Promise<WorkflowInstanceRead> {
+  const { data } = await apiClient.post<WorkflowInstanceRead>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/cancel`,
+    { reason: reason ?? null },
+  );
+  return data;
+}
+
+export async function getTransitionLog(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+  limit?: number,
+): Promise<TransitionLogRead[]> {
+  const { data } = await apiClient.get<TransitionLogRead[]>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}/log`,
+    { params: limit ? { limit } : undefined },
+  );
+  return data;
+}
+
+// ------------------------------------------------------------------
 // Approval chain instances — runtime
 // ------------------------------------------------------------------
 
