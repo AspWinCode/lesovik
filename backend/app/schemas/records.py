@@ -68,6 +68,7 @@ class RecordRead(BaseModel):
     entity_id: uuid.UUID
     payload: dict[str, Any]
     version: int
+    is_deleted: bool = False
     created_by: uuid.UUID | None
     updated_by: uuid.UUID | None
     created_at: datetime

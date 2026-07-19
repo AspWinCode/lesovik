@@ -390,17 +390,17 @@ const rules: Rule[] = [
 const mockRecords: RecordRead[] = [
   {
     id: "rec-1", entity_id: ENTITY_ID, payload: { name: "Record 1", status: "active" },
-    version: 1, created_by: MOCK_USER.id, updated_by: null,
+    version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   },
   {
     id: "rec-2", entity_id: ENTITY_ID, payload: { name: "Record 2", status: "active" },
-    version: 1, created_by: MOCK_USER.id, updated_by: null,
+    version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   },
   {
     id: "rec-3", entity_id: ENTITY_ID, payload: { name: "Record 3", status: "active" },
-    version: 1, created_by: MOCK_USER.id, updated_by: null,
+    version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   },
 ];
@@ -876,7 +876,7 @@ export const handlers = [
     const now = new Date().toISOString();
     const record: RecordRead = {
       id: crypto.randomUUID(), entity_id: entityId, payload: body.payload,
-      version: 1, created_by: MOCK_USER.id, updated_by: null,
+      version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
       created_at: now, updated_at: now,
     };
     mockRecords.push(record);

@@ -6,6 +6,7 @@ export interface RecordRead {
   entity_id: string;
   payload: Record<string, unknown>;
   version: number;
+  is_deleted: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -25,6 +26,7 @@ export interface RecordListParams {
   limit?: number;
   sort_field?: string;
   sort_dir?: "asc" | "desc";
+  include_deleted?: boolean;
 }
 
 export async function listRecords(
@@ -35,6 +37,29 @@ export async function listRecords(
   const { data } = await apiClient.get<CursorPage<RecordRead>>(
     `/apps/${appId}/entities/${entityId}/records`,
     { params },
+  );
+  return data;
+}
+
+export async function exportRecords(
+  appId: string,
+  entityId: string,
+  format: "xlsx" | "csv" | "pdf",
+): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(
+    `/apps/${appId}/entities/${entityId}/records/export`,
+    { params: { format }, responseType: "blob" },
+  );
+  return data;
+}
+
+export async function restoreRecord(
+  appId: string,
+  entityId: string,
+  recordId: string,
+): Promise<RecordRead> {
+  const { data } = await apiClient.post<RecordRead>(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}/restore`,
   );
   return data;
 }
@@ -67,8 +92,16 @@ export async function updateRecord(
   return data;
 }
 
-export async function deleteRecord(appId: string, entityId: string, recordId: string): Promise<void> {
-  await apiClient.delete(`/apps/${appId}/entities/${entityId}/records/${recordId}`);
+export async function deleteRecord(
+  appId: string,
+  entityId: string,
+  recordId: string,
+  hard = false,
+): Promise<void> {
+  await apiClient.delete(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}`,
+    hard ? { params: { hard: true } } : undefined,
+  );
 }
 
 /* ── Import ── */

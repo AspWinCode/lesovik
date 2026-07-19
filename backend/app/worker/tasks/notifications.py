@@ -1,3 +1,4 @@
+import uuid
 import structlog
 from celery import shared_task
 
@@ -48,11 +49,64 @@ def send_email(
     return {"status": "sent", "to": to}
 
 
+_EVENT_TITLES: dict[str, str] = {
+    "approval_requested": "Требуется ваше согласование",
+    "assigned": "Вам назначена задача",
+    "state_changed": "Изменение состояния процесса",
+    "cancelled": "Процесс отменён",
+    "completed": "Процесс завершён",
+}
+
+
 @shared_task(name="app.worker.tasks.notifications.send_workflow_notification")
 def send_workflow_notification(
     user_id: str,
     event: str,
     payload: dict[str, object],
 ) -> None:
-    """Placeholder: push workflow event notification to user (SSE/WebSocket/email)."""
-    logger.info("workflow_notification", user_id=user_id, event=event)
+    """Look up user email and send workflow event notification."""
+    import asyncio
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionLocal
+    from app.models.identity import User
+
+    async def _fetch_user() -> tuple[str, str] | None:
+        async with AsyncSessionLocal() as session:
+            row = await session.execute(select(User).where(User.id == uuid.UUID(user_id)))
+            user = row.scalar_one_or_none()
+            if user and user.email:
+                return user.email, user.display_name
+            return None
+
+    result = asyncio.run(_fetch_user())
+    if result is None:
+        logger.warning("workflow_notification_no_user", user_id=user_id)
+        return
+
+    to_email, display_name = result
+    workflow_name = str(payload.get("workflow_name", "Процесс"))
+    state = str(payload.get("state", ""))
+    record_id = str(payload.get("record_id", ""))
+
+    title = _EVENT_TITLES.get(event, "Уведомление о процессе")
+    subject = f"{title}: {workflow_name}"
+
+    state_row = f"<p>Состояние: <strong>{state}</strong></p>" if state else ""
+    record_row = f"<p>Запись ID: <code style='font-size:12px'>{record_id}</code></p>" if record_id else ""
+
+    body_html = f"""
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a2340">
+  <h2 style="color:#00205F;margin-bottom:12px">{title}</h2>
+  <p>Здравствуйте, {display_name}!</p>
+  <p>Процесс: <strong>{workflow_name}</strong></p>
+  {state_row}
+  {record_row}
+  <p style="color:#888;margin-top:20px;font-size:13px">Войдите в систему для просмотра подробностей.</p>
+</div>
+"""
+
+    send_email.apply_async(
+        kwargs={"to": to_email, "subject": subject, "body_html": body_html},
+        queue="notifications",
+    )
+    logger.info("workflow_notification_queued", user_id=user_id, event=event, to=to_email)
