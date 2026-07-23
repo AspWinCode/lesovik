@@ -610,15 +610,15 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
       ? formValues?.[fieldName] === true || formValues?.[fieldName] === "true"
       : Boolean(cfg.default_value);
     return (
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: fieldName ? "pointer" : "default" }}
-        onClick={() => fieldName && onFormChange?.(fieldName, !checked)}
-      >
-        <div style={{ width: 40, height: 22, borderRadius: 11, background: checked ? accent : colors.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-          <div style={{ position: "absolute", top: 3, left: checked ? 19 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
-        </div>
-        <span style={{ fontSize: 14, color: colors.text }}>{label}</span>
-      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: "pointer", fontSize: 14, color: colors.text }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => fieldName && onFormChange?.(fieldName, e.target.checked)}
+          style={{ width: 18, height: 18, cursor: "pointer", accentColor: accent }}
+        />
+        {label}
+      </label>
     );
   }
 
