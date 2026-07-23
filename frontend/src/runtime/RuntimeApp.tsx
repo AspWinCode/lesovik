@@ -312,8 +312,9 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
     setPageSaveStatus("submitting");
     try {
       const payload: Record<string, unknown> = {};
+      const validFields = new Set(allCols.map((f) => f.name));
       Object.entries(pageFormValues).forEach(([k, v]) => {
-        if (v !== undefined && v !== "") payload[k] = v;
+        if (validFields.has(k) && v !== undefined && v !== "") payload[k] = v;
       });
       await createRecord(appId, entity.id, { payload });
       setPageFormValues({});
