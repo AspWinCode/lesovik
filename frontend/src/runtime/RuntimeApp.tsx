@@ -299,12 +299,42 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
 
   const hasDataView = !!viewType && viewType !== "form";
 
+  // Page-level form state (shared across text_field / toggle / number_field blocks)
+  const [pageFormValues, setPageFormValues] = useState<Record<string, unknown>>({});
+  const [pageSaveStatus, setPageSaveStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+
+  function setFormField(field: string, value: unknown) {
+    setPageFormValues((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handlePageFormSave(targetPageId?: string) {
+    if (!entity || pageSaveStatus === "submitting") return;
+    setPageSaveStatus("submitting");
+    try {
+      const payload: Record<string, unknown> = {};
+      Object.entries(pageFormValues).forEach(([k, v]) => {
+        if (v !== undefined && v !== "") payload[k] = v;
+      });
+      await createRecord(appId, entity.id, { payload });
+      setPageFormValues({});
+      setPageSaveStatus("success");
+      if (targetPageId) {
+        setTimeout(() => onNavigate(targetPageId), 800);
+      } else {
+        setTimeout(() => setPageSaveStatus("idle"), 3000);
+      }
+    } catch {
+      setPageSaveStatus("error");
+      setTimeout(() => setPageSaveStatus("idle"), 3000);
+    }
+  }
+
   // Pick the context record for evaluating block visibility conditions.
   // On detail pages use the active record; otherwise fall back to the first record.
   const contextRecord = activeRecordId
     ? records.find((r) => r.id === activeRecordId)
     : records[0];
-  const contextPayload: Record<string, unknown> = contextRecord?.payload ?? {};
+  const contextPayload: Record<string, unknown> = { ...contextRecord?.payload ?? {}, ...pageFormValues };
 
   const visibleBlocks = blocks.filter((b) => {
     const cond = b.config.visibility_condition as VisibilityCond | undefined;
@@ -345,10 +375,21 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
               inputStyle={inputStyle}
               labelPosition={labelPosition}
               appId={appId}
+              entities={entities}
               onNavigate={onNavigate}
               onRecordCreated={() => recordsQuery.refetch()}
+              formValues={pageFormValues}
+              onFormChange={setFormField}
+              onFormSave={handlePageFormSave}
+              formStatus={pageSaveStatus}
             />
           ))}
+          {pageSaveStatus === "success" && (
+            <p style={{ color: "#15803D", fontSize: 14, fontWeight: 500, padding: "8px 0" }}>✓ Заказ сохранён</p>
+          )}
+          {pageSaveStatus === "error" && (
+            <p style={{ color: "#B91C1C", fontSize: 14, padding: "8px 0" }}>Ошибка при сохранении. Попробуйте ещё раз.</p>
+          )}
         </div>
       )}
       {!hasDataView && blocks.length === 0 && <Centered>На этой странице ещё нет блоков.</Centered>}
@@ -463,7 +504,7 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
   );
 }
 
-function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, onNavigate, onRecordCreated }: {
+function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -473,8 +514,13 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   inputStyle: string;
   labelPosition: string;
   appId: string;
+  entities?: EntityRead[];
   onNavigate: (id: string) => void;
   onRecordCreated: () => void;
+  formValues?: Record<string, unknown>;
+  onFormChange?: (field: string, value: unknown) => void;
+  onFormSave?: (targetPageId?: string) => Promise<void>;
+  formStatus?: "idle" | "submitting" | "success" | "error";
 }) {
   if (block.type === "divider") {
     return <hr style={{ border: "none", borderTop: `1px solid ${colors.border}`, margin: "4px 0" }} />;
@@ -531,6 +577,96 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
+  if (block.type === "text_field") {
+    const cfg = block.config ?? {};
+    const fieldName = (cfg.field_name as string) ?? "";
+    const label = (cfg.label as string) ?? block.title ?? "";
+    const placeholder = (cfg.placeholder as string) ?? "";
+    const inputSt: React.CSSProperties = {
+      height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8,
+      border: `1px solid ${colors.border}`, background: colors.surface,
+      color: colors.text, outline: "none", width: "100%", boxSizing: "border-box",
+    };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+        <input
+          type="text"
+          value={fieldName ? String(formValues?.[fieldName] ?? "") : ""}
+          onChange={(e) => fieldName && onFormChange?.(fieldName, e.target.value)}
+          placeholder={placeholder}
+          style={inputSt}
+        />
+      </div>
+    );
+  }
+
+  if (block.type === "toggle") {
+    const cfg = block.config ?? {};
+    const fieldName = (cfg.field_name as string) ?? "";
+    const label = (cfg.label as string) ?? block.title ?? "";
+    const checked = fieldName
+      ? formValues?.[fieldName] === true || formValues?.[fieldName] === "true"
+      : Boolean(cfg.default_value);
+    return (
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: fieldName ? "pointer" : "default" }}
+        onClick={() => fieldName && onFormChange?.(fieldName, !checked)}
+      >
+        <div style={{ width: 40, height: 22, borderRadius: 11, background: checked ? accent : colors.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+          <div style={{ position: "absolute", top: 3, left: checked ? 19 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
+        </div>
+        <span style={{ fontSize: 14, color: colors.text }}>{label}</span>
+      </div>
+    );
+  }
+
+  if (block.type === "number_field") {
+    const cfg = block.config ?? {};
+    const fieldName = (cfg.field_name as string) ?? "";
+    const label = (cfg.label as string) ?? block.title ?? "";
+    const unit = (cfg.unit as string) ?? "";
+    const inputSt: React.CSSProperties = {
+      height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8,
+      border: `1px solid ${colors.border}`, background: colors.surface,
+      color: colors.text, outline: "none", width: "100%", boxSizing: "border-box",
+    };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}{unit ? ` (${unit})` : ""}</label>}
+        <input
+          type="number"
+          value={fieldName ? String(formValues?.[fieldName] ?? "") : ""}
+          onChange={(e) => {
+            if (!fieldName) return;
+            onFormChange?.(fieldName, e.target.value === "" ? "" : Number(e.target.value));
+          }}
+          style={inputSt}
+        />
+      </div>
+    );
+  }
+
+  if (block.type === "lookup") {
+    const cfg = block.config ?? {};
+    const refEntityId = (cfg.entity_id as string) ?? "";
+    const displayField = (cfg.display_field as string) ?? "id";
+    const fieldName = (cfg.field_name as string) ?? "";
+    const label = (cfg.label as string) ?? block.title ?? "";
+    return (
+      <LookupBlock
+        appId={appId}
+        refEntityId={refEntityId}
+        displayField={displayField}
+        fieldName={fieldName}
+        label={label}
+        value={fieldName ? String(formValues?.[fieldName] ?? "") : ""}
+        onChange={(v) => fieldName && onFormChange?.(fieldName, v)}
+        colors={colors}
+      />
+    );
+  }
+
   if (block.type === "button") {
     const cfg = block.config ?? {};
     const actionType = (cfg.actionType as string) ?? "url";
@@ -553,7 +689,9 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     };
 
     function handleClick() {
-      if (actionType === "page" && targetPageId) {
+      if (actionType === "save") {
+        void onFormSave?.(targetPageId || undefined);
+      } else if (actionType === "page" && targetPageId) {
         onNavigate(targetPageId);
       } else if (actionType === "block" && targetBlockId) {
         const el = document.getElementById(targetBlockId) ?? document.querySelector(`[data-block="${targetBlockId}"]`);
@@ -570,9 +708,10 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         </a>
       );
     }
+    const isSaving = actionType === "save" && formStatus === "submitting";
     return (
-      <button style={style} onClick={handleClick}>
-        {block.title ?? "Кнопка"}
+      <button style={{ ...style, opacity: isSaving ? 0.7 : 1, cursor: isSaving ? "not-allowed" : "pointer" }} onClick={handleClick} disabled={isSaving}>
+        {isSaving ? "Сохранение…" : (block.title ?? "Кнопка")}
       </button>
     );
   }
@@ -628,6 +767,34 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         </div>
       )}
     </section>
+  );
+}
+
+function LookupBlock({ appId, refEntityId, displayField, fieldName, label, value, onChange, colors }: {
+  appId: string; refEntityId: string; displayField: string;
+  fieldName: string; label: string; value: string;
+  onChange: (v: string) => void; colors: AppColors;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, refEntityId],
+    queryFn: () => listRecords(appId, refEntityId, { limit: 200 }),
+    enabled: !!refEntityId,
+  });
+  const options = recordsQuery.data?.items ?? [];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.text, outline: "none", width: "100%", boxSizing: "border-box" }}
+      >
+        <option value="">— выберите —</option>
+        {options.map((r) => (
+          <option key={r.id} value={r.id}>{String(r.payload[displayField] ?? r.id)}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
