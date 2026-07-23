@@ -23,8 +23,8 @@ interface IconRailProps {
 const items: { id: RailModule; label: string; icon: React.ReactNode }[] = [
   { id: "home",          label: "Главная",        icon: <HomeIcon /> },
   { id: "analytics",     label: "Аналитика",      icon: <AnalyticsIcon /> },
-  { id: "constructor",   label: "Конструктор",    icon: <ConstructorIcon /> },
   { id: "data",          label: "Данные",         icon: <DataIcon /> },
+  { id: "constructor",   label: "Конструктор",    icon: <ConstructorIcon /> },
   { id: "automation",    label: "Автоматизация",  icon: <RobotIcon /> },
   { id: "notifications", label: "Уведомления",    icon: <BellIcon /> },
   { id: "documents",     label: "Документы",      icon: <DocumentIcon /> },

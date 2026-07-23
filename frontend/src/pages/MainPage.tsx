@@ -190,8 +190,9 @@ export function MainPage() {
   }
 
   async function handleCreateApp(name: string, category: string) {
-    await createApp.mutateAsync({ name, slug: slugify(name), category: category || null });
+    const app = await createApp.mutateAsync({ name, slug: slugify(name), category: category || null });
     setModal(null);
+    navigate(`/schema?app=${app.id}`);
   }
 
   async function handleCreateFromTemplate(name: string, templateId: string, category: string) {

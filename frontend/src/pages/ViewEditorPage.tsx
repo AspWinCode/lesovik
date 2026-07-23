@@ -275,8 +275,21 @@ export function ViewEditorPage() {
     }
   }, [activeView]);
 
-  // Sync local state from active page
+  // Sync local state from active page.
+  // Deps include activePage?.id so that if the page data arrives after
+  // activeView is set (e.g. right after creating a new page), the effect
+  // re-runs and loads the correct (empty) blocks instead of leaving stale ones.
   useEffect(() => {
+    // Always clear first so stale content never bleeds into the next page.
+    setBlocks([]);
+    setLayout({});
+    setName("");
+    blocksRef.current = [];
+    layoutRef.current = {};
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
     if (!activePage) return;
     const loadedBlocks = (activePage.blocks ?? []) as unknown as PageBlock[];
     const loadedLayout = activePage.layout ?? {};
@@ -285,11 +298,7 @@ export function ViewEditorPage() {
     setLayout(loadedLayout);
     blocksRef.current = loadedBlocks;
     layoutRef.current = loadedLayout;
-    undoStackRef.current = [];
-    redoStackRef.current = [];
-    setCanUndo(false);
-    setCanRedo(false);
-  }, [activeView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView, activePage?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const userPages   = pages.filter((p) => !p.layout?.is_system);
   const systemPages = pages.filter((p) =>  p.layout?.is_system);
