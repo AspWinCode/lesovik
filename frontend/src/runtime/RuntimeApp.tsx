@@ -121,7 +121,7 @@ function RuntimeShell() {
     if (candidates.length === 0) return;
     if (pageParam && visiblePages.find((p) => p.id === pageParam)) {
       setActivePageId(pageParam);
-    } else if (!activePageId || !visiblePages.find((p) => p.id === activePageId)) {
+    } else if (!activePageId || !allPages.find((p) => p.id === activePageId)) {
       setActivePageId(candidates[0].id);
     }
   }, [visiblePages.map((p) => p.id).join(","), pageParam]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -148,7 +148,7 @@ function RuntimeShell() {
     return <Centered>Приложение не найдено. Откройте его из конструктора.</Centered>;
   }
 
-  const activePage = visiblePages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
+  const activePage = allPages.find((p) => p.id === activePageId) ?? navPages[0] ?? null;
   const design = (activePage?.layout?.design as DesignConfig | undefined) ?? {};
   const accent = design.accent ?? "#35A7FF";
   const theme = design.theme ?? "light";
