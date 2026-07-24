@@ -288,7 +288,11 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
     queryFn: () => listRecords(appId, entity!.id, { limit: 200 }),
     enabled: !!entity,
   });
-  const records = recordsQuery.data?.items ?? [];
+  const allRecords = recordsQuery.data?.items ?? [];
+  // On a detail page, show only the active record
+  const records = (page.layout?.system_type === "detail" && activeRecordId)
+    ? allRecords.filter((r) => r.id === activeRecordId)
+    : allRecords;
   const hiddenColumns = (page.layout?.hidden_columns as string[] | undefined) ?? [];
   const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "auto";
   const columnWidth = (page.layout?.column_width as string) ?? "Средняя";
@@ -451,6 +455,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
               onFormChange={setFormField}
               onFormSave={handlePageFormSave}
               formStatus={pageSaveStatus}
+              onRowClick={onRowClick}
             />
           ))}
           {pageSaveStatus === "success" && (
@@ -573,7 +578,7 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
   );
 }
 
-function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus }: {
+function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus, onRowClick }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -591,6 +596,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   onFormChange?: (field: string, value: unknown) => void;
   onFormSave?: (targetPageId?: string) => Promise<void>;
   formStatus?: "idle" | "submitting" | "success" | "error";
+  onRowClick?: (entityId: string, recordId: string) => void;
 }) {
   if (block.type === "divider") {
     return <hr style={{ border: "none", borderTop: `1px solid ${colors.border}`, margin: "4px 0" }} />;
@@ -840,7 +846,11 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
             </thead>
             <tbody>
               {records.map((rec) => (
-                <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <tr
+                  key={rec.id}
+                  style={{ borderBottom: `1px solid ${colors.border}`, cursor: (onRowClick && entity) ? "pointer" : "default" }}
+                  onClick={(onRowClick && entity) ? () => onRowClick(entity.id, rec.id) : undefined}
+                >
                   {cols.map((f) => {
                     if (f.field_type === "relation") {
                       const rel = relations?.find((r) => r.from_entity_id === entity?.id && r.from_field_name === f.name);
@@ -1022,7 +1032,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
   );
 }
 
-function LookupBlock({ appId, refEntityId, displayField, fieldName, label, value, onChange, colors }: {
+function LookupBlock({ appId, refEntityId, displayField, fieldName: _fieldName, label, value, onChange, colors }: {
   appId: string; refEntityId: string; displayField: string;
   fieldName: string; label: string; value: string;
   onChange: (v: string) => void; colors: AppColors;
