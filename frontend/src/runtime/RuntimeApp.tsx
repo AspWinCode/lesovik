@@ -413,6 +413,8 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
           colors={colors}
           columnWidth={columnWidth}
           appId={appId}
+          entities={entities}
+          relations={relations}
           onRowClick={onRowClick}
           activeRecordId={activeRecordId}
           onRecordUpdated={() => recordsQuery.refetch()}
@@ -1169,7 +1171,29 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   );
 }
 
-function DataView({ viewType, entity, cols, records, accent, colors, columnWidth, appId, onRowClick, activeRecordId, onRecordUpdated }: {
+function RelationCell({ appId, relatedEntityId, recordId, entities }: {
+  appId: string; relatedEntityId: string | null; recordId: string; entities: EntityRead[];
+}) {
+  const relEnt = relatedEntityId ? entities.find((e) => e.id === relatedEntityId) : null;
+  const displayField = relEnt?.fields?.find(
+    (f) => !f.is_system && ["text", "phone", "email", "number"].includes(f.field_type)
+  )?.name ?? "";
+
+  const q = useQuery({
+    queryKey: ["rt-records", appId, relatedEntityId],
+    queryFn: () => listRecords(appId, relatedEntityId!, { limit: 200 }),
+    enabled: !!relatedEntityId && !!recordId,
+  });
+
+  if (!recordId || recordId === "" || recordId === "undefined") return <>—</>;
+  if (!relatedEntityId) return <>{recordId.slice(0, 8)}</>;
+  if (q.isLoading) return <>…</>;
+  const rec = q.data?.items.find((r) => r.id === recordId);
+  if (!rec || !displayField) return <>{recordId.slice(0, 8)}</>;
+  return <>{String(rec.payload[displayField] ?? "—")}</>;
+}
+
+function DataView({ viewType, entity, cols, records, accent, colors, columnWidth, appId, entities, relations, onRowClick, activeRecordId, onRecordUpdated }: {
   viewType: string;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -1178,6 +1202,8 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   colors: AppColors;
   columnWidth?: string;
   appId: string;
+  entities: EntityRead[];
+  relations: RelationRead[];
   onRowClick?: (entityId: string, recordId: string) => void;
   activeRecordId?: string | null;
   onRecordUpdated?: () => void;
@@ -1189,6 +1215,11 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   const [editRowId, setEditRowId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  function getRelatedEntityId(fieldName: string): string | null {
+    const rel = relations.find((r) => r.from_entity_id === entity?.id && r.from_field_name === fieldName);
+    return rel?.to_entity_id ?? null;
+  }
 
   function startEdit(rec: RecordRead) {
     const vals: Record<string, string> = {};
@@ -1342,6 +1373,13 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                             style={{ height: 26, padding: "0 6px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
                           />
                           )
+                        ) : f.field_type === "relation" ? (
+                          <RelationCell
+                            appId={appId}
+                            relatedEntityId={getRelatedEntityId(f.name)}
+                            recordId={String(rec.payload[f.name] ?? "")}
+                            entities={entities}
+                          />
                         ) : (
                           formatCell(rec.payload[f.name], f)
                         )}
@@ -1958,6 +1996,10 @@ function formatCell(value: unknown, field: FieldRead): string {
   if (field.field_type === "select") {
     const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
     return choices.find((c) => c.value === value)?.label ?? String(value);
+  }
+  if (field.field_type === "currency" || field.field_type === "formula") {
+    const num = Number(value);
+    if (!isNaN(num)) return num.toLocaleString("ru-RU") + " ₽";
   }
   return String(value);
 }
