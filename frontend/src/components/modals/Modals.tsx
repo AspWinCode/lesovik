@@ -426,7 +426,7 @@ function UrlRow({ label, url }: { label: string; url: string }) {
       <span className="text-meta text-primary font-medium">{label}</span>
       <div className="flex items-center gap-[10px]">
         <BlueField className="flex-1">
-          <span className="text-[18px] text-primary truncate">{url}</span>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="text-[18px] text-primary truncate hover:underline">{url}</a>
         </BlueField>
         <button onClick={copy} title={copied ? "Скопировано" : "Копировать"} className="shrink-0 w-[34px] h-[40px] flex items-center justify-center hover:opacity-70">
           <CopyIcon />
