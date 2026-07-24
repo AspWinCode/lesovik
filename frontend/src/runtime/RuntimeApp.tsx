@@ -517,6 +517,8 @@ function InlineSections({ appId, parentEntityId, parentRecordId, relations, enti
             inlineTitle={inlinePage?.title ?? `${childEntity.display_name}_Inline`}
             accent={accent}
             colors={colors}
+            entities={entities}
+            relations={relations}
           />
         );
       })}
@@ -524,9 +526,10 @@ function InlineSections({ appId, parentEntityId, parentRecordId, relations, enti
   );
 }
 
-function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, accent, colors }: {
+function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, accent, colors, entities, relations }: {
   appId: string; entity: EntityRead; relation: RelationRead; parentRecordId: string;
   inlineTitle: string; accent: string; colors: AppColors;
+  entities: EntityRead[]; relations: RelationRead[];
 }) {
   const recordsQuery = useQuery({
     queryKey: ["rt-records", appId, entity.id],
@@ -563,9 +566,24 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
           <tbody>
             {records.map((rec) => (
               <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                {cols.map((f) => (
-                  <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>{String(rec.payload[f.name] ?? "—")}</td>
-                ))}
+                {cols.map((f) => {
+                  if (f.field_type === "relation") {
+                    const rel = relations.find((r) => r.from_entity_id === entity.id && r.from_field_name === f.name);
+                    return (
+                      <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>
+                        <RelationCell
+                          appId={appId}
+                          relatedEntityId={rel?.to_entity_id ?? null}
+                          recordId={String(rec.payload[f.name] ?? "")}
+                          entities={entities}
+                        />
+                      </td>
+                    );
+                  }
+                  return (
+                    <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
+                  );
+                })}
               </tr>
             ))}
             {records.length === 0 && (
