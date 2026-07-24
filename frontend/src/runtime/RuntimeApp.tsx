@@ -349,7 +349,30 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
       Object.entries(formVals).forEach(([k, v]) => {
         if (validFields.has(k) && v !== undefined && v !== "") payload[k] = v;
       });
-      await createRecord(appId, entity.id, { payload });
+      const newRec = await createRecord(appId, entity.id, { payload });
+
+      // Create pozicii_zakaza records for each selected position
+      const positions = (formVals._positions as Array<{ catalog_id: string; nazvanie: string; kolichestvo: number; cena: number; edinica: string }>) ?? [];
+      const pickerBlock = visibleBlocks.find((b) => b.type === "positions_picker");
+      const pickerCfg = pickerBlock?.config as {
+        positions_entity_id?: string; parent_field?: string; item_field?: string;
+        qty_field?: string; price_field?: string; name_field?: string; unit_field?: string;
+      } | undefined;
+      if (pickerCfg?.positions_entity_id && positions.length > 0) {
+        await Promise.all(positions.map((pos) =>
+          createRecord(appId, pickerCfg.positions_entity_id!, {
+            payload: {
+              [pickerCfg.parent_field ?? "zakaz_svaz"]: newRec.id,
+              [pickerCfg.item_field ?? "torar_usluga"]: pos.catalog_id,
+              [pickerCfg.qty_field ?? "kolichestvo"]: pos.kolichestvo,
+              [pickerCfg.price_field ?? "cena_z_ed"]: pos.cena,
+              [pickerCfg.name_field ?? "nazvanie_tovara"]: pos.nazvanie,
+              [pickerCfg.unit_field ?? "edinica"]: pos.edinica,
+            },
+          })
+        ));
+      }
+
       setPageFormValues({});
       setPageSaveStatus("success");
       if (targetPageId) {
@@ -570,10 +593,14 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   }
 
   if (block.type === "metric") {
+    const dynamicField = block.config?.dynamic_field as string | undefined;
+    const displayValue = dynamicField && formValues?.[dynamicField] !== undefined
+      ? String(formValues[dynamicField])
+      : (block.config?.value as string) ?? "—";
     return (
       <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
         <span style={{ fontSize: 13, color: colors.textMuted }}>{block.title ?? "Метрика"}</span>
-        <span style={{ fontSize: 40, fontWeight: 700, color: accent }}>{(block.config?.value as string) ?? "—"}</span>
+        <span style={{ fontSize: 40, fontWeight: 700, color: accent }}>{displayValue}</span>
       </section>
     );
   }
@@ -766,6 +793,19 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
+  if (block.type === "positions_picker") {
+    return (
+      <PositionsPicker
+        block={block}
+        appId={appId}
+        formValues={formValues}
+        onFormChange={onFormChange}
+        colors={colors}
+        accent={accent}
+      />
+    );
+  }
+
   // table (default)
   return (
     <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
@@ -798,6 +838,156 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
               )}
             </tbody>
           </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface PositionRow {
+  id: string;
+  catalog_id: string;
+  nazvanie: string;
+  kolichestvo: number;
+  cena: number;
+  edinica: string;
+}
+
+function PositionsPicker({ block, appId, formValues, onFormChange, colors, accent }: {
+  block: PageBlock; appId: string;
+  formValues?: Record<string, unknown>;
+  onFormChange?: (field: string, value: unknown) => void;
+  colors: AppColors; accent: string;
+}) {
+  const cfg = block.config;
+  const catalogEntityId = (cfg.catalog_entity_id as string) ?? "";
+  const displayField = (cfg.catalog_display_field as string) ?? "nazvanie";
+  const priceField = (cfg.catalog_price_field as string) ?? "cena";
+  const unitField = (cfg.catalog_unit_field as string) ?? "edinica";
+
+  const catalogQuery = useQuery({
+    queryKey: ["rt-records", appId, catalogEntityId],
+    queryFn: () => listRecords(appId, catalogEntityId, { limit: 200 }),
+    enabled: !!catalogEntityId,
+  });
+  const catalogItems = catalogQuery.data?.items ?? [];
+
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const positions = ((formValues?._positions ?? []) as PositionRow[]);
+
+  function setPositions(next: PositionRow[]) {
+    const total = next.reduce((s, p) => s + p.kolichestvo * p.cena, 0);
+    onFormChange?.("_positions", next);
+    onFormChange?.("_positions_total", Math.round(total).toLocaleString("ru-RU") + " ₽");
+  }
+
+  function addItem(item: { id: string; payload: Record<string, unknown> }) {
+    const row: PositionRow = {
+      id: Math.random().toString(36).slice(2),
+      catalog_id: item.id,
+      nazvanie: String(item.payload[displayField] ?? ""),
+      kolichestvo: 1,
+      cena: Number(item.payload[priceField] ?? 0),
+      edinica: String(item.payload[unitField] ?? ""),
+    };
+    setPositions([...positions, row]);
+    setShowDropdown(false);
+  }
+
+  function updateQty(rowId: string, qty: number) {
+    setPositions(positions.map((p) => p.id === rowId ? { ...p, kolichestvo: Math.max(1, qty) } : p));
+  }
+
+  function removeRow(rowId: string) {
+    setPositions(positions.filter((p) => p.id !== rowId));
+  }
+
+  const total = positions.reduce((s, p) => s + p.kolichestvo * p.cena, 0);
+  const label = (cfg.label as string) ?? "Позиции заказа";
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", alignItems: "center", color: colors.text }}>
+        <span>{label}</span>
+        <button
+          onClick={() => setShowDropdown((v) => !v)}
+          style={{ background: accent, color: "#fff", border: "none", borderRadius: 6, padding: "4px 14px", fontSize: 13, cursor: "pointer", fontWeight: 500 }}
+        >
+          + Добавить
+        </button>
+      </div>
+
+      {showDropdown && (
+        <div style={{ borderBottom: `1px solid ${colors.border}`, maxHeight: 220, overflowY: "auto" }}>
+          {catalogItems.length === 0 && (
+            <div style={{ padding: "10px 14px", color: colors.textMuted, fontSize: 13 }}>Каталог пуст</div>
+          )}
+          {catalogItems.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => addItem(item)}
+              style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: colors.text, borderBottom: `1px solid ${colors.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = colors.bg; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
+            >
+              <span style={{ fontWeight: 500 }}>{String(item.payload[displayField] ?? "—")}</span>
+              <span style={{ color: colors.textMuted, fontSize: 12 }}>
+                {Number(item.payload[priceField] ?? 0).toLocaleString("ru-RU")} ₽ / {String(item.payload[unitField] ?? "")}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {positions.length > 0 ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <th style={{ padding: "7px 12px", textAlign: "left", color: colors.textMuted, fontWeight: 600 }}>Наименование</th>
+                <th style={{ padding: "7px 8px", textAlign: "left", color: colors.textMuted, fontWeight: 600 }}>Ед.</th>
+                <th style={{ padding: "7px 8px", textAlign: "right", color: colors.textMuted, fontWeight: 600 }}>Кол-во</th>
+                <th style={{ padding: "7px 12px", textAlign: "right", color: colors.textMuted, fontWeight: 600 }}>Цена</th>
+                <th style={{ padding: "7px 12px", textAlign: "right", color: colors.textMuted, fontWeight: 600 }}>Сумма</th>
+                <th style={{ width: 32 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p) => (
+                <tr key={p.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <td style={{ padding: "7px 12px" }}>{p.nazvanie}</td>
+                  <td style={{ padding: "7px 8px", color: colors.textMuted }}>{p.edinica}</td>
+                  <td style={{ padding: "4px 8px", textAlign: "right" }}>
+                    <input
+                      type="number" min={1} value={p.kolichestvo}
+                      onChange={(e) => updateQty(p.id, Number(e.target.value))}
+                      style={{ width: 60, textAlign: "right", height: 28, padding: "0 6px", fontSize: 13, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none" }}
+                    />
+                  </td>
+                  <td style={{ padding: "7px 12px", textAlign: "right" }}>{Number(p.cena).toLocaleString("ru-RU")} ₽</td>
+                  <td style={{ padding: "7px 12px", textAlign: "right", fontWeight: 600 }}>{(p.kolichestvo * p.cena).toLocaleString("ru-RU")} ₽</td>
+                  <td style={{ padding: "4px", textAlign: "center" }}>
+                    <button
+                      onClick={() => removeRow(p.id)}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: colors.textMuted, fontSize: 18, lineHeight: 1, padding: "2px 6px" }}
+                    >×</button>
+                  </td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: `2px solid ${colors.border}` }}>
+                <td colSpan={4} style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: colors.textMuted, fontSize: 12 }}>ИТОГО:</td>
+                <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: accent, fontSize: 16 }}>
+                  {Math.round(total).toLocaleString("ru-RU")} ₽
+                </td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div style={{ padding: 16, color: colors.textMuted, fontSize: 13 }}>
+          Нет позиций. Нажмите «+ Добавить» чтобы выбрать из каталога.
         </div>
       )}
     </section>
