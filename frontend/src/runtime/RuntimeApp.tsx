@@ -1201,8 +1201,11 @@ function RelationCell({ appId, relatedEntityId, recordId, entities }: {
   appId: string; relatedEntityId: string | null; recordId: string; entities: EntityRead[];
 }) {
   const relEnt = relatedEntityId ? entities.find((e) => e.id === relatedEntityId) : null;
-  const displayField = relEnt?.fields?.find(
-    (f) => !f.is_system && ["text", "phone", "email", "number"].includes(f.field_type)
+  const nonSysFields = relEnt?.fields?.filter((f) => !f.is_system) ?? [];
+  const displayField = (
+    nonSysFields.find((f) => f.field_type === "text") ??
+    nonSysFields.find((f) => ["phone", "email"].includes(f.field_type)) ??
+    nonSysFields.find((f) => ["number", "currency"].includes(f.field_type))
   )?.name ?? "";
 
   const q = useQuery({
