@@ -699,7 +699,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
-  if (block.type === "toggle") {
+  if (block.type === "toggle" || block.type === "checkbox") {
     const cfg = block.config ?? {};
     const fieldName = (cfg.field_name as string) ?? "";
     const label = (cfg.label as string) ?? block.title ?? "";
