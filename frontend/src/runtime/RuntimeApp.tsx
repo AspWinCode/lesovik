@@ -1764,6 +1764,7 @@ function evalVisibilityCond(cond: VisibilityCond | null | undefined, payload: Re
 function formatCell(value: unknown, field: FieldRead): string {
   if (value === null || value === undefined || value === "") return "—";
   if (field.field_type === "boolean") return value ? "✓" : "✗";
+  if (field.field_type === "relation") return "—";
   if (field.field_type === "select") {
     const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
     return choices.find((c) => c.value === value)?.label ?? String(value);
