@@ -307,6 +307,31 @@ def _check_field_value(field: Field, name: str, value: Any, rules: dict) -> None
 
 
 # ------------------------------------------------------------------
+# Formula evaluation
+# ------------------------------------------------------------------
+
+def _evaluate_formulas(payload: dict[str, Any], fields: list[Field]) -> dict[str, Any]:
+    """Compute formula fields and inject their values into the payload."""
+    from app.engine.expressions import ExpressionError, evaluate
+
+    formula_fields = [f for f in fields if f.field_type == "formula" and f.formula_definition]
+    if not formula_fields:
+        return payload
+
+    result = dict(payload)
+    for field in formula_fields:
+        ast = field.formula_definition.get("ast") if isinstance(field.formula_definition, dict) else field.formula_definition
+        if ast is None:
+            ast = field.formula_definition
+        try:
+            value = evaluate(ast, result)
+            result[field.name] = value
+        except (ExpressionError, Exception) as exc:
+            logger.warning("formula_eval_failed", field=field.name, error=str(exc))
+    return result
+
+
+# ------------------------------------------------------------------
 # RecordService
 # ------------------------------------------------------------------
 
@@ -382,6 +407,7 @@ class RecordService:
             entity_id, data.payload, fields
         )
         _validate_payload(payload, fields, partial=False)
+        payload = _evaluate_formulas(payload, fields)
 
         record = Record(
             entity_id=entity_id,
@@ -410,6 +436,7 @@ class RecordService:
         merged = {**record.payload, **data.payload}
         # Remove keys explicitly set to None (delete semantics)
         merged = {k: v for k, v in merged.items() if v is not None}
+        merged = _evaluate_formulas(merged, fields)
 
         await self._db.execute(
             update(Record)

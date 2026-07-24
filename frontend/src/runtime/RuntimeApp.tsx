@@ -349,10 +349,19 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
       Object.entries(formVals).forEach(([k, v]) => {
         if (validFields.has(k) && v !== undefined && v !== "") payload[k] = v;
       });
-      const newRec = await createRecord(appId, entity.id, { payload });
 
-      // Create pozicii_zakaza records for each selected position
+      // Compute totals from positions picker and inject into entity payload
       const positions = (formVals._positions as Array<{ catalog_id: string; nazvanie: string; kolichestvo: number; cena: number; edinica: string }>) ?? [];
+      if (positions.length > 0) {
+        const posTotal = positions.reduce((s, p) => s + p.kolichestvo * p.cena, 0);
+        if (validFields.has("summa_tovarov")) payload["summa_tovarov"] = posTotal;
+        if (validFields.has("itogo")) {
+          const discountPct = formVals.skidka_primenena ? Number(formVals.skidka_proc ?? 0) : 0;
+          payload["itogo"] = Math.round(posTotal * (1 - discountPct / 100));
+        }
+      }
+
+      const newRec = await createRecord(appId, entity.id, { payload });
       const pickerBlock = visibleBlocks.find((b) => b.type === "positions_picker");
       const pickerCfg = pickerBlock?.config as {
         positions_entity_id?: string; parent_field?: string; item_field?: string;
