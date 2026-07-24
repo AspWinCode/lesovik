@@ -311,9 +311,42 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
     if (!entity || pageSaveStatus === "submitting") return;
     setPageSaveStatus("submitting");
     try {
+      let formVals = { ...pageFormValues };
+
+      // Execute pre_create from save button config (e.g. create a client before saving the order)
+      const saveBtn = visibleBlocks.find(
+        (b) => b.type === "button" && (b.config?.actionType as string) === "save"
+      );
+      const preCreate = saveBtn?.config?.pre_create as {
+        condition_field?: string;
+        entity_id: string;
+        field_map?: Record<string, string>; // entityField → formField
+        result_field?: string;
+      } | undefined;
+
+      if (preCreate?.entity_id) {
+        const condField = preCreate.condition_field;
+        const shouldCreate =
+          !condField ||
+          formVals[condField] === true ||
+          formVals[condField] === "true";
+
+        if (shouldCreate) {
+          const clientPayload: Record<string, unknown> = {};
+          for (const [entityField, formField] of Object.entries(preCreate.field_map ?? {})) {
+            const val = formVals[formField];
+            if (val !== undefined && val !== "") clientPayload[entityField] = val;
+          }
+          const newRec = await createRecord(appId, preCreate.entity_id, { payload: clientPayload });
+          if (preCreate.result_field) {
+            formVals = { ...formVals, [preCreate.result_field]: newRec.id };
+          }
+        }
+      }
+
       const payload: Record<string, unknown> = {};
       const validFields = new Set(allCols.map((f) => f.name));
-      Object.entries(pageFormValues).forEach(([k, v]) => {
+      Object.entries(formVals).forEach(([k, v]) => {
         if (validFields.has(k) && v !== undefined && v !== "") payload[k] = v;
       });
       await createRecord(appId, entity.id, { payload });

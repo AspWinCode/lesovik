@@ -1,4 +1,4 @@
-"""Update 'Создать заказ' page blocks: add field_name to form fields, fix button actionType."""
+"""Fix 'Создать заказ' page blocks: lookup field_name + pre_create for new client."""
 import os, sys, paramiko, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
