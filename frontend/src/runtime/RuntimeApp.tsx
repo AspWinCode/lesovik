@@ -435,6 +435,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
               labelPosition={labelPosition}
               appId={appId}
               entities={entities}
+              relations={relations}
               onNavigate={onNavigate}
               onRecordCreated={() => recordsQuery.refetch()}
               formValues={pageFormValues}
@@ -563,7 +564,7 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
   );
 }
 
-function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus }: {
+function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -574,6 +575,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   labelPosition: string;
   appId: string;
   entities?: EntityRead[];
+  relations?: RelationRead[];
   onNavigate: (id: string) => void;
   onRecordCreated: () => void;
   formValues?: Record<string, unknown>;
@@ -830,9 +832,24 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
             <tbody>
               {records.map((rec) => (
                 <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  {cols.map((f) => (
-                    <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
-                  ))}
+                  {cols.map((f) => {
+                    if (f.field_type === "relation") {
+                      const rel = relations?.find((r) => r.from_entity_id === entity?.id && r.from_field_name === f.name);
+                      return (
+                        <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                          <RelationCell
+                            appId={appId}
+                            relatedEntityId={rel?.to_entity_id ?? null}
+                            recordId={String(rec.payload[f.name] ?? "")}
+                            entities={entities ?? []}
+                          />
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
+                    );
+                  })}
                 </tr>
               ))}
               {records.length === 0 && (
