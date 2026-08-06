@@ -626,6 +626,55 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
   );
 }
 
+function ImportBlock({ block, appId, entityId, parseCSV, accent, colors, onDone }: {
+  block: PageBlock; appId: string; entityId: string;
+  parseCSV: (text: string) => Record<string, string>[];
+  accent: string; colors: AppColors; onDone: () => void;
+}) {
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(file: File) {
+    if (!entityId) return;
+    setStatus("loading");
+    const text = await file.text();
+    const rows = parseCSV(text);
+    setProgress({ done: 0, total: rows.length });
+    let done = 0;
+    for (const row of rows) {
+      try {
+        await createRecord(appId, entityId, { payload: row });
+      } catch { /* skip bad row */ }
+      done++;
+      setProgress({ done, total: rows.length });
+    }
+    setStatus("done");
+    onDone();
+    setTimeout(() => setStatus("idle"), 3000);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <input ref={inputRef} type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={() => inputRef.current?.click()}
+          disabled={status === "loading" || !entityId}
+          style={{ padding: "8px 20px", borderRadius: 8, background: accent, color: "#fff", border: "none", fontSize: 14, fontWeight: 500, cursor: (status === "loading" || !entityId) ? "not-allowed" : "pointer", opacity: (status === "loading" || !entityId) ? 0.6 : 1 }}
+        >
+          {block.title || "Загрузить CSV"}
+        </button>
+        {status === "loading" && <span style={{ fontSize: 13, color: colors.textMuted }}>{progress.done} / {progress.total}</span>}
+        {status === "done" && <span style={{ fontSize: 13, color: "#22C55E" }}>Импорт завершён ✓</span>}
+        {status === "error" && <span style={{ fontSize: 13, color: "#EF4444" }}>Ошибка импорта</span>}
+        {!entityId && <span style={{ fontSize: 13, color: colors.textMuted }}>Таблица не выбрана</span>}
+      </div>
+      <p style={{ fontSize: 12, color: colors.textMuted, margin: 0 }}>Формат: CSV с заголовком. Столбцы должны соответствовать именам полей таблицы.</p>
+    </div>
+  );
+}
+
 function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus, onRowClick }: {
   block: PageBlock;
   entity: EntityRead | null;
@@ -869,6 +918,115 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         onFormChange={onFormChange}
         colors={colors}
         accent={accent}
+      />
+    );
+  }
+
+  if (block.type === "record_card") {
+    const cfg = block.config ?? {};
+    const showFields = (cfg.fields as string[] | undefined) ?? cols.map((f) => f.name);
+    const rec = records[0];
+    const visibleCols = cols.filter((f) => showFields.length === 0 || showFields.includes(f.name));
+    return (
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+        {block.title && (
+          <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>
+            {block.title}
+          </div>
+        )}
+        {!rec ? (
+          <p style={{ padding: 14, color: colors.textMuted, fontSize: 14 }}>Запись не найдена.</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: colors.border }}>
+            {visibleCols.map((f) => (
+              <div key={f.id} style={{ background: colors.surface, padding: "10px 14px" }}>
+                <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</div>
+                <div style={{ fontSize: 14, color: colors.text, fontWeight: 500 }}>
+                  {f.field_type === "relation" ? (
+                    <RelationCell
+                      appId={appId}
+                      relatedEntityId={(relations ?? []).find((r) => r.from_entity_id === entity?.id && r.from_field_name === f.name)?.to_entity_id ?? null}
+                      recordId={String(rec.payload[f.name] ?? "")}
+                      entities={entities ?? []}
+                    />
+                  ) : (
+                    String(rec.payload[f.name] ?? "—")
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (block.type === "export") {
+    const cfg = block.config ?? {};
+    const filename = (cfg.filename as string) || entity?.display_name || "export";
+    const format = (cfg.format as string) || "csv";
+
+    function handleExport() {
+      if (!cols.length || !records.length) return;
+      const header = cols.map((f) => f.display_name).join(",");
+      const rows = records.map((r) =>
+        cols.map((f) => {
+          const v = r.payload[f.name];
+          const s = v == null ? "" : String(v);
+          return s.includes(",") || s.includes('"') || s.includes("\n")
+            ? `"${s.replace(/"/g, '""')}"` : s;
+        }).join(",")
+      );
+      const csv = [header, ...rows].join("\n");
+      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${filename}.${format === "csv" ? "csv" : "csv"}`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={handleExport}
+          disabled={!records.length}
+          style={{ padding: "8px 20px", borderRadius: 8, background: accent, color: "#fff", border: "none", fontSize: 14, fontWeight: 500, cursor: records.length ? "pointer" : "not-allowed", opacity: records.length ? 1 : 0.5 }}
+        >
+          {block.title || "Выгрузить CSV"}
+        </button>
+        {records.length > 0 && (
+          <span style={{ fontSize: 12, color: colors.textMuted }}>{records.length} записей</span>
+        )}
+      </div>
+    );
+  }
+
+  if (block.type === "import") {
+    const cfg = block.config ?? {};
+    const targetEntityId = (cfg.entity_id as string) || entity?.id || "";
+    const hasHeader = (cfg.has_header as boolean) ?? true;
+
+    function parseCSV(text: string): Record<string, string>[] {
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) return [];
+      const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+      return lines.slice(hasHeader ? 1 : 0).map((line) => {
+        const vals = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
+        const obj: Record<string, string> = {};
+        headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
+        return obj;
+      });
+    }
+
+    return (
+      <ImportBlock
+        block={block}
+        appId={appId}
+        entityId={targetEntityId}
+        parseCSV={parseCSV}
+        accent={accent}
+        colors={colors}
+        onDone={onRecordCreated}
       />
     );
   }
