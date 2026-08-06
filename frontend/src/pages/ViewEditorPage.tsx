@@ -2943,6 +2943,7 @@ function BlockInlineSettings({
               { value: "url",   label: "Ссылка" },
               { value: "page",  label: "Страница" },
               { value: "block", label: "Блок" },
+              { value: "save",  label: "Сохранить" },
             ]}
             onChange={(actionType) => onConfigChange({ actionType })}
           />
