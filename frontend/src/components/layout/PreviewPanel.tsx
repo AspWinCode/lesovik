@@ -44,12 +44,12 @@ export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: Pre
 
   return (
     <div
-      className="absolute top-[70px] right-0 bg-mainbg flex flex-col items-center gap-[40px]"
+      className="absolute top-[70px] right-0 bottom-0 bg-mainbg flex flex-col items-center gap-[40px] overflow-y-auto"
       style={{
         width: 580,
-        height: 1000,
         borderRadius: "5px 20px 20px 5px",
         paddingTop: 7,
+        paddingBottom: 20,
       }}
     >
       {/* Device toggle */}

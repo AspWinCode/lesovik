@@ -433,7 +433,7 @@ export function MainPage() {
 
         {/* Bottom CTA */}
         <button
-          onClick={() => navigate(effectiveSelected ? `/views?app=${effectiveSelected}` : "/views")}
+          onClick={() => navigate(effectiveSelected ? `/schema?app=${effectiveSelected}` : "/schema")}
           className="absolute flex items-center justify-center gap-5
                      bg-cta rounded-btn text-[24px] font-medium text-white
                      hover:bg-active transition-colors cursor-pointer"

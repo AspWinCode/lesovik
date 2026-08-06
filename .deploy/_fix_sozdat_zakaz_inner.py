@@ -15,7 +15,7 @@ def req(method, path, body=None, token=None):
         with urllib.request.urlopen(r) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        print(f"  ERROR {e.code} {method} {path}: {e.read().decode()[:400]}", file=sys.stderr)
+        print(f"  ERROR {e.code} {method} {path}: {e.read().decode()[:300]}", file=sys.stderr)
         raise
 
 tok = req("POST", "/auth/login", {"email": EMAIL, "password": PASSWORD, "totp_code": None})
@@ -25,59 +25,109 @@ print("Logged in OK")
 apps = req("GET", "/apps", token=token)
 app = next(a for a in apps["items"] if "Выезд" in a["name"])
 app_id = app["id"]
-print(f"App: {app_id}")
+print(f"App: {app['name']} ({app_id})")
 
-# Find the klienty entity (the one with novyj_klient and zakazy_ref fields)
-entities = req("GET", f"/apps/{app_id}/entities", token=token)
-klienty_entity = None
-for e in entities:
-    field_names = {f["name"] for f in e.get("fields", [])}
-    if "novyj_klient" in field_names and "zakazy_ref" in field_names:
-        klienty_entity = e
-        break
-
-if not klienty_entity:
-    print("ERROR: klienty entity not found", file=sys.stderr)
-    sys.exit(1)
-
-klienty_id = klienty_entity["id"]
-print(f"Klienty entity: {klienty_id}")
-
-# Get pages
 pages = req("GET", f"/apps/{app_id}/pages", token=token)
-sozdat = next(p for p in pages if p["title"] == "Создать заказ")
+page = next((p for p in pages if p["title"] == "Создать заказ"), None)
+if not page:
+    print("ERROR: page 'Создать заказ' not found!", file=sys.stderr)
+    sys.exit(1)
+print(f"Page: {page['title']} ({page['id']})")
+
+entities_list = req("GET", f"/apps/{app_id}/entities", token=token)
+entities = {e["slug"]: e for e in entities_list}
+zak = entities["zakazy"]["id"]
+kl  = entities["klienty"]["id"]
+
+# Get pages for navigation after save
 list_page = next((p for p in pages if p["title"] == "Список заказов"), None)
 list_page_id = list_page["id"] if list_page else ""
 
-blocks = sozdat.get("blocks") or []
-print(f"Blocks: {[b['id'] for b in blocks]}")
+blocks = page.get("blocks") or []
+print(f"Current blocks ({len(blocks)}):", [b.get("id") for b in blocks])
 
-updated_blocks = []
+# Update each block's config with field_name
+field_name_map = {
+    # IDs from seed_vyezdnoy_master.py (original)
+    "b-adres":            "adres_obekta",
+    "b-discount-pct":     "skidka_proc",
+    "b-toggle-discount":  "skidka_primenena",
+    "b-lookup-client":    "klient_id",
+    "b-toggle-new":       "novyj_klient",
+    "b-fio-new":          "fio_klienta",
+    "b-phone-new":        "telefon_klienta",
+    # IDs from fix_pages_master.py (may differ)
+    "b-adres":            "adres_obekta",
+    "b-disc":             "skidka_primenena",
+    "b-discpct":          "skidka_proc",
+    "b-lookup":           "klient_id",
+    "b-new":              "novyj_klient",
+    "b-fio":              "fio_klienta",
+    "b-tel":              "telefon_klienta",
+}
+
+updated = 0
 for b in blocks:
-    cfg = dict(b.get("config") or {})
+    bid = b.get("id", "")
+    cfg = b.get("config") or {}
 
-    if b["id"] == "b-lookup":
-        # Fix: field_name was klient_id but the actual zakazy field is klient (relation)
-        cfg["field_name"] = "klient"
-        cfg["entity_id"] = klienty_id
-        print(f"  Fixed b-lookup: field_name=klient, entity_id={klienty_id}")
+    # Add field_name where missing
+    fn = field_name_map.get(bid)
+    if fn and "field_name" not in cfg:
+        cfg["field_name"] = fn
+        b["config"] = cfg
+        updated += 1
+        print(f"  + field_name={fn!r} to block {bid!r}")
 
-    if b["id"] == "b-save":
-        cfg["actionType"] = "save"
-        cfg["targetPageId"] = list_page_id
-        cfg["pre_create"] = {
-            "condition_field": "novyj_klient",
-            "entity_id": klienty_id,
-            "field_map": {
-                "fio": "fio_klienta",
-                "telefon": "telefon_klienta",
-                "novyj_klient": "novyj_klient",
-            },
-            "result_field": "klient",
-        }
-        print(f"  Updated b-save: pre_create → klienty {klienty_id}")
+    # Fix save button
+    if bid == "b-save":
+        if cfg.get("actionType") != "save":
+            cfg["actionType"] = "save"
+            cfg["href"] = ""
+            cfg["targetPageId"] = list_page_id
+            b["config"] = cfg
+            updated += 1
+            print(f"  ~ button {bid!r}: actionType=save, targetPageId={list_page_id!r}")
 
-    updated_blocks.append({**b, "config": cfg})
+    # Fix "Новый заказ" button on Список заказов
+    if bid == "b-new-zakaz-btn":
+        if cfg.get("actionType") == "url":
+            sozdat_page = next((p for p in pages if p["title"] == "Создать заказ"), None)
+            if sozdat_page:
+                cfg["actionType"] = "page"
+                cfg["targetPageId"] = sozdat_page["id"]
+                cfg["href"] = ""
+                b["config"] = cfg
+                updated += 1
+                print(f"  ~ button {bid!r}: actionType=page → Создать заказ")
 
-req("PATCH", f"/apps/{app_id}/pages/{sozdat['id']}", {"blocks": updated_blocks}, token=token)
-print("Done. Blocks updated.")
+if updated == 0:
+    print("Nothing to update.")
+else:
+    result = req("PATCH", f"/apps/{app_id}/pages/{page['id']}", {
+        "blocks": blocks,
+    }, token=token)
+    print(f"Saved page. {updated} block(s) updated.")
+
+# Also fix "Новый заказ" button on Список заказов page
+list_p = next((p for p in pages if p["title"] == "Список заказов"), None)
+if list_p:
+    lb = list_p.get("blocks") or []
+    lu = 0
+    sozdat_p = next((p for p in pages if p["title"] == "Создать заказ"), None)
+    for b in lb:
+        cfg = b.get("config") or {}
+        if b.get("id") == "b-new-zakaz-btn" and cfg.get("actionType") != "page":
+            cfg["actionType"] = "page"
+            cfg["targetPageId"] = sozdat_p["id"] if sozdat_p else ""
+            cfg["href"] = ""
+            b["config"] = cfg
+            lu += 1
+            print(f"  ~ fixed 'Новый заказ' button → Создать заказ page")
+    if lu:
+        req("PATCH", f"/apps/{app_id}/pages/{list_p['id']}", {
+            "blocks": lb,
+        }, token=token)
+        print("Saved Список заказов page.")
+
+print("Done.")
