@@ -3,7 +3,7 @@ import { BrowserRouter, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
-import { listPages, type PageRead } from "@/shared/api/views";
+import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api/views";
 import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
 import { listRecords, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
 import { apiClient } from "@/shared/api/client";
@@ -293,9 +293,20 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
   const records = (page.layout?.system_type === "detail" && activeRecordId)
     ? allRecords.filter((r) => r.id === activeRecordId)
     : allRecords;
-  const hiddenColumns = (page.layout?.hidden_columns as string[] | undefined) ?? [];
+  // Entity-scoped saved views + switcher state
+  const viewsQuery = useQuery({
+    queryKey: ["rt-views", appId, entityId],
+    queryFn: () => listViews(appId, entityId!),
+    enabled: !!entityId && !!entity,
+  });
+  const savedViews: ViewRead[] = viewsQuery.data ?? [];
+  const defaultView = savedViews.find((v) => v.is_default);
+  const [activeViewId, setActiveViewId] = useState<string | null>(defaultView?.id ?? null);
+  const activeView = savedViews.find((v) => v.id === activeViewId);
+
+  const hiddenColumns = (activeView?.config?.hidden_columns as string[] | undefined) ?? (page.layout?.hidden_columns as string[] | undefined) ?? [];
   const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "auto";
-  const columnWidth = (page.layout?.column_width as string) ?? "Средняя";
+  const columnWidth = (activeView?.config?.column_width as string) ?? (page.layout?.column_width as string) ?? "Средняя";
   const allCols = (entity?.fields ?? []).filter((f) => !f.is_system);
   const cols = colOrderMode === "manual"
     ? allCols.filter((f) => !hiddenColumns.includes(f.name))
@@ -415,6 +426,25 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
     <div style={{ fontSize: textSizePx }}>
       {(design.show_header ?? true) && (
         <h1 style={{ fontSize: headingSizePx, fontWeight: 700, marginBottom: blockGap, color: colors.text }}>{page.title}</h1>
+      )}
+      {hasDataView && savedViews.length > 1 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+          <button
+            onClick={() => setActiveViewId(null)}
+            style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", border: `1px solid ${colors.border}`, background: activeViewId === null ? accent : colors.surface, color: activeViewId === null ? "#fff" : colors.text }}
+          >
+            По умолчанию
+          </button>
+          {savedViews.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setActiveViewId(v.id)}
+              style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", border: `1px solid ${colors.border}`, background: activeViewId === v.id ? accent : colors.surface, color: activeViewId === v.id ? "#fff" : colors.text }}
+            >
+              {v.name}
+            </button>
+          ))}
+        </div>
       )}
       {hasDataView && (
         <DataView

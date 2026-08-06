@@ -13,7 +13,8 @@ import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
-import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage, useReorderPages, usePagePermissions, useSetPagePermissions } from "@/shared/hooks/useViews";
+import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage, useReorderPages, usePagePermissions, useSetPagePermissions, useViews, useCreateView, useDeleteView, useSetDefaultView } from "@/shared/hooks/useViews";
+import type { ViewRead } from "@/shared/api/views";
 import { useAllRoles } from "@/shared/hooks/useRbac";
 import { useEntities } from "@/shared/hooks/useEntities";
 import type { FieldRead } from "@/shared/api/entities";
@@ -533,6 +534,15 @@ export function ViewEditorPage() {
   const selectedEntity = entities.find((e) => e.id === selectedEntityId);
   const userFields = (selectedEntity?.fields ?? []).filter((f) => !f.is_system);
 
+  // Entity-scoped saved views
+  const viewsQuery = useViews(appId, selectedEntityId || undefined);
+  const savedViews: ViewRead[] = viewsQuery.data ?? [];
+  const createViewMutation = useCreateView(appId ?? "", selectedEntityId);
+  const deleteViewMutation = useDeleteView(appId ?? "", selectedEntityId);
+  const setDefaultViewMutation = useSetDefaultView(appId ?? "", selectedEntityId);
+  const [saveViewName, setSaveViewName] = useState("");
+  const [showSaveViewInput, setShowSaveViewInput] = useState(false);
+
   // Derived view settings (read from layout with defaults).
   const sortRules = (layout.sort as { field: string; dir: "asc" | "desc" }[]) ?? [];
   const hiddenColumns = (layout.hidden_columns as string[]) ?? [];
@@ -886,6 +896,87 @@ export function ViewEditorPage() {
                 </>
               )}
             </CollapsibleSection>
+
+            {/* Сохранённые виды — только если выбрана сущность */}
+            {selectedEntityId && (
+              <CollapsibleSection title="Сохранённые виды" open={true} onToggle={() => {}}>
+                <div className="px-5 pb-4 flex flex-col gap-2">
+                  {savedViews.length === 0 && (
+                    <span className="text-[13px] text-primary/50">Нет сохранённых видов</span>
+                  )}
+                  {savedViews.map((v) => (
+                    <div key={v.id} className="flex items-center justify-between rounded-[8px] border border-mainbg px-3 py-2">
+                      <div className="flex flex-col">
+                        <span className="text-[13px] font-medium text-primary">{v.name}</span>
+                        <span className="text-[11px] text-primary/50">{v.view_type}{v.is_default ? " · По умолчанию" : ""}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!v.is_default && (
+                          <button
+                            onClick={() => setDefaultViewMutation.mutate(v.id)}
+                            className="text-[11px] text-cta hover:underline"
+                          >
+                            Сделать дефолтным
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteViewMutation.mutate(v.id)}
+                          className="text-[11px] text-mistake hover:underline"
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {showSaveViewInput ? (
+                    <div className="flex gap-2 mt-1">
+                      <input
+                        type="text"
+                        value={saveViewName}
+                        onChange={(e) => setSaveViewName(e.target.value)}
+                        placeholder="Название вида"
+                        className="flex-1 text-[13px] border border-mainbg rounded-[6px] px-2 py-1 outline-none bg-white text-primary"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && saveViewName.trim()) {
+                            const vtMap: Record<string, string> = { deck: "kanban", details: "detail", map: "table", chart: "table", gantt: "table" };
+                            const vt = vtMap[viewType] ?? viewType;
+                            createViewMutation.mutate(
+                              { name: saveViewName.trim(), view_type: (vt as "table" | "form" | "kanban" | "calendar" | "gallery" | "detail"), config: { sort: layout.sort, group_by: layout.group_by, hidden_columns: layout.hidden_columns, column_width: layout.column_width } },
+                              { onSuccess: () => { setSaveViewName(""); setShowSaveViewInput(false); } },
+                            );
+                          }
+                          if (e.key === "Escape") { setShowSaveViewInput(false); setSaveViewName(""); }
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => {
+                          if (!saveViewName.trim()) return;
+                          const vtMap: Record<string, string> = { deck: "kanban", details: "detail", map: "table", chart: "table", gantt: "table" };
+                          const vt = vtMap[viewType] ?? viewType;
+                          createViewMutation.mutate(
+                            { name: saveViewName.trim(), view_type: (vt as "table" | "form" | "kanban" | "calendar" | "gallery" | "detail"), config: { sort: layout.sort, group_by: layout.group_by, hidden_columns: layout.hidden_columns, column_width: layout.column_width } },
+                            { onSuccess: () => { setSaveViewName(""); setShowSaveViewInput(false); } },
+                          );
+                        }}
+                        className="text-[12px] bg-cta text-white rounded-[6px] px-3 py-1"
+                      >
+                        Сохранить
+                      </button>
+                      <button onClick={() => { setShowSaveViewInput(false); setSaveViewName(""); }} className="text-[12px] text-primary/50 hover:text-primary">✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowSaveViewInput(true)}
+                      className="mt-1 text-[12px] text-cta hover:underline text-left"
+                    >
+                      + Сохранить текущий вид
+                    </button>
+                  )}
+                </div>
+              </CollapsibleSection>
+            )}
 
             <BehaviorSection
               behavior={(layout.behavior as { offline?: boolean; cache?: boolean }) ?? {}}
