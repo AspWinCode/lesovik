@@ -2616,6 +2616,12 @@ function BlockInlineSettings({
             value={(block.config.value as string) ?? ""}
             onChange={(value) => onConfigChange({ value })}
           />
+          <ConfigSelect
+            label="Поле формы"
+            value={(block.config.dynamic_field as string) ?? ""}
+            options={[{ value: "", label: "— статичное значение —" }, ...fields.map((f) => ({ value: f.name, label: f.display_name }))]}
+            onChange={(dynamic_field) => onConfigChange({ dynamic_field: dynamic_field || undefined })}
+          />
           {block.type === "kpi" && (
             <ConfigInput
               label="Динамика"
@@ -3110,6 +3116,24 @@ function BlockInlineSettings({
             ]}
             onChange={(width) => onConfigChange({ width })}
           />
+          {block.config.actionType === "save" && (
+            <>
+              <ConfigSelect
+                label="pre_create: сущность"
+                value={((block.config.pre_create as Record<string, unknown>)?.entity_id as string) ?? ""}
+                options={entityOptions}
+                onChange={(entity_id) => onConfigChange({ pre_create: entity_id ? { ...((block.config.pre_create as Record<string, unknown>) ?? {}), entity_id } : undefined })}
+              />
+              {((block.config.pre_create as Record<string, unknown>)?.entity_id as string) && (
+                <ConfigInput
+                  label="pre_create: поле результата"
+                  value={((block.config.pre_create as Record<string, unknown>)?.result_field as string) ?? ""}
+                  onChange={(result_field) => onConfigChange({ pre_create: { ...((block.config.pre_create as Record<string, unknown>) ?? {}), result_field } })}
+                  placeholder="поле в основной форме"
+                />
+              )}
+            </>
+          )}
         </>
       )}
       {(block.type === "metric" || block.type === "kpi") && (
