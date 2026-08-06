@@ -135,14 +135,16 @@ class ViewFieldConfigBulkUpdate(BaseModel):
 
 class BlockType(str, Enum):
     # Input
-    TEXT_FIELD   = "text_field"
-    NUMBER_FIELD = "number_field"
-    DATE_FIELD   = "date_field"
-    DROPDOWN     = "dropdown"
-    TOGGLE       = "toggle"
-    FILE_UPLOAD  = "file_upload"
-    LOOKUP       = "lookup"
-    FORM         = "form"
+    TEXT_FIELD       = "text_field"
+    NUMBER_FIELD     = "number_field"
+    DATE_FIELD       = "date_field"
+    DROPDOWN         = "dropdown"
+    TOGGLE           = "toggle"
+    CHECKBOX         = "checkbox"
+    FILE_UPLOAD      = "file_upload"
+    LOOKUP           = "lookup"
+    FORM             = "form"
+    POSITIONS_PICKER = "positions_picker"
     # Display
     TABLE        = "table"
     RECORD_CARD  = "record_card"

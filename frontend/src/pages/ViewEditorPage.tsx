@@ -46,7 +46,7 @@ const EDITOR_TABS = ["Представления", "Правила формир�
 type PageBlockType =
   // Input
   | "text_field" | "number_field" | "date_field" | "dropdown" | "toggle" | "checkbox"
-  | "file_upload" | "lookup" | "form"
+  | "file_upload" | "lookup" | "form" | "positions_picker"
   // Display
   | "table" | "record_card" | "metric" | "kpi" | "chart" | "pivot"
   | "calendar" | "kanban" | "gantt" | "tree" | "rich_text" | "view"
@@ -106,7 +106,8 @@ const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; gro
   checkbox:     { label: "Чекбокс",          desc: "Галочка для булевого поля",            group: "Ввод" },
   file_upload:  { label: "Загрузка файла",    desc: "Файлы с контролем формата и размера",  group: "Ввод" },
   lookup:       { label: "Справочник",        desc: "Ссылка на запись другой сущности",     group: "Ввод" },
-  form:         { label: "Форма ввода",       desc: "Группа полей для создания/редактирования записи", group: "Ввод" },
+  form:             { label: "Форма ввода",       desc: "Группа полей для создания/редактирования записи", group: "Ввод" },
+  positions_picker: { label: "Выбор позиций",    desc: "Таблица позиций из каталога (товары, услуги)",    group: "Ввод" },
   // Display
   table:        { label: "Таблица",           desc: "Список записей с сортировкой и фильтром",         group: "Отображение" },
   record_card:  { label: "Карточка записи",   desc: "Детальное отображение одной записи",  group: "Отображение" },
@@ -135,7 +136,7 @@ const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; gro
 const BLOCK_GROUPS: { id: string; label: string; types: PageBlockType[] }[] = [
   {
     id: "input", label: "Ввод",
-    types: ["text_field", "number_field", "date_field", "dropdown", "toggle", "checkbox", "file_upload", "lookup", "form"],
+    types: ["text_field", "number_field", "date_field", "dropdown", "toggle", "checkbox", "file_upload", "lookup", "form", "positions_picker"],
   },
   {
     id: "display", label: "Отображение",
@@ -169,7 +170,8 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "toggle")       return { label: "Вкл/Выкл", default_value: false };
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
   if (type === "file_upload")  return { label: "Файл", accept: "*", max_size_mb: 10, multiple: false };
-  if (type === "lookup")       return { label: "Справочник", entity_id: "", display_field: "", multiple: false };
+  if (type === "lookup")           return { label: "Справочник", entity_id: "", display_field: "", multiple: false };
+  if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica" };
   // Display
   if (type === "record_card")  return { entity_id: "", fields: [] };
   if (type === "pivot")        return { entity_id: "", row_field: "", col_field: "", value_field: "", agg: "count" };
@@ -2896,6 +2898,39 @@ function BlockInlineSettings({
             value={(block.config.position as string) ?? "top"}
             options={[{ value: "top", label: "Сверху" }, { value: "side", label: "Сбоку" }]}
             onChange={(position) => onConfigChange({ position })}
+          />
+        </>
+      )}
+      {block.type === "positions_picker" && (
+        <>
+          <ConfigInput
+            label="Заголовок"
+            value={(block.config.label as string) ?? "Позиции заказа"}
+            onChange={(label) => onConfigChange({ label })}
+          />
+          <ConfigSelect
+            label="Каталог (сущность)"
+            value={(block.config.catalog_entity_id as string) ?? ""}
+            options={entityOptions}
+            onChange={(catalog_entity_id) => onConfigChange({ catalog_entity_id })}
+          />
+          <ConfigInput
+            label="Поле названия"
+            value={(block.config.catalog_display_field as string) ?? "nazvanie"}
+            onChange={(catalog_display_field) => onConfigChange({ catalog_display_field })}
+            placeholder="nazvanie"
+          />
+          <ConfigInput
+            label="Поле цены"
+            value={(block.config.catalog_price_field as string) ?? "cena"}
+            onChange={(catalog_price_field) => onConfigChange({ catalog_price_field })}
+            placeholder="cena"
+          />
+          <ConfigInput
+            label="Поле единицы"
+            value={(block.config.catalog_unit_field as string) ?? "edinica"}
+            onChange={(catalog_unit_field) => onConfigChange({ catalog_unit_field })}
+            placeholder="edinica"
           />
         </>
       )}
