@@ -1068,7 +1068,25 @@ export function ViewEditorPage() {
       {showActionModal && (
         <NewActionModal
           onClose={() => setShowActionModal(false)}
-          onConfirm={() => setShowActionModal(false)}
+          onConfirm={(name, type) => {
+            const actionTypeMap: Record<string, string> = {
+              "Добавить строку": "save",
+              "Открыть URL":     "url",
+              "Изменить строку": "save",
+              "Удалить строку":  "url",
+              "Отправить уведомление": "url",
+              "Запустить процесс":     "url",
+            };
+            const actionType = actionTypeMap[type] ?? "url";
+            const newBlock: PageBlock = {
+              id: genId(),
+              type: "button",
+              title: name || "Кнопка",
+              config: { label: name || "Кнопка", actionType, href: "", width: "half" },
+            };
+            handleBlocksChange([...blocks, newBlock]);
+            setShowActionModal(false);
+          }}
         />
       )}
 
