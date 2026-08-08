@@ -123,3 +123,14 @@ export async function fetchMe(): Promise<CurrentUser> {
   const { data } = await apiClient.get<CurrentUser>("/users/me");
   return data;
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiClient.post("/auth/change-password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+}
+
+export async function logoutAll(refreshToken: string): Promise<void> {
+  await apiClient.post("/auth/logout-all", { refresh_token: refreshToken });
+}

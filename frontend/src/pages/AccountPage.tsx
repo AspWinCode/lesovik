@@ -1,11 +1,36 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/shared/auth/store";
+import { changePassword } from "@/shared/api/auth";
 
 export function AccountPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwStatus, setPwStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [pwError, setPwError] = useState("");
+
+  async function handleChangePassword() {
+    if (pwNew !== pwConfirm) { setPwError("Новые пароли не совпадают"); return; }
+    if (pwNew.length < 10) { setPwError("Минимум 10 символов"); return; }
+    setPwStatus("loading"); setPwError("");
+    try {
+      await changePassword(pwCurrent, pwNew);
+      setPwStatus("success");
+      setPwCurrent(""); setPwNew(""); setPwConfirm("");
+      setTimeout(() => { setPwStatus("idle"); setShowChangePassword(false); }, 2000);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка смены пароля";
+      setPwError(typeof msg === "string" ? msg : "Ошибка смены пароля");
+      setPwStatus("error");
+    }
+  }
 
   async function handleLogout() {
     await logout();
@@ -110,21 +135,61 @@ export function AccountPage() {
                   Бесплатный
                 </span>
               </div>
-              <div className="flex items-center gap-4 pt-1">
-                <button
-                  disabled
-                  title="В разработке"
-                  className="px-5 py-[3px] h-[34px] border-2 border-cta/40 rounded-btn text-cta/40 text-[14px] font-medium cursor-not-allowed"
-                >
-                  Изменить пароль
-                </button>
-                <button
-                  disabled
-                  title="В разработке"
-                  className="px-5 py-[3px] h-[34px] border-2 border-mistake/40 rounded-btn text-mistake/40 text-[14px] font-medium cursor-not-allowed"
-                >
-                  Удалить аккаунт
-                </button>
+              <div className="flex flex-col gap-4 pt-1">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => { setShowChangePassword((v) => !v); setPwError(""); setPwStatus("idle"); }}
+                    className="px-5 py-[3px] h-[34px] border-2 border-cta rounded-btn text-cta text-[14px] font-medium hover:bg-cta/10 transition-colors"
+                  >
+                    Изменить пароль
+                  </button>
+                  <button
+                    disabled
+                    title="В разработке"
+                    className="px-5 py-[3px] h-[34px] border-2 border-mistake/40 rounded-btn text-mistake/40 text-[14px] font-medium cursor-not-allowed"
+                  >
+                    Удалить аккаунт
+                  </button>
+                </div>
+
+                {showChangePassword && (
+                  <div className="flex flex-col gap-3 p-5 bg-mainbg rounded-[10px] max-w-[420px]">
+                    <h3 className="text-[15px] font-semibold text-primary">Смена пароля</h3>
+                    {(["Текущий пароль", "Новый пароль", "Повторите новый"] as const).map((label, i) => {
+                      const vals = [pwCurrent, pwNew, pwConfirm];
+                      const setters = [setPwCurrent, setPwNew, setPwConfirm];
+                      return (
+                        <div key={label} className="flex flex-col gap-1">
+                          <span className="text-[13px] text-primary/60">{label}</span>
+                          <input
+                            type="password"
+                            value={vals[i]}
+                            onChange={(e) => setters[i](e.target.value)}
+                            className="h-[38px] px-3 rounded-[8px] border border-cardbg bg-white text-[14px] text-primary outline-none focus:border-cta"
+                            disabled={pwStatus === "loading"}
+                          />
+                        </div>
+                      );
+                    })}
+                    {pwError && <p className="text-[13px] text-mistake">{pwError}</p>}
+                    {pwStatus === "success" && <p className="text-[13px] text-green-600">Пароль успешно изменён ✓</p>}
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        onClick={handleChangePassword}
+                        disabled={pwStatus === "loading" || !pwCurrent || !pwNew || !pwConfirm}
+                        className="px-5 h-[34px] rounded-btn bg-cta text-white text-[14px] font-medium disabled:opacity-50 hover:bg-active transition-colors"
+                      >
+                        {pwStatus === "loading" ? "Сохранение…" : "Сохранить"}
+                      </button>
+                      <button
+                        onClick={() => { setShowChangePassword(false); setPwError(""); setPwCurrent(""); setPwNew(""); setPwConfirm(""); }}
+                        className="px-5 h-[34px] rounded-btn border border-cardbg text-[14px] text-primary hover:bg-cardbg transition-colors"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </Section>
