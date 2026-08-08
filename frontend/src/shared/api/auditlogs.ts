@@ -7,7 +7,7 @@ export interface AuditLogEntry {
   action: string;
   resource_type: string | null;
   resource_id: string | null;
-  level: "info" | "warn" | "error";
+  level: "info" | "warning" | "error";
   ip_address: string | null;
   user_agent: string | null;
   details: Record<string, unknown>;
@@ -19,9 +19,11 @@ export interface AuditLogParams {
   offset?: number;
   level?: string;
   action?: string;
+  user_id?: string;
+  since?: string;
 }
 
 export async function listAuditLogs(params?: AuditLogParams): Promise<AuditLogEntry[]> {
-  const { data } = await apiClient.get<AuditLogEntry[]>("/users/audit-logs", { params });
+  const { data } = await apiClient.get<AuditLogEntry[]>("/audit", { params });
   return data;
 }
