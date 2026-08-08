@@ -47,3 +47,19 @@ export async function deletePermission(
 ): Promise<void> {
   await apiClient.delete(`/apps/${appId}/entities/${entityId}/permissions/${permId}`);
 }
+
+export interface FieldRestrictionsResponse {
+  entity_id: string;
+  denied_read: string[];
+  denied_write: string[];
+}
+
+export async function checkMyPermissions(
+  appId: string,
+  entityId: string,
+): Promise<FieldRestrictionsResponse> {
+  const { data } = await apiClient.get<FieldRestrictionsResponse>(
+    `/apps/${appId}/entities/${entityId}/permissions/check`,
+  );
+  return data;
+}

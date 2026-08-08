@@ -51,6 +51,11 @@ export async function listEmailTemplates(): Promise<EmailTemplateRead[]> {
   return data;
 }
 
+export async function getEmailTemplate(id: string): Promise<EmailTemplateRead> {
+  const { data } = await apiClient.get<EmailTemplateRead>(`/email-templates/${id}`);
+  return data;
+}
+
 export async function createEmailTemplate(body: EmailTemplateCreate): Promise<EmailTemplateRead> {
   const { data } = await apiClient.post<EmailTemplateRead>("/email-templates", body);
   return data;
