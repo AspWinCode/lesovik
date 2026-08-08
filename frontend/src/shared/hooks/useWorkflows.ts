@@ -15,6 +15,7 @@ import {
   deleteWorkflow,
   executeTransition,
   getAvailableTransitions,
+  getInstance,
   getTransitionLog,
   listApprovalChains,
   listChainInstances,
@@ -268,6 +269,8 @@ export function useDeleteTransition(appId: string, workflowId: string) {
 const AVAILABLE_TRANSITIONS_KEY = (appId: string, workflowId: string, instanceId: string) =>
   ["available-transitions", appId, workflowId, instanceId] as const;
 
+const INSTANCE_KEY = (appId: string, workflowId: string, instanceId: string) =>
+  ["workflow-instance", appId, workflowId, instanceId] as const;
 const TRANSITION_LOG_KEY = (appId: string, workflowId: string, instanceId: string) =>
   ["transition-log", appId, workflowId, instanceId] as const;
 
@@ -310,6 +313,18 @@ export function useCancelInstance(appId: string, workflowId: string) {
     mutationFn: ({ instanceId, reason }: { instanceId: string; reason?: string }) =>
       cancelInstance(appId, workflowId, instanceId, reason),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: INSTANCES_KEY(appId, workflowId) }); },
+  });
+}
+
+export function useInstance(
+  appId: string | undefined,
+  workflowId: string | undefined,
+  instanceId: string | undefined,
+) {
+  return useQuery({
+    queryKey: INSTANCE_KEY(appId ?? "", workflowId ?? "", instanceId ?? ""),
+    queryFn: () => getInstance(appId!, workflowId!, instanceId!),
+    enabled: !!appId && !!workflowId && !!instanceId,
   });
 }
 
