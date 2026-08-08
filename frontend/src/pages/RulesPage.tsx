@@ -6,9 +6,9 @@ import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
-import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule } from "@/shared/hooks/useRules";
+import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs } from "@/shared/hooks/useRules";
 import type { FieldRead } from "@/shared/api/entities";
-import type { Rule } from "@/shared/api/rules";
+import type { Rule, RuleTestResponse, RuleExecutionLogRead } from "@/shared/api/rules";
 
 function uid() { return Math.random().toString(36).slice(2); }
 
@@ -649,52 +649,205 @@ function AutofillModal({ rule, entityId, fields, appId, onClose }: {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Rule test modal
+   ════════════════════════════════════════════════════════════════ */
+function RuleTestModal({ appId, rule, onClose }: { appId: string; rule: Rule; onClose: () => void }) {
+  const [payload, setPayload] = useState("{}");
+  const [result, setResult] = useState<RuleTestResponse | null>(null);
+  const [parseErr, setParseErr] = useState("");
+  const testMut = useTestRule(appId, rule.id);
+
+  async function handleRun() {
+    setParseErr("");
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(payload); } catch { setParseErr("Невалидный JSON"); return; }
+    const res = await testMut.mutateAsync({ record_payload: parsed, event: rule.trigger.event });
+    setResult(res);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-[16px] shadow-2xl w-[680px] max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-7 py-5 border-b border-cardbg">
+          <div>
+            <h2 className="text-[18px] font-bold text-primary">Тест правила</h2>
+            <p className="text-[13px] text-primary/50 mt-0.5">{rule.name}</p>
+          </div>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-7 py-5 flex flex-col gap-4">
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-1">Тестовая запись (JSON)</label>
+            <textarea
+              value={payload}
+              onChange={(e) => setPayload(e.target.value)}
+              rows={6}
+              className="w-full border border-cardbg rounded-[8px] px-3 py-2 text-[13px] font-mono focus:outline-none focus:border-cta resize-none"
+            />
+            {parseErr && <p className="text-[12px] text-mistake mt-1">{parseErr}</p>}
+          </div>
+          {result && (
+            <div className="flex flex-col gap-3">
+              <div className={cn("flex items-center gap-2 px-4 py-2 rounded-[8px] text-[14px] font-medium",
+                result.matched ? "bg-green-50 text-green-700" : "bg-mainbg text-primary/60")}>
+                {result.matched ? "✓ Условие выполнено" : "✗ Условие не выполнено"}
+              </div>
+              {Object.keys(result.field_mutations).length > 0 && (
+                <div>
+                  <p className="text-[13px] font-semibold text-primary mb-1">Изменения полей</p>
+                  <pre className="text-[12px] bg-mainbg rounded-[8px] px-3 py-2 overflow-x-auto">{JSON.stringify(result.field_mutations, null, 2)}</pre>
+                </div>
+              )}
+              {result.errors.length > 0 && (
+                <div>
+                  <p className="text-[13px] font-semibold text-mistake mb-1">Ошибки</p>
+                  {result.errors.map((e, i) => <p key={i} className="text-[12px] text-mistake">{e}</p>)}
+                </div>
+              )}
+              {result.notifications.length > 0 && (
+                <div>
+                  <p className="text-[13px] font-semibold text-primary mb-1">Уведомления</p>
+                  <pre className="text-[12px] bg-mainbg rounded-[8px] px-3 py-2 overflow-x-auto">{JSON.stringify(result.notifications, null, 2)}</pre>
+                </div>
+              )}
+              {result.webhooks.length > 0 && (
+                <div>
+                  <p className="text-[13px] font-semibold text-primary mb-1">Вебхуки</p>
+                  <pre className="text-[12px] bg-mainbg rounded-[8px] px-3 py-2 overflow-x-auto">{JSON.stringify(result.webhooks, null, 2)}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 px-7 py-4 border-t border-cardbg">
+          <button onClick={onClose} className="h-[38px] px-5 rounded-[8px] border border-cardbg text-[14px] text-primary hover:bg-mainbg">Закрыть</button>
+          <button onClick={handleRun} disabled={testMut.isPending}
+            className="h-[38px] px-6 rounded-[8px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 disabled:opacity-50">
+            {testMut.isPending ? "Выполнение…" : "Запустить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Rule logs drawer
+   ════════════════════════════════════════════════════════════════ */
+function RuleLogsDrawer({ appId, rule, onClose }: { appId: string; rule: Rule; onClose: () => void }) {
+  const logsQuery = useRuleLogs(appId, rule.id, true);
+  const logs: RuleExecutionLogRead[] = logsQuery.data ?? [];
+
+  function statusColor(s: string) {
+    if (s === "ok" || s === "success") return "text-green-600";
+    if (s === "error" || s === "failed") return "text-mistake";
+    return "text-primary/60";
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-t-[16px] shadow-2xl w-full max-w-[900px] max-h-[70vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-7 py-4 border-b border-cardbg shrink-0">
+          <div>
+            <h2 className="text-[17px] font-bold text-primary">Журнал выполнения</h2>
+            <p className="text-[12px] text-primary/50 mt-0.5">{rule.name}</p>
+          </div>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-7 py-4">
+          {logsQuery.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+          {!logsQuery.isLoading && logs.length === 0 && (
+            <p className="text-[13px] text-primary/40 text-center py-10">Записей нет — правило ещё не срабатывало</p>
+          )}
+          {logs.length > 0 && (
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-primary/50 text-left border-b border-cardbg">
+                  <th className="py-2 pr-4 font-medium">Время</th>
+                  <th className="py-2 pr-4 font-medium">Событие</th>
+                  <th className="py-2 pr-4 font-medium">Статус</th>
+                  <th className="py-2 pr-4 font-medium">Длит., мс</th>
+                  <th className="py-2 font-medium">Ошибка</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id} className="border-b border-cardbg/50 hover:bg-mainbg">
+                    <td className="py-2 pr-4 text-primary/60 whitespace-nowrap">{new Date(log.executed_at).toLocaleString("ru")}</td>
+                    <td className="py-2 pr-4 text-primary">{log.event}</td>
+                    <td className={cn("py-2 pr-4 font-medium", statusColor(log.status))}>{log.status}</td>
+                    <td className="py-2 pr-4 text-primary/60">{log.duration_ms ?? "—"}</td>
+                    <td className="py-2 text-mistake text-[12px] truncate max-w-[200px]">{log.error ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
    Rule card
    ════════════════════════════════════════════════════════════════ */
 function RuleCard({ rule, appId, onEdit }: { rule: Rule; appId: string; onEdit: () => void; }) {
+  const [showTest, setShowTest] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const updateMut = useUpdateRule(appId);
   const deleteMut = useDeleteRule(appId);
 
   const triggerLabel = TRIGGER_EVENTS.find((t) => t.value === rule.trigger.event)?.label ?? rule.trigger.event;
 
   return (
-    <div className={cn("bg-white rounded-[12px] border px-5 py-4 flex items-start gap-4", rule.is_active ? "border-cardbg" : "border-cardbg opacity-60")}>
-      {/* Active toggle */}
-      <button
-        onClick={() => updateMut.mutate({ ruleId: rule.id, body: { is_active: !rule.is_active } })}
-        className={cn("mt-1 w-[38px] h-[22px] rounded-full shrink-0 transition-colors relative", rule.is_active ? "bg-cta" : "bg-cardbg")}
-      >
-        <span className={cn("absolute top-[3px] w-[16px] h-[16px] bg-white rounded-full shadow transition-transform", rule.is_active ? "translate-x-[18px]" : "translate-x-[3px]")} />
-      </button>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-[15px] font-semibold text-primary truncate">{rule.name}</span>
-          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#EBF4FF] text-cta shrink-0">{triggerLabel}</span>
-          <span className="text-[11px] text-primary/40 shrink-0">пр. {rule.priority}</span>
-        </div>
-        {rule.description && (
-          <p className="text-[13px] text-primary/60 truncate">{rule.description}</p>
-        )}
-        <p className="text-[12px] text-primary/40 mt-0.5">
-          {rule.actions.length} действий · v{rule.version}
-        </p>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0">
-        <button onClick={onEdit} className="h-[32px] px-3 rounded-[8px] border border-cardbg text-[13px] text-primary hover:bg-mainbg">
-          Изменить
-        </button>
+    <>
+      <div className={cn("bg-white rounded-[12px] border px-5 py-4 flex items-start gap-4", rule.is_active ? "border-cardbg" : "border-cardbg opacity-60")}>
+        {/* Active toggle */}
         <button
-          onClick={() => { if (confirm(`Удалить правило "${rule.name}"?`)) deleteMut.mutate(rule.id); }}
-          className="h-[32px] px-3 rounded-[8px] border border-[#FDECEC] text-[13px] text-mistake hover:bg-[#FDECEC]"
+          onClick={() => updateMut.mutate({ ruleId: rule.id, body: { is_active: !rule.is_active } })}
+          className={cn("mt-1 w-[38px] h-[22px] rounded-full shrink-0 transition-colors relative", rule.is_active ? "bg-cta" : "bg-cardbg")}
         >
-          Удалить
+          <span className={cn("absolute top-[3px] w-[16px] h-[16px] bg-white rounded-full shadow transition-transform", rule.is_active ? "translate-x-[18px]" : "translate-x-[3px]")} />
         </button>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[15px] font-semibold text-primary truncate">{rule.name}</span>
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#EBF4FF] text-cta shrink-0">{triggerLabel}</span>
+            <span className="text-[11px] text-primary/40 shrink-0">пр. {rule.priority}</span>
+          </div>
+          {rule.description && (
+            <p className="text-[13px] text-primary/60 truncate">{rule.description}</p>
+          )}
+          <p className="text-[12px] text-primary/40 mt-0.5">
+            {rule.actions.length} действий · v{rule.version}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => setShowTest(true)} className="h-[32px] px-3 rounded-[8px] border border-cardbg text-[13px] text-primary hover:bg-mainbg">
+            Тест
+          </button>
+          <button onClick={() => setShowLogs(true)} className="h-[32px] px-3 rounded-[8px] border border-cardbg text-[13px] text-primary hover:bg-mainbg">
+            Журнал
+          </button>
+          <button onClick={onEdit} className="h-[32px] px-3 rounded-[8px] border border-cardbg text-[13px] text-primary hover:bg-mainbg">
+            Изменить
+          </button>
+          <button
+            onClick={() => { if (confirm(`Удалить правило "${rule.name}"?`)) deleteMut.mutate(rule.id); }}
+            className="h-[32px] px-3 rounded-[8px] border border-[#FDECEC] text-[13px] text-mistake hover:bg-[#FDECEC]"
+          >
+            Удалить
+          </button>
+        </div>
       </div>
-    </div>
+      {showTest && <RuleTestModal appId={appId} rule={rule} onClose={() => setShowTest(false)} />}
+      {showLogs && <RuleLogsDrawer appId={appId} rule={rule} onClose={() => setShowLogs(false)} />}
+    </>
   );
 }
 

@@ -6,14 +6,17 @@ import {
   deactivateRule,
   deleteRule,
   deleteStep,
+  listRuleLogs,
   listRules,
   listSteps,
   reorderSteps,
+  testRule,
   updateRule,
   updateStep,
   type ProcessStepCreate,
   type ProcessStepUpdate,
   type RuleCreate,
+  type RuleTestRequest,
   type RuleUpdate,
 } from "../api/rules";
 
@@ -122,5 +125,19 @@ export function useReorderSteps(appId: string, ruleId: string) {
   return useMutation({
     mutationFn: (stepIds: string[]) => reorderSteps(appId, ruleId, stepIds),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: stepsKey(appId, ruleId) }); },
+  });
+}
+
+export function useTestRule(appId: string, ruleId: string) {
+  return useMutation({
+    mutationFn: (body: RuleTestRequest) => testRule(appId, ruleId, body),
+  });
+}
+
+export function useRuleLogs(appId: string | undefined, ruleId: string | undefined, enabled = false) {
+  return useQuery({
+    queryKey: ["rule-logs", appId, ruleId],
+    queryFn: () => listRuleLogs(appId!, ruleId!),
+    enabled: !!appId && !!ruleId && enabled,
   });
 }

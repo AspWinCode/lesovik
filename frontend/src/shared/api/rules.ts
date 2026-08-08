@@ -125,3 +125,56 @@ export async function reorderSteps(appId: string, ruleId: string, stepIds: strin
   );
   return data;
 }
+
+/* ── Test & Logs ── */
+
+export interface RuleTestRequest {
+  record_payload: Record<string, unknown>;
+  event?: string;
+  changed_fields?: string[];
+}
+
+export interface RuleTestResponse {
+  matched: boolean;
+  field_mutations: Record<string, unknown>;
+  records_to_create: Record<string, unknown>[];
+  notifications: Record<string, unknown>[];
+  webhooks: Record<string, unknown>[];
+  errors: string[];
+}
+
+export interface RuleExecutionLogRead {
+  id: string;
+  rule_id: string;
+  record_id: string | null;
+  event: string;
+  status: string;
+  duration_ms: number | null;
+  error: string | null;
+  output_snapshot: Record<string, unknown> | null;
+  executed_at: string;
+}
+
+export async function testRule(
+  appId: string,
+  ruleId: string,
+  body: RuleTestRequest,
+): Promise<RuleTestResponse> {
+  const { data } = await apiClient.post<RuleTestResponse>(
+    `/apps/${appId}/rules/${ruleId}/test`,
+    body,
+  );
+  return data;
+}
+
+export async function listRuleLogs(
+  appId: string,
+  ruleId: string,
+  limit = 50,
+): Promise<RuleExecutionLogRead[]> {
+  const { data } = await apiClient.get<RuleExecutionLogRead[]>(
+    `/apps/${appId}/rules/${ruleId}/logs`,
+    { params: { limit } },
+  );
+  return data;
+}
