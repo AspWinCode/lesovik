@@ -70,3 +70,14 @@ export async function deleteSequence(
 ): Promise<void> {
   await apiClient.delete(`/apps/${appId}/entities/${entityId}/sequences/${sequenceId}`);
 }
+
+export async function previewNextSequenceValue(
+  appId: string,
+  entityId: string,
+  sequenceId: string,
+): Promise<{ value: string }> {
+  const { data } = await apiClient.post<{ value: string }>(
+    `/apps/${appId}/entities/${entityId}/sequences/${sequenceId}/next`,
+  );
+  return data;
+}

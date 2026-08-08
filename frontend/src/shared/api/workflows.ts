@@ -429,6 +429,17 @@ export interface TransitionLogRead {
   error: string | null;
 }
 
+export async function getInstance(
+  appId: string,
+  workflowId: string,
+  instanceId: string,
+): Promise<WorkflowInstanceRead> {
+  const { data } = await apiClient.get<WorkflowInstanceRead>(
+    `/apps/${appId}/workflows/${workflowId}/instances/${instanceId}`,
+  );
+  return data;
+}
+
 export async function startInstance(
   appId: string,
   workflowId: string,
