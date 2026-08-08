@@ -27,6 +27,8 @@ export interface RecordListParams {
   sort_field?: string;
   sort_dir?: "asc" | "desc";
   include_deleted?: boolean;
+  /** Server-side DSL filter: "field:op:value", e.g. "status:eq:active" */
+  filter?: string;
 }
 
 export async function listRecords(
@@ -134,11 +136,16 @@ export async function previewImport(appId: string, entityId: string, file: File)
 
 export interface RecordFileRead {
   id: string;
+  record_id: string;
+  entity_id: string;
   field_name: string;
-  original_name: string;
-  size: number;
-  content_type: string;
-  uploaded_at: string;
+  original_filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  download_url: string | null;
+  is_scanned: boolean;
+  is_infected: boolean | null;
+  created_at: string;
 }
 
 export async function uploadRecordFile(
@@ -156,6 +163,30 @@ export async function uploadRecordFile(
     { headers: { "Content-Type": "multipart/form-data" }, params: { field_name: fieldName } },
   );
   return data;
+}
+
+export async function listRecordFiles(
+  appId: string,
+  entityId: string,
+  recordId: string,
+  fieldName?: string,
+): Promise<RecordFileRead[]> {
+  const { data } = await apiClient.get<RecordFileRead[]>(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}/files`,
+    fieldName ? { params: { field_name: fieldName } } : undefined,
+  );
+  return data;
+}
+
+export async function deleteRecordFile(
+  appId: string,
+  entityId: string,
+  recordId: string,
+  fileId: string,
+): Promise<void> {
+  await apiClient.delete(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}/files/${fileId}`,
+  );
 }
 
 export async function getRecordFileDownloadUrl(
