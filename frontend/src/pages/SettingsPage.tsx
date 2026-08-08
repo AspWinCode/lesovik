@@ -5,6 +5,11 @@ import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
 import { useApps, useUpdateApp } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
+import {
+  useWebhooks, useCreateWebhook, useUpdateWebhook, useDeleteWebhook,
+  useRotateWebhookSecret, useWebhookDeliveries,
+} from "@/shared/hooks/useWebhooks";
+import type { WebhookRead, WebhookDeliveryRead } from "@/shared/api/webhooks";
 
 const CATEGORY_OPTIONS = [
   "Проверки и обследования", "Выездное обслуживание", "Управление недвижимостью",
@@ -452,11 +457,234 @@ function AutonomousSection() {
 }
 
 /* ── Integrations section ── */
+/* ── Webhook delivery history drawer ── */
+function DeliveryDrawer({ appId, webhook, onClose }: { appId: string; webhook: WebhookRead; onClose: () => void }) {
+  const q = useWebhookDeliveries(appId, webhook.id, true);
+  const rows: WebhookDeliveryRead[] = q.data ?? [];
+  function statusColor(s: string) {
+    if (s === "delivered" || s === "ok") return "text-green-600";
+    if (s === "failed" || s === "error") return "text-mistake";
+    return "text-primary/60";
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-t-[16px] shadow-2xl w-full max-w-[900px] max-h-[70vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-7 py-4 border-b border-cardbg shrink-0">
+          <div>
+            <h2 className="text-[17px] font-bold text-primary">История доставки</h2>
+            <p className="text-[12px] text-primary/50 mt-0.5">{webhook.name}</p>
+          </div>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-7 py-4">
+          {q.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+          {!q.isLoading && rows.length === 0 && (
+            <p className="text-[13px] text-primary/40 text-center py-10">Событий ещё не было</p>
+          )}
+          {rows.length > 0 && (
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-primary/50 text-left border-b border-cardbg">
+                  <th className="py-2 pr-4 font-medium">Событие</th>
+                  <th className="py-2 pr-4 font-medium">Статус</th>
+                  <th className="py-2 pr-4 font-medium">Код</th>
+                  <th className="py-2 pr-4 font-medium">Попыток</th>
+                  <th className="py-2 font-medium">Время</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((d) => (
+                  <tr key={d.id} className="border-b border-cardbg/50 hover:bg-mainbg">
+                    <td className="py-2 pr-4 text-primary">{d.event_type}</td>
+                    <td className={cn("py-2 pr-4 font-medium", statusColor(d.status))}>{d.status}</td>
+                    <td className="py-2 pr-4 text-primary/60">{d.last_response_code ?? "—"}</td>
+                    <td className="py-2 pr-4 text-primary/60">{d.attempt_count}</td>
+                    <td className="py-2 text-primary/60 whitespace-nowrap">{new Date(d.created_at).toLocaleString("ru")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Webhook form modal ── */
+const ALL_EVENTS = ["record.created", "record.updated", "record.deleted", "field.changed"];
+
+function WebhookModal({ appId, webhook, onClose }: { appId: string; webhook: WebhookRead | null; onClose: () => void }) {
+  const isEdit = !!webhook;
+  const createMut = useCreateWebhook(appId);
+  const updateMut = useUpdateWebhook(appId);
+  const [name, setName] = useState(webhook?.name ?? "");
+  const [url, setUrl] = useState(webhook?.target_url ?? "");
+  const [events, setEvents] = useState<string[]>(webhook?.events ?? ["record.created"]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  function toggleEvent(e: string) {
+    setEvents((prev) => prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]);
+  }
+
+  async function handleSave() {
+    if (!name.trim()) { setErr("Введите название"); return; }
+    if (!url.trim()) { setErr("Введите URL"); return; }
+    setSaving(true); setErr("");
+    try {
+      if (isEdit && webhook) {
+        await updateMut.mutateAsync({ webhookId: webhook.id, body: { name: name.trim(), target_url: url.trim(), events } });
+      } else {
+        await createMut.mutateAsync({ name: name.trim(), target_url: url.trim(), events });
+      }
+      onClose();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setErr(typeof msg === "string" ? msg : "Ошибка сохранения");
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-[16px] shadow-2xl w-[520px] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-7 py-5 border-b border-cardbg">
+          <h2 className="text-[18px] font-bold text-primary">{isEdit ? "Редактировать webhook" : "Новый webhook"}</h2>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
+        </div>
+        <div className="px-7 py-5 flex flex-col gap-4">
+          {err && <p className="text-[13px] text-mistake px-3 py-2 bg-[#FDECEC] rounded-[8px]">{err}</p>}
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-1">Название *</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full h-[38px] border border-cardbg rounded-[8px] px-3 text-[14px] focus:outline-none focus:border-cta" />
+          </div>
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-1">Target URL *</label>
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/hook" className="w-full h-[38px] border border-cardbg rounded-[8px] px-3 text-[14px] focus:outline-none focus:border-cta" />
+          </div>
+          <div>
+            <label className="block text-[13px] text-primary/60 mb-2">События</label>
+            <div className="flex flex-wrap gap-2">
+              {ALL_EVENTS.map((ev) => (
+                <button key={ev} onClick={() => toggleEvent(ev)}
+                  className={cn("px-3 py-1 rounded-full text-[12px] border transition-colors",
+                    events.includes(ev) ? "bg-cta text-white border-cta" : "border-cardbg text-primary hover:border-cta")}>
+                  {ev}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-7 py-4 border-t border-cardbg">
+          <button onClick={onClose} className="h-[38px] px-5 rounded-[8px] border border-cardbg text-[14px] text-primary hover:bg-mainbg">Отмена</button>
+          <button onClick={handleSave} disabled={saving} className="h-[38px] px-6 rounded-[8px] bg-cta text-white text-[14px] font-medium disabled:opacity-50">
+            {saving ? "Сохранение…" : "Сохранить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Secret reveal modal (shown after rotate) ── */
+function SecretModal({ secret, onClose }: { secret: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  function copy() { navigator.clipboard.writeText(secret).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-[16px] shadow-2xl w-[480px] p-7 flex flex-col gap-4">
+        <h2 className="text-[18px] font-bold text-primary">Новый секрет</h2>
+        <p className="text-[13px] text-primary/60">Сохраните его сейчас — он больше не будет показан.</p>
+        <div className="flex items-center gap-2 bg-mainbg rounded-[8px] px-3 py-2">
+          <code className="flex-1 text-[13px] text-primary break-all font-mono">{secret}</code>
+          <button onClick={copy} className="text-[12px] text-cta hover:underline shrink-0">{copied ? "Скопировано!" : "Копировать"}</button>
+        </div>
+        <button onClick={onClose} className="self-end h-[38px] px-6 rounded-[8px] bg-cta text-white text-[14px] font-medium">Закрыть</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Webhook card ── */
+function WebhookCard({ appId, webhook, onEdit }: { appId: string; webhook: WebhookRead; onEdit: () => void }) {
+  const deleteMut = useDeleteWebhook(appId);
+  const updateMut = useUpdateWebhook(appId);
+  const rotateMut = useRotateWebhookSecret(appId);
+  const [showDeliveries, setShowDeliveries] = useState(false);
+  const [newSecret, setNewSecret] = useState<string | null>(null);
+
+  async function handleRotate() {
+    if (!confirm("Старый секрет перестанет работать мгновенно. Продолжить?")) return;
+    const res = await rotateMut.mutateAsync(webhook.id);
+    setNewSecret(res.secret);
+  }
+
+  return (
+    <>
+      <div className="bg-white rounded-[12px] border border-cardbg px-5 py-4 flex items-start gap-4">
+        <button
+          onClick={() => updateMut.mutate({ webhookId: webhook.id, body: { is_active: !webhook.is_active } })}
+          className={cn("mt-1 w-[38px] h-[22px] rounded-full shrink-0 transition-colors relative", webhook.is_active ? "bg-cta" : "bg-cardbg")}
+        >
+          <span className={cn("absolute top-[3px] w-[16px] h-[16px] bg-white rounded-full shadow transition-transform", webhook.is_active ? "translate-x-[18px]" : "translate-x-[3px]")} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-primary">{webhook.name}</p>
+          <p className="text-[13px] text-primary/60 truncate">{webhook.target_url}</p>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {webhook.events.map((ev) => (
+              <span key={ev} className="text-[11px] px-2 py-0.5 rounded-full bg-[#EBF4FF] text-cta">{ev}</span>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <button onClick={() => setShowDeliveries(true)} className="h-[30px] px-3 rounded-[7px] border border-cardbg text-[12px] text-primary hover:bg-mainbg">История</button>
+          <button onClick={handleRotate} disabled={rotateMut.isPending} className="h-[30px] px-3 rounded-[7px] border border-cardbg text-[12px] text-primary hover:bg-mainbg disabled:opacity-50">Ротировать секрет</button>
+          <button onClick={onEdit} className="h-[30px] px-3 rounded-[7px] border border-cardbg text-[12px] text-primary hover:bg-mainbg">Изменить</button>
+          <button onClick={() => { if (confirm(`Удалить "${webhook.name}"?`)) deleteMut.mutate(webhook.id); }} className="h-[30px] px-3 rounded-[7px] border border-[#FDECEC] text-[12px] text-mistake hover:bg-[#FDECEC]">Удалить</button>
+        </div>
+      </div>
+      {showDeliveries && <DeliveryDrawer appId={appId} webhook={webhook} onClose={() => setShowDeliveries(false)} />}
+      {newSecret && <SecretModal secret={newSecret} onClose={() => setNewSecret(null)} />}
+    </>
+  );
+}
+
 function IntegrationsSection() {
+  const appsQuery = useApps();
+  const app = useActiveApp(appsQuery.data?.items ?? []);
+  const appId = app?.id ?? "";
+  const webhooksQuery = useWebhooks(appId || undefined);
+  const webhooks = webhooksQuery.data ?? [];
+  const [modal, setModal] = useState<{ open: boolean; webhook: WebhookRead | null }>({ open: false, webhook: null });
+
   return (
     <div className="px-[40px] py-[25px]">
-      <h2 className="text-[22px] font-bold text-primary mb-4">Интеграции</h2>
-      <div className="text-[15px] text-primary/60">Настройки интеграций появятся здесь.</div>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-[22px] font-bold text-primary">Вебхуки</h2>
+        <button
+          onClick={() => setModal({ open: true, webhook: null })}
+          className="h-[36px] px-5 rounded-[10px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 flex items-center gap-2"
+        >
+          <span className="text-xl leading-none">+</span> Добавить
+        </button>
+      </div>
+      {webhooksQuery.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+      {!webhooksQuery.isLoading && webhooks.length === 0 && (
+        <div className="text-center py-12 text-primary/40">
+          <p className="text-[40px] mb-3">🔗</p>
+          <p className="text-[16px] font-medium mb-1">Вебхуков пока нет</p>
+          <p className="text-[13px]">Добавьте вебхук, чтобы получать уведомления о событиях в приложении</p>
+        </div>
+      )}
+      <div className="flex flex-col gap-3">
+        {webhooks.map((wh) => (
+          <WebhookCard key={wh.id} appId={appId} webhook={wh} onEdit={() => setModal({ open: true, webhook: wh })} />
+        ))}
+      </div>
+      {modal.open && (
+        <WebhookModal appId={appId} webhook={modal.webhook} onClose={() => setModal({ open: false, webhook: null })} />
+      )}
     </div>
   );
 }

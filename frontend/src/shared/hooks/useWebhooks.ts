@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createWebhook,
   deleteWebhook,
+  listWebhookDeliveries,
   listWebhooks,
+  rotateWebhookSecret,
   updateWebhook,
   type WebhookCreate,
   type WebhookUpdate,
@@ -40,5 +42,23 @@ export function useDeleteWebhook(appId: string) {
   return useMutation({
     mutationFn: (webhookId: string) => deleteWebhook(appId, webhookId),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: KEY(appId) }); },
+  });
+}
+
+export function useRotateWebhookSecret(appId: string) {
+  return useMutation({
+    mutationFn: (webhookId: string) => rotateWebhookSecret(appId, webhookId),
+  });
+}
+
+export function useWebhookDeliveries(
+  appId: string | undefined,
+  webhookId: string | undefined,
+  enabled = false,
+) {
+  return useQuery({
+    queryKey: ["webhook-deliveries", appId, webhookId],
+    queryFn: () => listWebhookDeliveries(appId!, webhookId!),
+    enabled: !!appId && !!webhookId && enabled,
   });
 }

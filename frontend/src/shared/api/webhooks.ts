@@ -59,3 +59,40 @@ export async function updateWebhook(
 export async function deleteWebhook(appId: string, webhookId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}/webhooks/${webhookId}`);
 }
+
+export interface RotateSecretResponse {
+  id: string;
+  secret: string;
+}
+
+export async function rotateWebhookSecret(appId: string, webhookId: string): Promise<RotateSecretResponse> {
+  const { data } = await apiClient.post<RotateSecretResponse>(
+    `/apps/${appId}/webhooks/${webhookId}/rotate_secret`,
+  );
+  return data;
+}
+
+export interface WebhookDeliveryRead {
+  id: string;
+  subscription_id: string;
+  event_type: string;
+  status: string;
+  attempt_count: number;
+  last_response_code: number | null;
+  last_response_body: string | null;
+  error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+}
+
+export async function listWebhookDeliveries(
+  appId: string,
+  webhookId: string,
+  params?: { status?: string; limit?: number },
+): Promise<WebhookDeliveryRead[]> {
+  const { data } = await apiClient.get<WebhookDeliveryRead[]>(
+    `/apps/${appId}/webhooks/${webhookId}/deliveries`,
+    { params },
+  );
+  return data;
+}
