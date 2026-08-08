@@ -134,3 +134,21 @@ export async function changePassword(currentPassword: string, newPassword: strin
 export async function logoutAll(refreshToken: string): Promise<void> {
   await apiClient.post("/auth/logout-all", { refresh_token: refreshToken });
 }
+
+export interface TOTPSetupResponse {
+  secret: string;
+  provisioning_uri: string;
+}
+
+export async function totpSetup(): Promise<TOTPSetupResponse> {
+  const { data } = await apiClient.post<TOTPSetupResponse>("/auth/totp/setup");
+  return data;
+}
+
+export async function totpEnable(code: string): Promise<void> {
+  await apiClient.post("/auth/totp/enable", { code });
+}
+
+export async function totpDisable(code: string): Promise<void> {
+  await apiClient.post("/auth/totp/disable", { code });
+}

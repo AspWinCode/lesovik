@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/shared/auth/store";
-import { changePassword } from "@/shared/api/auth";
+import { changePassword, logoutAll, totpSetup, totpEnable, totpDisable } from "@/shared/api/auth";
+import type { TOTPSetupResponse } from "@/shared/api/auth";
+import { getRefreshToken } from "@/shared/auth/tokens";
 
 export function AccountPage() {
   const navigate = useNavigate();
@@ -15,6 +17,16 @@ export function AccountPage() {
   const [pwConfirm, setPwConfirm] = useState("");
   const [pwStatus, setPwStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [pwError, setPwError] = useState("");
+
+  /* ── TOTP ── */
+  const [totpPhase, setTotpPhase] = useState<"idle" | "setup" | "confirm_enable" | "confirm_disable">("idle");
+  const [totpSetupData, setTotpSetupData] = useState<TOTPSetupResponse | null>(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpStatus, setTotpStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [totpError, setTotpError] = useState("");
+
+  /* ── Logout all ── */
+  const [logoutAllStatus, setLogoutAllStatus] = useState<"idle" | "loading" | "done">("idle");
 
   async function handleChangePassword() {
     if (pwNew !== pwConfirm) { setPwError("Новые пароли не совпадают"); return; }
@@ -30,6 +42,55 @@ export function AccountPage() {
       setPwError(typeof msg === "string" ? msg : "Ошибка смены пароля");
       setPwStatus("error");
     }
+  }
+
+  async function handleTotpSetup() {
+    setTotpStatus("loading"); setTotpError("");
+    try {
+      const data = await totpSetup();
+      setTotpSetupData(data);
+      setTotpPhase("setup");
+      setTotpStatus("idle");
+    } catch { setTotpError("Ошибка настройки 2FA"); setTotpStatus("error"); }
+  }
+
+  async function handleTotpEnable() {
+    setTotpStatus("loading"); setTotpError("");
+    try {
+      await totpEnable(totpCode);
+      setTotpPhase("idle"); setTotpCode(""); setTotpSetupData(null);
+      setTotpStatus("success");
+      setTimeout(() => setTotpStatus("idle"), 2000);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Неверный код";
+      setTotpError(typeof msg === "string" ? msg : "Неверный код");
+      setTotpStatus("error");
+    }
+  }
+
+  async function handleTotpDisable() {
+    setTotpStatus("loading"); setTotpError("");
+    try {
+      await totpDisable(totpCode);
+      setTotpPhase("idle"); setTotpCode("");
+      setTotpStatus("success");
+      setTimeout(() => setTotpStatus("idle"), 2000);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Неверный код";
+      setTotpError(typeof msg === "string" ? msg : "Неверный код");
+      setTotpStatus("error");
+    }
+  }
+
+  async function handleLogoutAll() {
+    const rt = getRefreshToken();
+    if (!rt) return;
+    setLogoutAllStatus("loading");
+    try {
+      await logoutAll(rt);
+      setLogoutAllStatus("done");
+      setTimeout(async () => { await logout(); navigate("/signin", { replace: true }); }, 1500);
+    } catch { setLogoutAllStatus("idle"); }
   }
 
   async function handleLogout() {
@@ -194,7 +255,101 @@ export function AccountPage() {
             </div>
           </Section>
 
-          {/* ── Section 3: Моя команда ── */}
+          {/* ── Section 3: Безопасность ── */}
+          <Section title="Безопасность">
+            <div className="flex flex-col gap-5">
+              {/* 2FA */}
+              <div className="flex flex-col gap-3 py-3 border-b border-cardbg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[15px] font-medium text-primary">Двухфакторная аутентификация (2FA)</p>
+                    <p className="text-[13px] text-primary/50">
+                      {user?.totp_enabled ? "Включена — используйте приложение-аутентификатор" : "Отключена"}
+                    </p>
+                  </div>
+                  {user?.totp_enabled ? (
+                    <button
+                      onClick={() => { setTotpPhase("confirm_disable"); setTotpCode(""); setTotpError(""); setTotpStatus("idle"); }}
+                      className="h-[34px] px-4 rounded-[8px] border-2 border-mistake/40 text-mistake text-[14px] font-medium hover:bg-[#FDECEC] transition-colors"
+                    >
+                      Отключить
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleTotpSetup}
+                      disabled={totpStatus === "loading"}
+                      className="h-[34px] px-4 rounded-[8px] border-2 border-cta text-cta text-[14px] font-medium hover:bg-cta/10 transition-colors disabled:opacity-50"
+                    >
+                      {totpStatus === "loading" ? "Загрузка…" : "Включить"}
+                    </button>
+                  )}
+                </div>
+                {totpStatus === "success" && (
+                  <p className="text-[13px] text-green-600">{user?.totp_enabled ? "2FA отключена" : "2FA успешно включена ✓"}</p>
+                )}
+                {/* Setup: show QR + confirm code */}
+                {totpPhase === "setup" && totpSetupData && (
+                  <div className="flex flex-col gap-3 p-4 bg-mainbg rounded-[10px] max-w-[420px]">
+                    <p className="text-[14px] font-semibold text-primary">Подключите приложение-аутентификатор</p>
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(totpSetupData.provisioning_uri)}`} alt="QR Code" className="w-[160px] h-[160px] rounded-[8px]" />
+                    <p className="text-[12px] text-primary/60 font-mono break-all">{totpSetupData.secret}</p>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[13px] text-primary/60">Введите код из приложения</label>
+                      <input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} maxLength={8} placeholder="000000"
+                        className="h-[38px] px-3 rounded-[8px] border border-cardbg bg-white text-[14px] text-primary outline-none focus:border-cta w-[140px] tracking-widest font-mono" />
+                    </div>
+                    {totpError && <p className="text-[13px] text-mistake">{totpError}</p>}
+                    <div className="flex gap-3">
+                      <button onClick={handleTotpEnable} disabled={totpCode.length < 6 || totpStatus === "loading"}
+                        className="h-[34px] px-5 rounded-[8px] bg-cta text-white text-[14px] font-medium disabled:opacity-50">
+                        {totpStatus === "loading" ? "Проверка…" : "Подтвердить"}
+                      </button>
+                      <button onClick={() => { setTotpPhase("idle"); setTotpSetupData(null); setTotpCode(""); }}
+                        className="h-[34px] px-4 rounded-[8px] border border-cardbg text-[14px] text-primary hover:bg-cardbg">
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {/* Disable: confirm with code */}
+                {totpPhase === "confirm_disable" && (
+                  <div className="flex flex-col gap-3 p-4 bg-mainbg rounded-[10px] max-w-[420px]">
+                    <p className="text-[14px] font-semibold text-primary">Введите код для подтверждения</p>
+                    <input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} maxLength={8} placeholder="000000"
+                      className="h-[38px] px-3 rounded-[8px] border border-cardbg bg-white text-[14px] text-primary outline-none focus:border-cta w-[140px] tracking-widest font-mono" />
+                    {totpError && <p className="text-[13px] text-mistake">{totpError}</p>}
+                    <div className="flex gap-3">
+                      <button onClick={handleTotpDisable} disabled={totpCode.length < 6 || totpStatus === "loading"}
+                        className="h-[34px] px-5 rounded-[8px] bg-mistake text-white text-[14px] font-medium disabled:opacity-50">
+                        {totpStatus === "loading" ? "Проверка…" : "Отключить"}
+                      </button>
+                      <button onClick={() => { setTotpPhase("idle"); setTotpCode(""); setTotpError(""); }}
+                        className="h-[34px] px-4 rounded-[8px] border border-cardbg text-[14px] text-primary hover:bg-cardbg">
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Logout all sessions */}
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-[15px] font-medium text-primary">Завершить все сессии</p>
+                  <p className="text-[13px] text-primary/50">Выход со всех устройств и браузеров</p>
+                </div>
+                <button
+                  onClick={handleLogoutAll}
+                  disabled={logoutAllStatus !== "idle"}
+                  className="h-[34px] px-4 rounded-[8px] border-2 border-mistake/40 text-mistake text-[14px] font-medium hover:bg-[#FDECEC] transition-colors disabled:opacity-50"
+                >
+                  {logoutAllStatus === "loading" ? "Выход…" : logoutAllStatus === "done" ? "Выполнено ✓" : "Выйти везде"}
+                </button>
+              </div>
+            </div>
+          </Section>
+
+          {/* ── Section 4: Моя команда ── */}
           <Section title="Моя команда">
             <div className="flex items-center gap-3 px-5 py-4 bg-mainbg rounded-[10px]">
               <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 shrink-0 text-cta/60">
