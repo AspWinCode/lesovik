@@ -17,6 +17,8 @@ import {
   useSteps,
   useAddStep,
   useDeleteStep,
+  useReorderSteps,
+  useUpdateStep,
 } from "@/shared/hooks/useRules";
 import type { Rule } from "@/shared/api/rules";
 import { useEntities } from "@/shared/hooks/useEntities";
@@ -262,7 +264,7 @@ export function BotPage() {
         <PreviewPanel projectName="Profile" />
       ) : botTab === "Процесс" ? (
         selectedProcessNode
-          ? <ProcessNodeSettingsPanel nodeId={selectedProcessNode} onClose={() => setSelectedProcessNode(null)} />
+          ? <ProcessNodeSettingsPanel nodeId={selectedProcessNode} appId={appId} ruleId={activeRule?.id} onClose={() => setSelectedProcessNode(null)} />
           : <AutomationPreview />
       ) : (
         /* Бот tab — context-sensitive Настройки panel */
@@ -352,14 +354,36 @@ const PROC_ACTION_TYPES = [
 type ProcActionId = typeof PROC_ACTION_TYPES[number]["id"];
 
 function ProcessNodeSettingsPanel({
-  nodeId: _nodeId,
+  nodeId,
+  appId,
+  ruleId,
   onClose,
 }: {
   nodeId: string;
+  appId: string | undefined;
+  ruleId: string | undefined;
   onClose: () => void;
 }) {
+  const { data: steps = [] } = useSteps(appId, ruleId ?? "");
+  const updateStepMutation = useUpdateStep(appId ?? "", ruleId ?? "");
+  const currentStep = steps.find((s) => s.id === nodeId) ?? null;
+
   const [activeType, setActiveType] = useState<ProcActionId>("email");
   const [emailType, setEmailType] = useState<"attach" | "template">("attach");
+
+  useEffect(() => {
+    if (currentStep) {
+      const mapped = PROC_ACTION_TYPES.find((t) => t.id === currentStep.type);
+      if (mapped) setActiveType(mapped.id as ProcActionId);
+    }
+  }, [currentStep?.id]);
+
+  function handleTypeChange(id: ProcActionId) {
+    setActiveType(id);
+    if (currentStep) {
+      updateStepMutation.mutate({ stepId: currentStep.id, body: { type: id } });
+    }
+  }
 
   return (
     <div
@@ -387,7 +411,8 @@ function ProcessNodeSettingsPanel({
             return (
               <button
                 key={id}
-                onClick={() => setActiveType(id)}
+                onClick={() => handleTypeChange(id)}
+                disabled={updateStepMutation.isPending}
                 className={cn(
                   "flex flex-col items-center justify-center gap-[6px] h-[80px] rounded-[5px] border-2 transition-colors px-2",
                   sel ? "bg-selected border-cta" : "border-[#C2DBF8] hover:border-cta/40",
@@ -1205,11 +1230,20 @@ function ProcessGraph({
   const { data: steps = [], isLoading } = useSteps(appId, ruleId);
   const addStepMutation = useAddStep(appId ?? "", ruleId);
   const delStepMutation = useDeleteStep(appId ?? "", ruleId);
+  const reorderMutation = useReorderSteps(appId ?? "", ruleId);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const entityName = entities.find((e) => e.id === rule?.entity_id)?.display_name
     ?? entities[0]?.display_name
     ?? "Таблица";
+
+  function moveStep(idx: number, dir: -1 | 1) {
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= steps.length) return;
+    const ids = steps.map((s) => s.id);
+    [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+    reorderMutation.mutate(ids);
+  }
 
   if (!rule) {
     return (
@@ -1264,7 +1298,7 @@ function ProcessGraph({
             <span className="text-[14px] text-primary/40 py-4">Загрузка шагов…</span>
           </>
         )}
-        {steps.map((step) => (
+        {steps.map((step, idx) => (
           <div key={step.id} className="flex flex-col items-center">
             <FlowArrow />
             <div className="relative group">
@@ -1274,6 +1308,29 @@ function ProcessGraph({
                 selected={selectedNode === step.id}
                 onClick={() => onSelectNode(selectedNode === step.id ? null : step.id)}
               />
+              {/* Reorder buttons */}
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-[2px]">
+                <button
+                  onClick={(e) => { e.stopPropagation(); moveStep(idx, -1); }}
+                  disabled={idx === 0 || reorderMutation.isPending}
+                  className="w-5 h-5 rounded bg-cta/10 hover:bg-cta/20 flex items-center justify-center text-cta disabled:opacity-30"
+                  title="Выше"
+                >
+                  <svg viewBox="0 0 10 10" fill="none" className="w-3 h-3">
+                    <path d="M2 7L5 3L8 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); moveStep(idx, 1); }}
+                  disabled={idx === steps.length - 1 || reorderMutation.isPending}
+                  className="w-5 h-5 rounded bg-cta/10 hover:bg-cta/20 flex items-center justify-center text-cta disabled:opacity-30"
+                  title="Ниже"
+                >
+                  <svg viewBox="0 0 10 10" fill="none" className="w-3 h-3">
+                    <path d="M2 3L5 7L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
               {/* Delete button */}
               <button
                 onClick={(e) => { e.stopPropagation(); delStepMutation.mutate(step.id); }}

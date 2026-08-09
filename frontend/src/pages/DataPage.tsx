@@ -25,7 +25,9 @@ import {
   useTransitionLog,
   useChainInstances,
   useDecideChainLevel,
+  useAssignInstance,
 } from "@/shared/hooks/useWorkflows";
+import { useUsers } from "@/shared/hooks/useUsers";
 import { previewImport, importRecords } from "@/shared/api/records";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
 import type { RecordRead, ImportPreview } from "@/shared/api/records";
@@ -706,12 +708,16 @@ function InstancePanel({
   cancelPending: boolean;
 }) {
   const [showLog, setShowLog] = useState(false);
+  const [showAssign, setShowAssign] = useState(false);
   const availableQuery = useAvailableTransitions(appId, workflowId, instance.id);
   const logQuery = useTransitionLog(appId, workflowId, instance.id);
   const executeMutation = useExecuteTransition(appId, workflowId, instance.id);
   const chainInstancesQuery = useChainInstances(appId, workflowId, instance.id);
   const decideMutation = useDecideChainLevel(appId, workflowId, instance.id);
+  const assignMutation = useAssignInstance(appId, workflowId);
+  const usersQuery = useUsers();
   const pendingChains = (chainInstancesQuery.data ?? []).filter((c) => c.status === "pending");
+  const users = usersQuery.data?.items ?? [];
 
   const currentState = states.find((s) => s.name === instance.current_state);
   const available = availableQuery.data ?? [];
@@ -749,6 +755,49 @@ function InstancePanel({
           )}>
             {new Date(instance.sla_deadline).toLocaleString("ru")}
           </span>
+        </div>
+      )}
+
+      {/* Assign responsible */}
+      <div className="flex items-center gap-[8px]">
+        {instance.assigned_user_id ? (
+          <>
+            <span className="text-[12px] text-primary/50">Ответственный:</span>
+            <span className="text-[12px] text-primary font-medium">
+              {users.find((u) => u.id === instance.assigned_user_id)?.display_name ?? instance.assigned_user_id.slice(0, 8)}
+            </span>
+          </>
+        ) : (
+          <span className="text-[12px] text-primary/40">Не назначен</span>
+        )}
+        <button
+          onClick={() => setShowAssign((v) => !v)}
+          className="text-[11px] text-cta hover:underline ml-auto"
+        >
+          {showAssign ? "Закрыть" : "Назначить"}
+        </button>
+      </div>
+      {showAssign && (
+        <div className="flex flex-col gap-[4px] max-h-[160px] overflow-y-auto border border-cardbg rounded-[6px] py-1">
+          <button
+            onClick={() => { assignMutation.mutate({ instanceId: instance.id, body: { assigned_user_id: null } }); setShowAssign(false); }}
+            className="w-full text-left px-3 py-1.5 text-[12px] text-primary/50 hover:bg-mainbg transition-colors"
+          >
+            — Снять назначение
+          </button>
+          {users.map((u) => (
+            <button
+              key={u.id}
+              onClick={() => { assignMutation.mutate({ instanceId: instance.id, body: { assigned_user_id: u.id } }); setShowAssign(false); }}
+              disabled={assignMutation.isPending}
+              className={cn(
+                "w-full text-left px-3 py-1.5 text-[12px] hover:bg-mainbg transition-colors",
+                instance.assigned_user_id === u.id ? "text-cta font-medium" : "text-primary",
+              )}
+            >
+              {u.display_name}
+            </button>
+          ))}
         </div>
       )}
 

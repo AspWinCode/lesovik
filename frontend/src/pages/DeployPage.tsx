@@ -8,6 +8,8 @@ import { useApps, usePublishApp, useAppSnapshots, useCreateSnapshot, useRollback
 import { useFullHealth } from "@/shared/hooks/useHealth";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, usePublishPage, useUnpublishPage } from "@/shared/hooks/usePages";
+import { useExportFilingCases } from "@/shared/hooks/useDocuments";
+import type { ExportFormat } from "@/shared/api/documents";
 
 type DeploySection = "publish" | "versions" | "pages" | "monitoring";
 
@@ -133,6 +135,8 @@ function PublishSection({
   onPublish: () => void;
   publishing: boolean;
 }) {
+  const exportM = useExportFilingCases(app?.id ?? "");
+  const [exportFmt, setExportFmt] = useState<ExportFormat>("xlsx");
   const lockQ     = useAppLock(app?.id);
   const acquireM  = useAcquireAppLock(app?.id ?? "");
   const releaseM  = useReleaseAppLock(app?.id ?? "");
@@ -257,6 +261,40 @@ function PublishSection({
         >
           Предпросмотр
         </button>
+      </div>
+
+      {/* Export filing cases */}
+      <div className="mt-[32px] bg-white rounded-[10px] border border-cardbg p-[16px] max-w-[520px]">
+        <p className="text-[14px] font-semibold text-primary mb-[4px]">Экспорт реестра дел</p>
+        <p className="text-[12px] text-primary/50 mb-[12px]">
+          Скачать все дела приложения в выбранном формате.
+        </p>
+        <div className="flex items-center gap-[8px]">
+          {(["xlsx", "csv", "pdf"] as ExportFormat[]).map((fmt) => (
+            <button
+              key={fmt}
+              onClick={() => setExportFmt(fmt)}
+              className={cn(
+                "h-[30px] px-3 text-[12px] font-medium rounded-[6px] border transition-colors",
+                exportFmt === fmt
+                  ? "border-cta bg-[#EBF4FF] text-cta"
+                  : "border-cardbg text-primary hover:border-cta/40",
+              )}
+            >
+              {fmt.toUpperCase()}
+            </button>
+          ))}
+          <button
+            onClick={() => { if (app) exportM.mutate(exportFmt); }}
+            disabled={!app || exportM.isPending}
+            className="ml-auto h-[30px] px-4 text-[12px] font-medium bg-cta text-white rounded-[6px] hover:bg-active transition-colors disabled:opacity-50 flex items-center gap-[5px]"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3" stroke="currentColor" strokeWidth="1.8">
+              <path d="M8 2v8M5 7l3 3 3-3M3 13h10" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {exportM.isPending ? "Скачивание…" : "Скачать"}
+          </button>
+        </div>
       </div>
     </div>
   );

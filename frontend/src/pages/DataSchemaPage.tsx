@@ -23,6 +23,7 @@ import {
   useCreateSequence,
   useUpdateSequence,
   useDeleteSequence,
+  usePreviewNextSequenceValue,
 } from "@/shared/hooks/useSequences";
 import type {
   EntityRead,
@@ -587,6 +588,8 @@ export function DataSchemaPage() {
         <SequenceModal
           mode={seqModal.mode}
           seq={seqModal.seq}
+          appId={appId}
+          entityId={activeEntity.id}
           onClose={() => setSeqModal(null)}
           onCreate={(data) =>
             createSeqM.mutate(data, { onSuccess: () => setSeqModal(null) })
@@ -2580,6 +2583,8 @@ function SequencesTab({
 function SequenceModal({
   mode,
   seq,
+  appId,
+  entityId,
   onClose,
   onCreate,
   onUpdate,
@@ -2587,6 +2592,8 @@ function SequenceModal({
 }: {
   mode: "create" | "edit";
   seq?: Sequence;
+  appId: string;
+  entityId: string;
   onClose: () => void;
   onCreate: (data: SequenceCreate) => void;
   onUpdate: (data: SequenceUpdate) => void;
@@ -2599,6 +2606,8 @@ function SequenceModal({
   const [step, setStep]           = useState(seq?.step ?? 1);
   const [start, setStart]         = useState(seq?.next_value ?? 1);
   const [resetOn, setResetOn]     = useState(seq?.reset_on ?? "");
+  const previewM = usePreviewNextSequenceValue(appId, entityId);
+  const [previewValue, setPreviewValue] = useState<string | null>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -2671,6 +2680,27 @@ function SequenceModal({
             <label className="text-[13px] font-medium text-primary/60">Сброс по полю</label>
             <input value={resetOn} onChange={(e) => setResetOn(e.target.value)} placeholder="например: created_year (необязательно)" className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30" />
           </div>
+
+          {/* Preview */}
+          {mode === "edit" && seq && (
+            <div className="flex items-center gap-[10px]">
+              <button
+                type="button"
+                onClick={() =>
+                  previewM.mutate(seq.id, { onSuccess: (r) => setPreviewValue(r.value) })
+                }
+                disabled={previewM.isPending}
+                className="h-[34px] px-4 text-[13px] font-medium border border-cardbg rounded-[8px] text-primary hover:border-cta hover:text-cta transition-colors disabled:opacity-50"
+              >
+                {previewM.isPending ? "…" : "Тест — следующее значение"}
+              </button>
+              {previewValue && (
+                <span className="text-[13px] font-mono bg-mainbg px-3 py-1 rounded-[6px] text-cta">
+                  {previewValue}
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 mt-2">
             <button type="button" onClick={onClose} className="h-[36px] px-4 text-[13px] font-medium text-primary/60 hover:text-primary rounded-[8px] hover:bg-mainbg transition-colors">
