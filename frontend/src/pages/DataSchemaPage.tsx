@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { cn } from "@/lib/cn";
+import { toSystemName } from "@/lib/toSystemName";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import {
@@ -943,6 +944,7 @@ function EntityModal({
   saving: boolean;
 }) {
   const [slug, setSlug]           = useState(entity?.slug ?? "");
+  const [slugTouched, setSlugTouched] = useState(false);
   const [displayName, setDisplayName] = useState(entity?.display_name ?? "");
   const [namePlural, setNamePlural]   = useState(entity?.name_plural ?? "");
   const [description, setDescription] = useState(entity?.description ?? "");
@@ -994,7 +996,11 @@ function EntityModal({
           <FormField label="Отображаемое название *">
             <input
               value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDisplayName(v);
+                if (mode === "create" && !slugTouched) setSlug(toSystemName(v));
+              }}
               placeholder="Например: Клиенты"
               className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
             />
@@ -1002,10 +1008,13 @@ function EntityModal({
 
           {/* Slug (only create) */}
           {mode === "create" && (
-            <FormField label="Системное имя *" hint="Только строчные буквы и _">
+            <FormField label="Системное имя *" hint="Заполняется автоматически, можно изменить">
               <input
                 value={slug}
-                onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                onChange={(e) => {
+                  setSlugTouched(true);
+                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""));
+                }}
                 placeholder="clients"
                 className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
               />
@@ -1084,6 +1093,7 @@ function FieldModal({
 
   // Config state
   const [name, setName]               = useState(field?.name ?? "");
+  const [nameTouched, setNameTouched] = useState(false);
   const [displayName, setDisplayName] = useState(field?.display_name ?? "");
   const [isRequired, setIsRequired]   = useState(field?.is_required ?? false);
   const [isUnique, setIsUnique]       = useState(field?.is_unique ?? false);
@@ -1220,27 +1230,34 @@ function FieldModal({
         ) : (
           /* ── Step 2: configure ── */
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            {/* Display name */}
+            <FormField label="Название *">
+              <input
+                value={displayName}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDisplayName(v);
+                  if (mode === "create" && !nameTouched) setName(toSystemName(v));
+                }}
+                placeholder="Название поля"
+                className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
+              />
+            </FormField>
+
             {/* Name (create only) */}
             {mode === "create" && (
-              <FormField label="Системное имя *" hint="Только строчные буквы и _">
+              <FormField label="Системное имя *" hint="Заполняется автоматически, можно изменить">
                 <input
                   value={name}
-                  onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                  onChange={(e) => {
+                    setNameTouched(true);
+                    setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""));
+                  }}
                   placeholder="field_name"
                   className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] font-mono text-primary focus:outline-none focus:border-cta"
                 />
               </FormField>
             )}
-
-            {/* Display name */}
-            <FormField label="Название *">
-              <input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Название поля"
-                className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
-              />
-            </FormField>
 
             {/* Type-specific config */}
             {(fieldType === "select" || fieldType === "multi_select") && (
