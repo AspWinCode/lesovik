@@ -126,8 +126,17 @@ async def replace_role_permissions(
     current_user: AuthDep,
     db: DbDep,
 ) -> list[ResourcePermissionRead]:
-    _require_platform_admin(current_user)
-    return await RoleService(db).bulk_upsert_resource_permissions(
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    svc = RoleService(db)
+    if current_user.has_role("org_admin") and not current_user.has_role("platform_admin"):
+        try:
+            role = await svc._get_role(role_id)
+        except RoleNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        if role.org_id != current_user.org_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot modify permissions for role from another organisation")
+    return await svc.bulk_upsert_resource_permissions(
         role_id,
         body,
         updated_by=current_user.user_id,
