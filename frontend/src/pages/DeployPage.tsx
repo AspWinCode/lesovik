@@ -5,6 +5,7 @@ import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
 import { useApps, usePublishApp, useAppSnapshots, useCreateSnapshot, useRollbackSnapshot, useAppLock, useAcquireAppLock, useReleaseAppLock } from "@/shared/hooks/useApps";
+import { useFullHealth } from "@/shared/hooks/useHealth";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, usePublishPage, useUnpublishPage } from "@/shared/hooks/usePages";
 
@@ -505,31 +506,101 @@ function PagesSection({ appId }: { appId: string | undefined }) {
 /* ── Monitoring section ──────────────────────────────────────────────── */
 
 function MonitoringSection() {
-  const metrics = [
-    { label: "Активных пользователей", value: "—", sub: "за последние 24 ч" },
-    { label: "Запросов к API",         value: "—", sub: "за последние 24 ч" },
-    { label: "Среднее время ответа",   value: "—", sub: "мс" },
-  ];
+  const { data: health, isLoading, isError, dataUpdatedAt } = useFullHealth();
+
+  const SERVICE_LABELS: Record<string, string> = {
+    database: "База данных",
+    redis:    "Redis",
+    s3:       "Хранилище S3",
+    clamav:   "Антивирус",
+  };
+
+  const overallColor =
+    isError ? "text-[#D32F2F]" :
+    health?.status === "ok" ? "text-[#2E7D32]" :
+    health?.status === "degraded" ? "text-[#E65100]" : "text-primary/40";
+
+  const overallLabel =
+    isLoading ? "Загрузка…" :
+    isError ? "Недоступен" :
+    health?.status === "ok" ? "Все сервисы работают" :
+    health?.status === "degraded" ? "Частичная деградация" : "—";
 
   return (
     <div className="px-[40px] py-[30px] max-w-[820px]">
-      <h2 className="text-[22px] font-bold text-primary mb-[6px]">Мониторинг</h2>
-      <p className="text-[13px] text-primary/50 mb-[24px]">Статистика использования и состояние приложения</p>
+      <div className="flex items-center justify-between mb-[6px]">
+        <h2 className="text-[22px] font-bold text-primary">Мониторинг</h2>
+        {dataUpdatedAt > 0 && (
+          <span className="text-[11px] text-primary/35">
+            Обновлено: {new Date(dataUpdatedAt).toLocaleTimeString("ru")}
+          </span>
+        )}
+      </div>
+      <p className="text-[13px] text-primary/50 mb-[24px]">Состояние инфраструктуры (обновляется каждые 30 с)</p>
 
-      <div className="grid grid-cols-3 gap-[12px] mb-[24px]">
-        {metrics.map((m) => (
-          <div key={m.label} className="bg-white rounded-[10px] border border-cardbg px-[16px] py-[14px]">
-            <p className="text-[12px] text-primary/50 mb-[4px]">{m.label}</p>
-            <p className="text-[28px] font-bold text-primary">{m.value}</p>
-            <p className="text-[11px] text-primary/35 mt-[2px]">{m.sub}</p>
+      {/* Overall status */}
+      <div className={cn(
+        "rounded-[12px] border px-[20px] py-[14px] mb-[20px] flex items-center gap-4",
+        isError ? "bg-[#FFEBEE] border-[#FFCDD2]" :
+        health?.status === "ok" ? "bg-[#E8F5E9] border-[#C8E6C9]" :
+        health?.status === "degraded" ? "bg-[#FFF8E1] border-[#FFE082]" :
+        "bg-white border-cardbg",
+      )}>
+        <div className={cn("w-3 h-3 rounded-full shrink-0", isError || health?.status === "degraded" ? "bg-[#E65100]" : health?.status === "ok" ? "bg-[#2E7D32]" : "bg-primary/20")} />
+        <div>
+          <p className={cn("text-[15px] font-semibold", overallColor)}>{overallLabel}</p>
+          {health?.version && (
+            <p className="text-[12px] text-primary/40">Версия: {health.version}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Per-service checks */}
+      {health?.checks && (
+        <div className="bg-white rounded-[10px] border border-cardbg overflow-hidden mb-[20px]">
+          <div className="px-[16px] py-[10px] border-b border-cardbg bg-[#F5F6F8]">
+            <span className="text-[12px] font-semibold text-primary/50">Сервисы</span>
           </div>
-        ))}
-      </div>
+          {Object.entries(health.checks).map(([key, check], i, arr) => {
+            const st = typeof check === "string" ? check : check.status;
+            const latency = typeof check === "object" ? check.latency_ms : undefined;
+            const isOk = st === "ok";
+            return (
+              <div
+                key={key}
+                className={cn(
+                  "flex items-center justify-between px-[16px] py-[12px]",
+                  i < arr.length - 1 && "border-b border-cardbg",
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", isOk ? "bg-[#2E7D32]" : "bg-[#D32F2F]")} />
+                  <span className="text-[14px] text-primary">
+                    {SERVICE_LABELS[key] ?? key}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {latency != null && (
+                    <span className="text-[12px] text-primary/40 font-mono">{latency.toFixed(1)} мс</span>
+                  )}
+                  <span className={cn(
+                    "text-[12px] font-medium px-[10px] py-[3px] rounded-[20px]",
+                    isOk ? "bg-[#E8F5E9] text-[#2E7D32]" : "bg-[#FFEBEE] text-[#D32F2F]",
+                  )}>
+                    {isOk ? "ОК" : st}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      <div className="bg-white rounded-[10px] border border-dashed border-cardbg py-[40px] text-center">
-        <MonitorIcon />
-        <p className="text-[13px] text-primary/40 mt-[10px]">Детальная аналитика будет доступна после публикации</p>
-      </div>
+      {isLoading && (
+        <div className="bg-white rounded-[10px] border border-cardbg py-[32px] text-center">
+          <p className="text-[13px] text-primary/40">Проверка состояния сервисов…</p>
+        </div>
+      )}
     </div>
   );
 }
