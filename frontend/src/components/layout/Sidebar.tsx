@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/cn";
 
 export type SidebarTab = "all" | "my" | "shared" | "templates";
@@ -5,6 +6,7 @@ export type SidebarTab = "all" | "my" | "shared" | "templates";
 interface SidebarProps {
   active: SidebarTab;
   onChange: (tab: SidebarTab) => void;
+  isPlatformAdmin?: boolean;
 }
 
 const items: { id: SidebarTab; label: string; icon: React.ReactNode }[] = [
@@ -14,7 +16,8 @@ const items: { id: SidebarTab; label: string; icon: React.ReactNode }[] = [
   { id: "templates", label: "Шаблоны",     icon: <TemplateIcon /> },
 ];
 
-export function Sidebar({ active, onChange }: SidebarProps) {
+export function Sidebar({ active, onChange, isPlatformAdmin }: SidebarProps) {
+  const navigate = useNavigate();
   return (
     <aside
       className="absolute left-0 top-[70px] w-[280px] h-[1010px] flex"
@@ -34,6 +37,18 @@ export function Sidebar({ active, onChange }: SidebarProps) {
             <span>{item.label}</span>
           </button>
         ))}
+        {isPlatformAdmin && (
+          <>
+            <div className="w-full h-px bg-[#cbe3ff] mt-2" />
+            <button
+              onClick={() => navigate("/admin")}
+              className="nav-item w-full"
+            >
+              <span className="w-[25px] h-[25px] shrink-0"><AdminIcon /></span>
+              <span>Администрирование</span>
+            </button>
+          </>
+        )}
       </nav>
     </aside>
   );
@@ -75,6 +90,15 @@ function TemplateIcon() {
     <svg viewBox="0 0 32 32" fill="none" className="w-full h-full">
       <path d="M12 7 L20 7 L20 13 L12 13 Z" stroke="#00205F" strokeWidth="2" strokeLinejoin="round"/>
       <rect x="6" y="11" width="16" height="14" rx="1.33" stroke="#00205F" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function AdminIcon() {
+  return (
+    <svg viewBox="0 0 25 25" fill="none" className="w-full h-full">
+      <path d="M12.5 2L4 6v6c0 5.25 3.6 10.15 8.5 11.5C17.4 22.15 21 17.25 21 12V6L12.5 2Z" stroke="#00205F" strokeWidth="2" strokeLinejoin="round"/>
+      <path d="M9 12.5l2.5 2.5 5-5" stroke="#00205F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }

@@ -268,7 +268,7 @@ export function MainPage() {
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
       <Navbar onGroupAddClick={() => setModal("roles")} />
-      <Sidebar active={sidebarTab} onChange={handleSidebarChange} />
+      <Sidebar active={sidebarTab} onChange={handleSidebarChange} isPlatformAdmin={currentUser?.roles.some((r) => r.id === "platform_admin")} />
 
       {/* Main content area */}
       <main
