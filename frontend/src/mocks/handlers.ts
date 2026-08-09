@@ -739,6 +739,7 @@ export const handlers = [
       display_name: body.display_name ?? body.email,
       is_active: true,
       is_superuser: false,
+      is_blocked: false,
       totp_enabled: false,
       last_login_at: null,
       created_at: now,

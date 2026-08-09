@@ -27,7 +27,6 @@ import {
   useAllRoles,
   useAbacRules,
   useCreateAbacRule,
-  useUpdateAbacRule,
   useDeleteAbacRule,
 } from "@/shared/hooks/useRbac";
 import type { AbacRuleCreate, AbacCondition } from "@/shared/api/roles";
@@ -826,11 +825,9 @@ function RbacSection() {
   const { data: roles = [] } = useAllRoles();
   const { data: rules = [], isLoading, refetch } = useAbacRules();
   const createRule = useCreateAbacRule();
-  const updateRule = useUpdateAbacRule();
   const deleteRule = useDeleteAbacRule();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editRule, setEditRule] = useState<string | null>(null);
 
   // Form state for create
   const [form, setForm] = useState<{

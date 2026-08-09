@@ -42,6 +42,11 @@ export async function listWebhooks(appId: string): Promise<WebhookRead[]> {
   return data;
 }
 
+export async function getWebhook(appId: string, webhookId: string): Promise<WebhookRead> {
+  const { data } = await apiClient.get<WebhookRead>(`/apps/${appId}/webhooks/${webhookId}`);
+  return data;
+}
+
 export async function createWebhook(appId: string, body: WebhookCreate): Promise<WebhookCreateResponse> {
   const { data } = await apiClient.post<WebhookCreateResponse>(`/apps/${appId}/webhooks`, body);
   return data;
