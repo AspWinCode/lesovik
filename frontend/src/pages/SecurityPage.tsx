@@ -28,8 +28,10 @@ import {
   useAbacRules,
   useCreateAbacRule,
   useDeleteAbacRule,
+  useRolePermissions,
+  useReplaceRolePermissions,
 } from "@/shared/hooks/useRbac";
-import type { AbacRuleCreate, AbacCondition } from "@/shared/api/roles";
+import type { AbacRuleCreate, AbacCondition, ResourcePermissionUpsert } from "@/shared/api/roles";
 import { useCheckCycles } from "@/shared/hooks/useRules";
 
 type SecuritySection =
@@ -40,7 +42,8 @@ type SecuritySection =
   | "sessions"
   | "options"
   | "abac"
-  | "rbac";
+  | "rbac"
+  | "permissions";
 
 interface SecurityConfig {
   require_login?: boolean;
@@ -57,14 +60,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "login",    label: "Вход в систему",    icon: <LoginIcon /> },
-  { id: "abac",     label: "Права полей",        icon: <ShieldIcon /> },
-  { id: "rbac",     label: "Правила доступа",   icon: <RbacIcon /> },
-  { id: "filters",  label: "Защитные фильтры",  icon: <FilterIcon /> },
-  { id: "auth",     label: "Аутентификация",     icon: <ClockIcon /> },
-  { id: "password",  label: "Политика паролей",  icon: <KeyIcon /> },
-  { id: "sessions",  label: "Сессии",            icon: <SessionIcon /> },
-  { id: "options",   label: "Опции",             icon: <OptionsIcon /> },
+  { id: "login",       label: "Вход в систему",    icon: <LoginIcon /> },
+  { id: "permissions", label: "Права действий",    icon: <PermissionsIcon /> },
+  { id: "abac",        label: "Права полей",        icon: <ShieldIcon /> },
+  { id: "rbac",        label: "Правила доступа",   icon: <RbacIcon /> },
+  { id: "filters",     label: "Защитные фильтры",  icon: <FilterIcon /> },
+  { id: "auth",        label: "Аутентификация",     icon: <ClockIcon /> },
+  { id: "password",    label: "Политика паролей",  icon: <KeyIcon /> },
+  { id: "sessions",    label: "Сессии",            icon: <SessionIcon /> },
+  { id: "options",     label: "Опции",             icon: <OptionsIcon /> },
 ];
 
 export function SecurityPage() {
@@ -151,14 +155,15 @@ export function SecurityPage() {
             {error}
           </div>
         )}
-        {active === "login"    && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
-        {active === "abac"     && <AbacSection appId={app?.id} />}
-        {active === "rbac"     && <RbacSection appId={app?.id} />}
-        {active === "filters"  && <FiltersSection />}
-        {active === "auth"     && <AuthSection />}
-        {active === "password"  && <PasswordPolicySection />}
-        {active === "sessions"  && <SessionsSection />}
-        {active === "options" && <OptionsSection sec={sec} patch={patch} />}
+        {active === "login"       && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
+        {active === "permissions" && <ResourcePermissionsSection appId={app?.id} />}
+        {active === "abac"        && <AbacSection appId={app?.id} />}
+        {active === "rbac"        && <RbacSection appId={app?.id} />}
+        {active === "filters"     && <FiltersSection />}
+        {active === "auth"        && <AuthSection />}
+        {active === "password"    && <PasswordPolicySection />}
+        {active === "sessions"    && <SessionsSection />}
+        {active === "options"     && <OptionsSection sec={sec} patch={patch} />}
       </main>
 
       <PreviewPanel projectName="Дикая Сибирь" />
@@ -821,6 +826,196 @@ const EFFECT_COLORS: Record<string, { bg: string; text: string }> = {
   allow: { bg: "bg-[#E6F9EF]", text: "text-[#20BE4F]" },
   deny:  { bg: "bg-[#FFF0F0]", text: "text-[#C22A2A]" },
 };
+
+/* ── Resource permissions (CRUD matrix) ── */
+
+const ACTIONS = [
+  { id: "read",   label: "Чтение" },
+  { id: "create", label: "Создание" },
+  { id: "update", label: "Изменение" },
+  { id: "delete", label: "Удаление" },
+] as const;
+type ActionId = typeof ACTIONS[number]["id"];
+
+function ResourcePermissionsSection({ appId }: { appId?: string }) {
+  const { data: roles = [] } = useAllRoles();
+  const { data: entities = [] } = useEntities(appId);
+  const replaceMutation = useReplaceRolePermissions();
+
+  const [selectedRoleId, setSelectedRoleId] = useState<string>("");
+  const [dirty, setDirty] = useState(false);
+
+  // matrix: "entitySlug:action" → allowed bool
+  const [matrix, setMatrix] = useState<Record<string, boolean>>({});
+
+  const { data: perms = [], isLoading } = useRolePermissions(selectedRoleId || null);
+
+  // sync fetched perms into matrix
+  useEffect(() => {
+    if (!selectedRoleId) return;
+    const m: Record<string, boolean> = {};
+    for (const p of perms) {
+      m[`${p.resource_type}:${p.action}`] = p.allowed;
+    }
+    setMatrix(m);
+    setDirty(false);
+  }, [perms, selectedRoleId]);
+
+  function toggle(slug: string, action: ActionId) {
+    const key = `${slug}:${action}`;
+    setMatrix((m) => ({ ...m, [key]: !(m[key] ?? false) }));
+    setDirty(true);
+  }
+
+  function isAllowed(slug: string, action: ActionId) {
+    return matrix[`${slug}:${action}`] ?? false;
+  }
+
+  function setAll(slug: string, value: boolean) {
+    setMatrix((m) => {
+      const next = { ...m };
+      for (const a of ACTIONS) next[`${slug}:${a.id}`] = value;
+      return next;
+    });
+    setDirty(true);
+  }
+
+  function handleSave() {
+    if (!selectedRoleId) return;
+    const permissions: ResourcePermissionUpsert[] = [];
+    for (const [key, allowed] of Object.entries(matrix)) {
+      const [resource_type, action] = key.split(":");
+      permissions.push({ role_id: selectedRoleId, resource_type, resource_id: "*", action, allowed });
+    }
+    replaceMutation.mutate({ roleId: selectedRoleId, permissions }, {
+      onSuccess: () => setDirty(false),
+    });
+  }
+
+  const userEntities = entities.filter((e) => !e.is_system);
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <h2 className="text-[22px] font-bold text-primary mb-1">Права действий</h2>
+      <p className="text-[14px] text-primary/60 mb-5">
+        Укажите, какие операции разрешены каждой роли для каждой таблицы.
+      </p>
+
+      {/* Role picker */}
+      <div className="flex items-center gap-3 mb-6">
+        <span className="text-[14px] font-medium text-primary shrink-0">Роль:</span>
+        <div className="w-[280px]">
+          <SelectField
+            value={selectedRoleId}
+            onChange={setSelectedRoleId}
+            placeholder="— выберите роль —"
+            options={roles.map((r) => ({ value: r.id, label: r.display_name }))}
+          />
+        </div>
+      </div>
+
+      {!selectedRoleId && (
+        <div className="text-[14px] text-primary/40 py-8 text-center border border-dashed border-cardbg rounded-[10px]">
+          Выберите роль для настройки прав
+        </div>
+      )}
+
+      {selectedRoleId && (
+        <>
+          {isLoading ? (
+            <div className="text-[14px] text-primary/40 py-4">Загрузка…</div>
+          ) : (
+            <div className="bg-white rounded-[12px] border border-cardbg overflow-hidden">
+              {/* Header */}
+              <div className="grid border-b border-cardbg bg-[#F5F6F8]"
+                style={{ gridTemplateColumns: "1fr repeat(4, 96px) 80px" }}>
+                <div className="px-4 py-2.5 text-[12px] font-semibold text-primary/50">Таблица</div>
+                {ACTIONS.map((a) => (
+                  <div key={a.id} className="text-center py-2.5 text-[12px] font-semibold text-primary/50">{a.label}</div>
+                ))}
+                <div className="text-center py-2.5 text-[12px] font-semibold text-primary/50">Все</div>
+              </div>
+
+              {userEntities.length === 0 && (
+                <div className="px-4 py-6 text-[13px] text-primary/40">Нет таблиц в приложении</div>
+              )}
+
+              {userEntities.map((entity, i) => {
+                const allOn = ACTIONS.every((a) => isAllowed(entity.slug, a.id));
+                return (
+                  <div
+                    key={entity.id}
+                    className={cn(
+                      "grid items-center border-b border-cardbg last:border-b-0",
+                      i % 2 === 1 && "bg-mainbg/40",
+                    )}
+                    style={{ gridTemplateColumns: "1fr repeat(4, 96px) 80px" }}
+                  >
+                    <div className="px-4 py-3 flex items-center gap-2">
+                      <span className="text-base">{entity.icon ?? "📋"}</span>
+                      <span className="text-[14px] font-medium text-primary">{entity.display_name}</span>
+                    </div>
+                    {ACTIONS.map((a) => (
+                      <div key={a.id} className="flex justify-center py-3">
+                        <button
+                          type="button"
+                          onClick={() => toggle(entity.slug, a.id)}
+                          className={cn(
+                            "w-5 h-5 rounded-[4px] border-2 flex items-center justify-center transition-colors",
+                            isAllowed(entity.slug, a.id)
+                              ? "bg-cta border-cta"
+                              : "bg-white border-cardbg hover:border-cta/50",
+                          )}
+                        >
+                          {isAllowed(entity.slug, a.id) && (
+                            <svg viewBox="0 0 10 10" fill="none" className="w-3 h-3">
+                              <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                    {/* Select all toggle */}
+                    <div className="flex justify-center py-3">
+                      <button
+                        type="button"
+                        onClick={() => setAll(entity.slug, !allOn)}
+                        className={cn(
+                          "text-[11px] font-medium px-2 py-0.5 rounded-[4px] transition-colors",
+                          allOn
+                            ? "bg-cta/10 text-cta hover:bg-cta/20"
+                            : "bg-mainbg text-primary/50 hover:bg-cardbg",
+                        )}
+                      >
+                        {allOn ? "Сброс" : "Все"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={handleSave}
+              disabled={!dirty || replaceMutation.isPending}
+              className="h-[38px] px-5 bg-cta text-white text-[14px] font-medium rounded-[10px] hover:bg-active transition-colors disabled:opacity-40"
+            >
+              {replaceMutation.isPending ? "Сохранение…" : "Сохранить"}
+            </button>
+            {!dirty && !replaceMutation.isPending && (
+              <span className="text-[13px] text-primary/40">Изменений нет</span>
+            )}
+            {dirty && (
+              <span className="text-[13px] text-amber-500">Есть несохранённые изменения</span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function SelectField<T extends string>({
   value, onChange, options, placeholder, className,
@@ -1503,6 +1698,19 @@ function RbacIcon() {
     <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
       <path d="M10 2L17 5v5c0 4-3 6.5-7 7.5C3 16.5 3 13 3 10V5z" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round"/>
       <path d="M7 10l2 2 4-4" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+function PermissionsIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <rect x="2" y="4" width="16" height="3" rx="1" stroke={stroke} strokeWidth="1.5"/>
+      <rect x="2" y="9" width="16" height="3" rx="1" stroke={stroke} strokeWidth="1.5"/>
+      <rect x="2" y="14" width="16" height="3" rx="1" stroke={stroke} strokeWidth="1.5"/>
+      <circle cx="6" cy="5.5" r="1" fill={stroke}/>
+      <circle cx="6" cy="10.5" r="1" fill={stroke}/>
+      <circle cx="6" cy="15.5" r="1" fill={stroke}/>
     </svg>
   );
 }
