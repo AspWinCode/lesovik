@@ -14,9 +14,24 @@ import {
   useHardDeleteRecord,
   useExportRecords,
 } from "@/shared/hooks/useRecords";
+import {
+  useWorkflows,
+  useWorkflowInstances,
+  useWorkflowStates,
+  useStartInstance,
+  useCancelInstance,
+  useAvailableTransitions,
+  useExecuteTransition,
+  useTransitionLog,
+} from "@/shared/hooks/useWorkflows";
 import { previewImport, importRecords } from "@/shared/api/records";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
 import type { RecordRead, ImportPreview } from "@/shared/api/records";
+import type {
+  WorkflowDefRead,
+  WorkflowInstanceRead,
+  StateDefRead,
+} from "@/shared/api/workflows";
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -50,6 +65,7 @@ export function DataPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [selectedRecord, setSelectedRecord] = useState<RecordRead | null>(null);
   const ROWS_PER_PAGE = 10;
 
   const appsQuery = useApps();
@@ -83,6 +99,7 @@ export function DataPage() {
     setTrashView(false);
     setSearch("");
     setPage(1);
+    setSelectedRecord(null);
   }
 
   function handleTrashToggle(entityId: string) {
@@ -90,6 +107,7 @@ export function DataPage() {
     setTrashView(true);
     setSearch("");
     setPage(1);
+    setSelectedRecord(null);
   }
 
   const isLoading =
@@ -314,6 +332,8 @@ export function DataPage() {
                     idx={(page - 1) * ROWS_PER_PAGE + idx + 1}
                     cols={cols}
                     trashView={trashView}
+                    isSelected={selectedRecord?.id === row.id}
+                    onRowClick={() => setSelectedRecord((prev) => prev?.id === row.id ? null : row)}
                     onSoftDelete={() => deleteMutation.mutate(row.id)}
                     onRestore={() => restoreMutation.mutate(row.id)}
                     onHardDelete={() => {
@@ -352,6 +372,17 @@ export function DataPage() {
         )}
       </main>
 
+      {/* ── Record detail drawer ── */}
+      {selectedRecord && selectedEntity && appId && (
+        <RecordDetailDrawer
+          record={selectedRecord}
+          entity={selectedEntity}
+          appId={appId}
+          navCollapsed={navCollapsed}
+          onClose={() => setSelectedRecord(null)}
+        />
+      )}
+
       {/* ── Modals ── */}
       {showCreate && selectedEntity && appId && (
         <CreateRecordModal
@@ -388,6 +419,8 @@ function RecordRow({
   idx,
   cols,
   trashView,
+  isSelected,
+  onRowClick,
   onSoftDelete,
   onRestore,
   onHardDelete,
@@ -397,6 +430,8 @@ function RecordRow({
   idx: number;
   cols: FieldRead[];
   trashView: boolean;
+  isSelected: boolean;
+  onRowClick: () => void;
   onSoftDelete: () => void;
   onRestore: () => void;
   onHardDelete: () => void;
@@ -406,7 +441,11 @@ function RecordRow({
 
   return (
     <div
-      className="grid border-b border-cardbg last:border-b-0 hover:bg-mainbg/50 transition-colors relative"
+      onClick={onRowClick}
+      className={cn(
+        "grid border-b border-cardbg last:border-b-0 hover:bg-mainbg/50 transition-colors relative cursor-pointer",
+        isSelected && "bg-[#EBF4FF]",
+      )}
       style={{ gridTemplateColumns: `40px ${cols.map(() => "1fr").join(" ")} 140px 50px` }}
     >
       <div className="px-3 py-2.5 text-[12px] text-primary/30 border-r border-cardbg tabular-nums">{idx}</div>
@@ -421,7 +460,7 @@ function RecordRow({
         {new Date(row.created_at).toLocaleDateString("ru", { day: "2-digit", month: "short", year: "2-digit" })}
       </div>
 
-      <div className="px-2 py-2.5 flex items-center justify-center relative">
+      <div className="px-2 py-2.5 flex items-center justify-center relative" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={() => setMenuOpen((v) => !v)}
           className="w-6 h-6 flex items-center justify-center rounded text-primary/30 hover:text-primary hover:bg-cardbg transition-colors"
@@ -466,6 +505,322 @@ function RecordRow({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── RecordDetailDrawer ────────────────────────────────────────────────
+
+function RecordDetailDrawer({
+  record,
+  entity,
+  appId,
+  navCollapsed,
+  onClose,
+}: {
+  record: RecordRead;
+  entity: EntityRead;
+  appId: string;
+  navCollapsed: boolean;
+  onClose: () => void;
+}) {
+  const fields = entity.fields
+    .filter((f) => !f.is_system && f.field_type !== "formula")
+    .sort((a, b) => a.display_order - b.display_order);
+
+  const workflowsQuery = useWorkflows(appId, entity.id);
+  const workflows = workflowsQuery.data ?? [];
+
+  const leftOffset = navCollapsed ? 90 : 380;
+  const drawerWidth = 460;
+
+  return (
+    <div
+      className="absolute z-30"
+      style={{ left: leftOffset, top: 70, width: `calc(100% - ${leftOffset}px)`, height: 1010 }}
+    >
+      {/* backdrop */}
+      <div className="absolute inset-0" onClick={onClose} />
+
+      {/* panel */}
+      <div
+        className="absolute top-0 right-0 h-full bg-white border-l border-cardbg flex flex-col shadow-2xl"
+        style={{ width: drawerWidth }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-cardbg shrink-0">
+          <div className="flex items-center gap-[8px]">
+            <span className="text-[15px] font-semibold text-primary">Запись</span>
+            <span className="text-[12px] text-primary/40 font-mono">{record.id.slice(0, 8)}…</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded text-primary/40 hover:bg-mainbg hover:text-primary transition-colors text-[18px]"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Field values */}
+          <div className="px-5 py-4 border-b border-cardbg">
+            <p className="text-[11px] font-semibold text-primary/40 uppercase tracking-wider mb-3">Поля</p>
+            <div className="flex flex-col gap-[6px]">
+              {fields.map((f) => {
+                const val = formatCellValue(record.payload[f.name], f);
+                return (
+                  <div key={f.id} className="flex items-start gap-[8px] text-[13px]">
+                    <span className="shrink-0 w-[140px] text-primary/50 truncate">{f.display_name}</span>
+                    <span className="text-primary truncate flex-1">{val}</span>
+                  </div>
+                );
+              })}
+              <div className="flex items-start gap-[8px] text-[13px]">
+                <span className="shrink-0 w-[140px] text-primary/50">Создана</span>
+                <span className="text-primary/70">
+                  {new Date(record.created_at).toLocaleString("ru")}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Workflows */}
+          <div className="px-5 py-4">
+            <p className="text-[11px] font-semibold text-primary/40 uppercase tracking-wider mb-3">
+              Рабочие процессы {workflows.length > 0 && `(${workflows.length})`}
+            </p>
+            {workflowsQuery.isLoading && (
+              <p className="text-[13px] text-primary/40">Загрузка…</p>
+            )}
+            {!workflowsQuery.isLoading && workflows.length === 0 && (
+              <p className="text-[13px] text-primary/40">Нет рабочих процессов для этой сущности</p>
+            )}
+            {workflows.map((wf) => (
+              <WorkflowRuntimeSection
+                key={wf.id}
+                appId={appId}
+                workflow={wf}
+                recordId={record.id}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── WorkflowRuntimeSection ────────────────────────────────────────────
+
+function WorkflowRuntimeSection({
+  appId,
+  workflow,
+  recordId,
+}: {
+  appId: string;
+  workflow: WorkflowDefRead;
+  recordId: string;
+}) {
+  const instancesQuery = useWorkflowInstances(appId, workflow.id, recordId);
+  const statesQuery = useWorkflowStates(appId, workflow.id);
+  const startMutation = useStartInstance(appId, workflow.id);
+  const cancelMutation = useCancelInstance(appId, workflow.id);
+
+  const instances = instancesQuery.data ?? [];
+  const states = statesQuery.data ?? [];
+  const activeInstance = instances.find((i) => !i.completed_at) ?? null;
+  const pastInstances = instances.filter((i) => i.completed_at);
+
+  return (
+    <div className="mb-4 border border-cardbg rounded-[8px] overflow-hidden">
+      {/* workflow header */}
+      <div className="flex items-center justify-between px-3 py-2.5 bg-[#F5F6F8]">
+        <div className="flex items-center gap-[8px]">
+          <span className="text-[13px] font-semibold text-primary truncate">{workflow.name}</span>
+          {!workflow.is_active && (
+            <span className="text-[10px] px-[6px] py-[1px] rounded-full bg-amber-100 text-amber-700">
+              Неактивен
+            </span>
+          )}
+        </div>
+        {!activeInstance && workflow.is_active && (
+          <button
+            onClick={() => startMutation.mutate({ record_id: recordId })}
+            disabled={startMutation.isPending}
+            className="text-[12px] px-[10px] h-[26px] rounded-[6px] bg-cta text-white hover:bg-active disabled:opacity-60 transition-colors"
+          >
+            {startMutation.isPending ? "…" : "Запустить"}
+          </button>
+        )}
+      </div>
+
+      {/* active instance */}
+      {activeInstance && (
+        <InstancePanel
+          appId={appId}
+          workflowId={workflow.id}
+          instance={activeInstance}
+          states={states}
+          onCancel={(reason) => cancelMutation.mutate({ instanceId: activeInstance.id, reason })}
+          cancelPending={cancelMutation.isPending}
+        />
+      )}
+
+      {/* no instance message */}
+      {!activeInstance && instances.length === 0 && !instancesQuery.isLoading && (
+        <div className="px-3 py-3 text-[12px] text-primary/40">
+          {workflow.is_active ? "Нет активных экземпляров. Нажмите «Запустить»." : "Рабочий процесс неактивен."}
+        </div>
+      )}
+
+      {/* past instances summary */}
+      {pastInstances.length > 0 && (
+        <div className="px-3 py-2 border-t border-cardbg">
+          <p className="text-[11px] text-primary/40">
+            Завершённых экземпляров: {pastInstances.length}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── InstancePanel ─────────────────────────────────────────────────────
+
+function InstancePanel({
+  appId,
+  workflowId,
+  instance,
+  states,
+  onCancel,
+  cancelPending,
+}: {
+  appId: string;
+  workflowId: string;
+  instance: WorkflowInstanceRead;
+  states: StateDefRead[];
+  onCancel: (reason?: string) => void;
+  cancelPending: boolean;
+}) {
+  const [showLog, setShowLog] = useState(false);
+  const availableQuery = useAvailableTransitions(appId, workflowId, instance.id);
+  const logQuery = useTransitionLog(appId, workflowId, instance.id);
+  const executeMutation = useExecuteTransition(appId, workflowId, instance.id);
+
+  const currentState = states.find((s) => s.name === instance.current_state);
+  const available = availableQuery.data ?? [];
+
+  const stateColor = currentState?.color ?? null;
+  const stateDisplayName = currentState?.display_name ?? instance.current_state;
+
+  return (
+    <div className="px-3 py-3 flex flex-col gap-[10px]">
+      {/* current state */}
+      <div className="flex items-center gap-[8px]">
+        <span className="text-[12px] text-primary/50">Состояние:</span>
+        <span
+          className="text-[12px] font-semibold px-[8px] py-[2px] rounded-full"
+          style={
+            stateColor
+              ? { backgroundColor: stateColor + "22", color: stateColor }
+              : undefined
+          }
+        >
+          {stateDisplayName}
+        </span>
+        {currentState?.is_terminal && (
+          <span className="text-[10px] text-primary/40">(завершающее)</span>
+        )}
+      </div>
+
+      {/* SLA */}
+      {instance.sla_deadline && (
+        <div className="flex items-center gap-[8px] text-[12px]">
+          <span className="text-primary/50">SLA до:</span>
+          <span className={cn(
+            "font-medium",
+            new Date(instance.sla_deadline) < new Date() ? "text-red-500" : "text-primary/70",
+          )}>
+            {new Date(instance.sla_deadline).toLocaleString("ru")}
+          </span>
+        </div>
+      )}
+
+      {/* Available transitions */}
+      {availableQuery.isLoading && (
+        <p className="text-[12px] text-primary/40">Загрузка переходов…</p>
+      )}
+      {available.length > 0 && (
+        <div className="flex flex-col gap-[6px]">
+          <p className="text-[11px] text-primary/50 font-medium">Выполнить переход:</p>
+          <div className="flex flex-wrap gap-[6px]">
+            {available.map((t) => (
+              <button
+                key={t.name}
+                onClick={() => executeMutation.mutate({ transition_name: t.name })}
+                disabled={executeMutation.isPending}
+                className="text-[12px] px-[10px] h-[28px] rounded-[6px] bg-mainbg border border-cardbg text-primary hover:border-cta hover:text-cta disabled:opacity-60 transition-colors"
+              >
+                {t.display_name}
+                <span className="ml-1 text-[10px] text-primary/30">→ {t.to_state}</span>
+              </button>
+            ))}
+          </div>
+          {executeMutation.isError && (
+            <p className="text-[11px] text-red-500">Ошибка выполнения перехода</p>
+          )}
+        </div>
+      )}
+      {!availableQuery.isLoading && available.length === 0 && !currentState?.is_terminal && (
+        <p className="text-[12px] text-primary/40">Нет доступных переходов</p>
+      )}
+
+      {/* Transition log toggle */}
+      <div>
+        <button
+          onClick={() => setShowLog((v) => !v)}
+          className="text-[12px] text-cta hover:underline"
+        >
+          {showLog ? "Скрыть лог" : "Показать лог переходов"}
+          {logQuery.data && ` (${logQuery.data.length})`}
+        </button>
+
+        {showLog && (
+          <div className="mt-2 flex flex-col gap-[4px] max-h-[200px] overflow-y-auto">
+            {logQuery.isLoading && <p className="text-[12px] text-primary/40">Загрузка…</p>}
+            {(logQuery.data ?? []).length === 0 && !logQuery.isLoading && (
+              <p className="text-[12px] text-primary/40">Лог пуст</p>
+            )}
+            {(logQuery.data ?? []).map((entry) => (
+              <div key={entry.id} className="flex items-start gap-[8px] text-[11px]">
+                <span className="text-primary/30 shrink-0 tabular-nums">
+                  {new Date(entry.executed_at).toLocaleString("ru")}
+                </span>
+                <span className="text-primary/60">
+                  {entry.from_state ? `${entry.from_state} →` : "→"} {entry.to_state}
+                </span>
+                {entry.error && <span className="text-red-400">{entry.error}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Cancel */}
+      {!currentState?.is_terminal && (
+        <div className="pt-1 border-t border-cardbg">
+          <button
+            onClick={() => {
+              if (confirm("Отменить экземпляр процесса?")) onCancel();
+            }}
+            disabled={cancelPending}
+            className="text-[12px] text-red-500 hover:underline disabled:opacity-60"
+          >
+            Отменить процесс
+          </button>
+        </div>
+      )}
     </div>
   );
 }
