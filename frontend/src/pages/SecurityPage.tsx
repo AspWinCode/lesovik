@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/layout/Navbar";
@@ -822,6 +822,72 @@ const EFFECT_COLORS: Record<string, { bg: string; text: string }> = {
   deny:  { bg: "bg-[#FFF0F0]", text: "text-[#C22A2A]" },
 };
 
+function SelectField<T extends string>({
+  value, onChange, options, placeholder, className,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  return (
+    <div ref={ref} className={cn("relative", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "w-full h-[38px] px-3 flex items-center justify-between gap-2",
+          "bg-mainbg border rounded-[8px] text-[14px] text-primary transition-colors",
+          open ? "border-cta" : "border-cardbg hover:border-cta/40",
+        )}
+      >
+        <span className={cn("truncate", !selected && "text-primary/30")}>
+          {selected?.label ?? placeholder ?? "— выберите —"}
+        </span>
+        <svg
+          viewBox="0 0 12 12" fill="none" className={cn("w-3 h-3 shrink-0 transition-transform text-primary/40", open && "rotate-180")}
+        >
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute top-[42px] left-0 z-50 w-full bg-white rounded-[12px] shadow-[0_4px_20px_rgba(0,32,95,0.14)] py-1 flex flex-col max-h-[240px] overflow-y-auto">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={cn(
+                "w-full text-left px-3 py-2 text-[13px] transition-colors",
+                o.value === value
+                  ? "text-cta font-semibold bg-[#EBF4FF]"
+                  : "text-primary hover:bg-mainbg",
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RbacSection({ appId }: { appId?: string }) {
   const { data: roles = [] } = useAllRoles();
   const { data: rules = [], isLoading, refetch } = useAbacRules();
@@ -969,17 +1035,12 @@ function RbacSection({ appId }: { appId?: string }) {
               {/* Role */}
               <div className="flex flex-col gap-[6px]">
                 <label className="text-[13px] font-medium text-primary/60">Роль</label>
-                <select
-                  required
-                  value={form.role_id}
-                  onChange={(e) => setForm((f) => ({ ...f, role_id: e.target.value }))}
-                  className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta appearance-none"
-                >
-                  <option value="">— выберите роль —</option>
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.display_name}</option>
-                  ))}
-                </select>
+                <SelectField
+                  value={form.role_id as string}
+                  onChange={(v) => setForm((f) => ({ ...f, role_id: v }))}
+                  placeholder="— выберите роль —"
+                  options={roles.map((r) => ({ value: r.id, label: r.display_name }))}
+                />
               </div>
 
               {/* Resource type */}
@@ -1009,14 +1070,14 @@ function RbacSection({ appId }: { appId?: string }) {
               <div className="flex gap-3">
                 <div className="flex flex-col gap-[6px] flex-1">
                   <label className="text-[13px] font-medium text-primary/60">Эффект</label>
-                  <select
+                  <SelectField
                     value={form.effect}
-                    onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value as "allow" | "deny" }))}
-                    className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta appearance-none"
-                  >
-                    <option value="allow">Разрешить (allow)</option>
-                    <option value="deny">Запретить (deny)</option>
-                  </select>
+                    onChange={(v) => setForm((f) => ({ ...f, effect: v as "allow" | "deny" }))}
+                    options={[
+                      { value: "allow", label: "Разрешить (allow)" },
+                      { value: "deny",  label: "Запретить (deny)" },
+                    ]}
+                  />
                 </div>
                 <div className="flex flex-col gap-[6px] w-[120px]">
                   <label className="text-[13px] font-medium text-primary/60">Приоритет</label>
@@ -1064,13 +1125,12 @@ function RbacSection({ appId }: { appId?: string }) {
                       placeholder="поле (department_id)"
                       className="flex-1 h-[34px] px-2 bg-mainbg border border-cardbg rounded-[6px] text-[13px] text-primary outline-none focus:border-cta placeholder:text-primary/30"
                     />
-                    <select
+                    <SelectField
                       value={cond.op}
-                      onChange={(e) => updateCondition(i, { op: e.target.value })}
-                      className="w-[130px] h-[34px] px-2 bg-mainbg border border-cardbg rounded-[6px] text-[13px] text-primary outline-none appearance-none"
-                    >
-                      {OP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                      onChange={(v) => updateCondition(i, { op: v })}
+                      options={OP_OPTIONS}
+                      className="w-[160px] shrink-0"
+                    />
                     <input
                       value={cond.value}
                       onChange={(e) => updateCondition(i, { value: e.target.value })}
