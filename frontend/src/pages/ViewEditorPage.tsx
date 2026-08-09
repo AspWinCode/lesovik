@@ -13,7 +13,8 @@ import { TabSwitcher } from "@/components/ui/TabSwitcher";
 import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
-import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage, useReorderPages, usePagePermissions, useSetPagePermissions, useViews, useCreateView, useDeleteView, useSetDefaultView } from "@/shared/hooks/useViews";
+import { usePages, useUpdatePage, useCreatePage, useDeletePage, usePublishPage, useUnpublishPage, useReorderPages, usePagePermissions, useSetPagePermissions, useViews, useCreateView, useDeleteView, useSetDefaultView, useViewFieldConfigs, useReplaceFieldConfigs } from "@/shared/hooks/useViews";
+import type { ViewFieldConfigItem } from "@/shared/api/views";
 import type { ViewRead } from "@/shared/api/views";
 import { useAllRoles } from "@/shared/hooks/useRbac";
 import { useEntities } from "@/shared/hooks/useEntities";
@@ -42,7 +43,7 @@ const VIEW_TYPES: { id: ViewType; label: string; icon: React.ReactNode }[] = [
 
 const POSITIONS = ["первый", "следующий", "средний", "последующий", "последний", "меню", "ссылка"];
 
-const EDITOR_TABS = ["Представления", "Правила формирования", "Дизайн"];
+const EDITOR_TABS = ["Представления", "Правила формирования", "Дизайн", "Поля"];
 
 type PageBlockType =
   // Input
@@ -681,6 +682,13 @@ export function ViewEditorPage() {
             design={design}
             onChange={(d) => patchLayout({ design: d })}
             onOpenDensityModal={() => setShowDensityModal(true)}
+          />
+        ) : editorTab === "Поля" ? (
+          <ViewFieldsTab
+            appId={appId ?? ""}
+            entityId={selectedEntityId}
+            savedViews={savedViews}
+            userFields={userFields}
           />
         ) : (
           <div className="flex flex-col gap-[30px] pt-[53px] pb-[40px]">
@@ -3902,5 +3910,201 @@ function DividerBlockIcon() {
     <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
       <line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2" />
     </svg>
+  );
+}
+
+// ── ViewFieldsTab ─────────────────────────────────────────────────────
+
+function ViewFieldsTab({
+  appId,
+  entityId,
+  savedViews,
+  userFields,
+}: {
+  appId: string;
+  entityId: string;
+  savedViews: ViewRead[];
+  userFields: { name: string; display_name: string }[];
+}) {
+  const [selectedViewId, setSelectedViewId] = useState<string>(savedViews[0]?.id ?? "");
+  const viewId = selectedViewId || savedViews[0]?.id;
+
+  const configsQuery = useViewFieldConfigs(appId, entityId, viewId);
+  const replaceConfigs = useReplaceFieldConfigs(appId, entityId, viewId ?? "");
+
+
+  const [draft, setDraft] = useState<Record<string, ViewFieldConfigItem>>({});
+  const [dirty, setDirty] = useState(false);
+
+  // Sync draft from server when view changes
+  useEffect(() => {
+    if (!configsQuery.data) return;
+    const m: Record<string, ViewFieldConfigItem> = {};
+    for (const c of configsQuery.data) {
+      m[c.field_name] = {
+        field_name: c.field_name,
+        is_visible: c.is_visible,
+        is_readonly: c.is_readonly,
+        display_order: c.display_order,
+        width: c.width,
+        widget_type: c.widget_type,
+        widget_config: c.widget_config,
+      };
+    }
+    setDraft(m);
+    setDirty(false);
+  }, [configsQuery.data]);
+
+  useEffect(() => {
+    if (savedViews.length > 0 && !selectedViewId) {
+      setSelectedViewId(savedViews[0].id);
+    }
+  }, [savedViews, selectedViewId]);
+
+  function patchField(fieldName: string, patch: Partial<ViewFieldConfigItem>) {
+    const idx = userFields.findIndex((f) => f.name === fieldName);
+    setDraft((prev) => {
+      const existing: ViewFieldConfigItem = prev[fieldName] ?? {
+        field_name: fieldName,
+        is_visible: true,
+        is_readonly: false,
+        display_order: idx,
+        width: null,
+        widget_type: null,
+        widget_config: {},
+      };
+      return { ...prev, [fieldName]: { ...existing, ...patch } };
+    });
+    setDirty(true);
+  }
+
+  function handleSave() {
+    const configs: ViewFieldConfigItem[] = userFields.map((f, idx) => ({
+      field_name: f.name,
+      is_visible: draft[f.name]?.is_visible ?? true,
+      is_readonly: draft[f.name]?.is_readonly ?? false,
+      display_order: draft[f.name]?.display_order ?? idx,
+      width: draft[f.name]?.width ?? null,
+      widget_type: draft[f.name]?.widget_type ?? null,
+      widget_config: draft[f.name]?.widget_config ?? {},
+    }));
+    replaceConfigs.mutate(configs, { onSuccess: () => setDirty(false) });
+  }
+
+  if (!appId || !entityId) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-[16px] text-primary/40">Выберите страницу с таблицей</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-[40px] py-[30px] flex flex-col gap-[20px]">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-[12px]">
+          <h2 className="text-[20px] font-bold text-primary">Настройка полей представления</h2>
+          {savedViews.length > 0 && (
+            <select
+              value={selectedViewId}
+              onChange={(e) => setSelectedViewId(e.target.value)}
+              className="h-[34px] px-3 bg-white border border-cardbg rounded-[8px] text-[13px] text-primary outline-none focus:border-cta"
+            >
+              {savedViews.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        {dirty && (
+          <button
+            onClick={handleSave}
+            disabled={replaceConfigs.isPending}
+            className="h-[36px] px-[16px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active disabled:opacity-60 transition-colors"
+          >
+            {replaceConfigs.isPending ? "Сохраняю…" : "Сохранить"}
+          </button>
+        )}
+      </div>
+
+      {savedViews.length === 0 && (
+        <p className="text-[14px] text-primary/40">Нет сохранённых представлений. Создайте представление на вкладке «Представления».</p>
+      )}
+
+      {savedViews.length > 0 && userFields.length === 0 && (
+        <p className="text-[14px] text-primary/40">Нет полей для настройки.</p>
+      )}
+
+      {savedViews.length > 0 && userFields.length > 0 && (
+        <div className="bg-white border border-cardbg rounded-[8px] overflow-hidden">
+          {/* Header */}
+          <div className="grid bg-[#F5F6F8] border-b border-cardbg text-[12px] font-semibold text-primary/60"
+            style={{ gridTemplateColumns: "1fr 80px 80px 80px" }}
+          >
+            <div className="px-4 py-2.5">Поле</div>
+            <div className="px-3 py-2.5 text-center">Видимость</div>
+            <div className="px-3 py-2.5 text-center">Только чтение</div>
+            <div className="px-3 py-2.5 text-center">Ширина</div>
+          </div>
+
+          {configsQuery.isLoading && (
+            <div className="px-4 py-4 text-[13px] text-primary/40">Загрузка…</div>
+          )}
+
+          {!configsQuery.isLoading && userFields.map((f, idx) => {
+            const cfg = draft[f.name];
+            const isVisible = cfg?.is_visible ?? true;
+            const isReadonly = cfg?.is_readonly ?? false;
+            const width = cfg?.width ?? null;
+            return (
+              <div
+                key={f.name}
+                className="grid border-b border-cardbg last:border-b-0 items-center hover:bg-mainbg/40 transition-colors"
+                style={{ gridTemplateColumns: "1fr 80px 80px 80px" }}
+              >
+                <div className="px-4 py-2.5 flex items-center gap-[8px]">
+                  <span className="text-[12px] text-primary/30 w-5 tabular-nums text-right">{idx + 1}</span>
+                  <span className="text-[13px] text-primary">{f.display_name}</span>
+                  <span className="text-[11px] text-primary/30 font-mono">{f.name}</span>
+                </div>
+                <div className="px-3 py-2.5 flex justify-center">
+                  <button
+                    onClick={() => patchField(f.name, { is_visible: !isVisible })}
+                    className={cn(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
+                      isVisible ? "bg-cta border-cta" : "bg-white border-cardbg",
+                    )}
+                  >
+                    {isVisible && <svg viewBox="0 0 10 8" fill="none" className="w-3 h-3"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </button>
+                </div>
+                <div className="px-3 py-2.5 flex justify-center">
+                  <button
+                    onClick={() => patchField(f.name, { is_readonly: !isReadonly })}
+                    className={cn(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
+                      isReadonly ? "bg-amber-400 border-amber-400" : "bg-white border-cardbg",
+                    )}
+                  >
+                    {isReadonly && <svg viewBox="0 0 10 8" fill="none" className="w-3 h-3"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </button>
+                </div>
+                <div className="px-3 py-2.5">
+                  <input
+                    type="number"
+                    min={40}
+                    max={600}
+                    value={width ?? ""}
+                    onChange={(e) => patchField(f.name, { width: e.target.value ? Number(e.target.value) : null })}
+                    placeholder="авто"
+                    className="w-full h-[26px] px-2 text-[12px] rounded border border-cardbg bg-mainbg text-primary focus:outline-none focus:border-cta"
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

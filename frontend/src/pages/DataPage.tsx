@@ -23,6 +23,8 @@ import {
   useAvailableTransitions,
   useExecuteTransition,
   useTransitionLog,
+  useChainInstances,
+  useDecideChainLevel,
 } from "@/shared/hooks/useWorkflows";
 import { previewImport, importRecords } from "@/shared/api/records";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
@@ -707,6 +709,9 @@ function InstancePanel({
   const availableQuery = useAvailableTransitions(appId, workflowId, instance.id);
   const logQuery = useTransitionLog(appId, workflowId, instance.id);
   const executeMutation = useExecuteTransition(appId, workflowId, instance.id);
+  const chainInstancesQuery = useChainInstances(appId, workflowId, instance.id);
+  const decideMutation = useDecideChainLevel(appId, workflowId, instance.id);
+  const pendingChains = (chainInstancesQuery.data ?? []).filter((c) => c.status === "pending");
 
   const currentState = states.find((s) => s.name === instance.current_state);
   const available = availableQuery.data ?? [];
@@ -774,6 +779,54 @@ function InstancePanel({
       )}
       {!availableQuery.isLoading && available.length === 0 && !currentState?.is_terminal && (
         <p className="text-[12px] text-primary/40">Нет доступных переходов</p>
+      )}
+
+      {/* Approval chains */}
+      {pendingChains.length > 0 && (
+        <div className="flex flex-col gap-[6px] p-[10px] rounded-[8px] bg-amber-50 border border-amber-200">
+          <p className="text-[11px] font-semibold text-amber-700">Ожидает утверждения</p>
+          {pendingChains.map((chain) => (
+            <div key={chain.id} className="flex flex-col gap-[4px]">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-primary/70">
+                  Уровень {chain.current_level}
+                </span>
+                <div className="flex gap-[6px]">
+                  <button
+                    onClick={() => decideMutation.mutate({ chainInstanceId: chain.id, body: { decision: "approved" } })}
+                    disabled={decideMutation.isPending}
+                    className="text-[11px] px-[8px] h-[24px] rounded-[5px] bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-60 transition-colors font-medium"
+                  >
+                    Одобрить
+                  </button>
+                  <button
+                    onClick={() => decideMutation.mutate({ chainInstanceId: chain.id, body: { decision: "rejected" } })}
+                    disabled={decideMutation.isPending}
+                    className="text-[11px] px-[8px] h-[24px] rounded-[5px] bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-60 transition-colors font-medium"
+                  >
+                    Отклонить
+                  </button>
+                </div>
+              </div>
+              {chain.responses.length > 0 && (
+                <div className="flex flex-col gap-[2px] mt-1">
+                  {chain.responses.map((r) => (
+                    <div key={r.id} className="flex items-center gap-[6px] text-[11px]">
+                      <span className={cn(
+                        "px-[5px] rounded-[4px] font-medium",
+                        r.decision === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700",
+                      )}>
+                        {r.decision === "approved" ? "Одобрено" : "Отклонено"}
+                      </span>
+                      <span className="text-primary/40">ур.{r.level_order}</span>
+                      {r.comment && <span className="text-primary/60 truncate">{r.comment}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Transition log toggle */}

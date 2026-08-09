@@ -3,8 +3,9 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-import { useApps, useUpdateApp } from "@/shared/hooks/useApps";
+import { useApps, useUpdateApp, useAppMembers, useAddAppMember, useRemoveAppMember } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
+import { useUsers } from "@/shared/hooks/useUsers";
 import {
   useWebhooks, useCreateWebhook, useUpdateWebhook, useDeleteWebhook,
   useRotateWebhookSecret, useWebhookDeliveries,
@@ -36,7 +37,8 @@ type SettingsSection =
   | "views-locale"
   | "performance"
   | "autonomous"
-  | "integrations";
+  | "integrations"
+  | "members";
 
 interface NavItem {
   id: SettingsSection;
@@ -54,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "performance",      label: "Производительность" },
   { id: "autonomous",       label: "Автономный режим" },
   { id: "integrations",     label: "Интеграции" },
+  { id: "members",          label: "Участники" },
 ];
 
 const GROUP_HEADERS: Partial<Record<SettingsSection, string>> = {
@@ -204,6 +207,7 @@ export function SettingsPage() {
         {active === "performance" && <PerformanceSection />}
         {active === "autonomous"  && <AutonomousSection />}
         {active === "integrations" && <IntegrationsSection />}
+        {active === "members" && <MembersSection appId={app?.id ?? null} />}
       </main>
 
       <PreviewPanel projectName="Дикая Сибирь" />
@@ -451,6 +455,116 @@ function AutonomousSection() {
             )} />
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Members section ── */
+function MembersSection({ appId }: { appId: string | null }) {
+  const membersQuery = useAppMembers(appId);
+  const usersQuery   = useUsers();
+  const addMutation    = useAddAppMember(appId ?? "");
+  const removeMutation = useRemoveAppMember(appId ?? "");
+  const [addOpen, setAddOpen] = useState(false);
+  const [search, setSearch]   = useState("");
+
+  const members  = membersQuery.data ?? [];
+  const allUsers = usersQuery.data?.items ?? [];
+  const memberIds = new Set(members.map((m) => m.user_id));
+  const nonMembers = allUsers.filter(
+    (u) => !memberIds.has(u.id) &&
+      (search === "" || u.display_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())),
+  );
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-[22px] font-bold text-primary">Участники приложения</h2>
+        <button
+          onClick={() => setAddOpen((v) => !v)}
+          disabled={!appId}
+          className="flex items-center gap-[6px] h-[36px] px-[14px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active disabled:opacity-60 transition-colors"
+        >
+          + Добавить участника
+        </button>
+      </div>
+
+      {/* Add member dropdown */}
+      {addOpen && (
+        <div className="mb-5 bg-white border border-cardbg rounded-[8px] p-4 flex flex-col gap-[10px]">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск пользователя…"
+            className="h-[34px] px-[10px] rounded-btn border border-cardbg bg-mainbg text-[13px] text-primary focus:outline-none focus:border-cta"
+          />
+          <div className="max-h-[200px] overflow-y-auto flex flex-col gap-[2px]">
+            {nonMembers.length === 0 && (
+              <p className="text-[13px] text-primary/40 py-2">Нет доступных пользователей</p>
+            )}
+            {nonMembers.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => {
+                  addMutation.mutate({ userId: u.id, role: "member" });
+                  setAddOpen(false);
+                  setSearch("");
+                }}
+                disabled={addMutation.isPending}
+                className="flex items-center gap-[10px] px-[10px] py-[8px] rounded-[6px] hover:bg-mainbg text-left transition-colors disabled:opacity-60"
+              >
+                <div className="w-7 h-7 rounded-full bg-cta/10 flex items-center justify-center text-[13px] font-semibold text-cta shrink-0">
+                  {u.display_name[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-[13px] text-primary font-medium">{u.display_name}</p>
+                  <p className="text-[11px] text-primary/50">{u.email}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Members list */}
+      <div className="bg-white border border-cardbg rounded-[8px] overflow-hidden">
+        {membersQuery.isLoading && (
+          <div className="px-5 py-4 text-[13px] text-primary/40">Загрузка…</div>
+        )}
+        {!membersQuery.isLoading && members.length === 0 && (
+          <div className="px-5 py-8 text-center text-[14px] text-primary/40">
+            Нет участников. Добавьте первого.
+          </div>
+        )}
+        {members.map((m) => {
+          const user = allUsers.find((u) => u.id === m.user_id);
+          return (
+            <div key={m.user_id} className="flex items-center justify-between px-5 py-3 border-b border-cardbg last:border-b-0">
+              <div className="flex items-center gap-[10px]">
+                <div className="w-8 h-8 rounded-full bg-cta/10 flex items-center justify-center text-[14px] font-semibold text-cta shrink-0">
+                  {(user?.display_name ?? m.user_id)[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-[14px] text-primary font-medium">{user?.display_name ?? m.user_id}</p>
+                  <p className="text-[12px] text-primary/50">{user?.email ?? ""}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-[10px]">
+                <span className="text-[12px] px-[8px] py-[2px] rounded-full bg-mainbg border border-cardbg text-primary/60">
+                  {m.role ?? "member"}
+                </span>
+                <button
+                  onClick={() => removeMutation.mutate(m.user_id)}
+                  disabled={removeMutation.isPending}
+                  className="text-[12px] text-red-500 hover:underline disabled:opacity-60"
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

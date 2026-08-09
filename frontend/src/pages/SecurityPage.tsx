@@ -30,6 +30,7 @@ import {
   useDeleteAbacRule,
 } from "@/shared/hooks/useRbac";
 import type { AbacRuleCreate, AbacCondition } from "@/shared/api/roles";
+import { useCheckCycles } from "@/shared/hooks/useRules";
 
 type SecuritySection =
   | "login"
@@ -152,7 +153,7 @@ export function SecurityPage() {
         )}
         {active === "login"    && <LoginSection sec={sec} patch={patch} onManageUsers={() => navigate("/admin")} />}
         {active === "abac"     && <AbacSection appId={app?.id} />}
-        {active === "rbac"     && <RbacSection />}
+        {active === "rbac"     && <RbacSection appId={app?.id} />}
         {active === "filters"  && <FiltersSection />}
         {active === "auth"     && <AuthSection />}
         {active === "password"  && <PasswordPolicySection />}
@@ -821,11 +822,13 @@ const EFFECT_COLORS: Record<string, { bg: string; text: string }> = {
   deny:  { bg: "bg-[#FFF0F0]", text: "text-[#C22A2A]" },
 };
 
-function RbacSection() {
+function RbacSection({ appId }: { appId?: string }) {
   const { data: roles = [] } = useAllRoles();
   const { data: rules = [], isLoading, refetch } = useAbacRules();
   const createRule = useCreateAbacRule();
   const deleteRule = useDeleteAbacRule();
+  const cyclesQuery = useCheckCycles(appId);
+  const cycles = cyclesQuery.data;
 
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -908,9 +911,42 @@ function RbacSection() {
           Добавить правило
         </button>
       </div>
-      <p className="text-[14px] text-primary/60 mb-6">
+      <p className="text-[14px] text-primary/60 mb-4">
         Правила определяют видимость и редактируемость записей на основе атрибутов (например, «пользователь видит только записи своего отдела»).
       </p>
+
+      {/* Cycles check */}
+      {cycles && (
+        <div className={cn(
+          "mb-5 flex items-start gap-3 px-4 py-3 rounded-[8px] border text-[13px]",
+          cycles.has_cycles
+            ? "bg-red-50 border-red-200 text-red-700"
+            : "bg-green-50 border-green-200 text-green-700",
+        )}>
+          <span className="text-[16px] leading-none mt-0.5">{cycles.has_cycles ? "⚠️" : "✅"}</span>
+          <div>
+            {cycles.has_cycles ? (
+              <>
+                <p className="font-semibold">Обнаружены циклы в правилах!</p>
+                {cycles.cycles.map((cycle, i) => (
+                  <p key={i} className="text-[12px] mt-1 font-mono">{cycle.join(" → ")}</p>
+                ))}
+              </>
+            ) : (
+              <p>Циклов в правилах не обнаружено.</p>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="mb-5">
+        <button
+          onClick={() => void cyclesQuery.refetch()}
+          disabled={!appId || cyclesQuery.isFetching}
+          className="text-[13px] px-[12px] h-[32px] rounded-btn border border-cardbg bg-white text-primary hover:border-cta hover:text-cta disabled:opacity-50 transition-colors"
+        >
+          {cyclesQuery.isFetching ? "Проверяю…" : "Проверить зависимости на циклы"}
+        </button>
+      </div>
 
       {/* Create modal */}
       {createOpen && (
