@@ -59,7 +59,7 @@ async def list_apps(
 
 @router.post("", response_model=AppRead, status_code=status.HTTP_201_CREATED)
 async def create_app(body: AppCreate, current_user: AuthDep, db: DbDep) -> AppRead:
-    if not current_user.has_role("platform_admin", "app_builder"):
+    if not current_user.has_role("platform_admin", "app_builder", "org_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     try:
         return await AppService(db).create_app(
