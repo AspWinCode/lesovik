@@ -4,7 +4,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-import { useApps, usePublishApp, useAppSnapshots, useCreateSnapshot, useRollbackSnapshot } from "@/shared/hooks/useApps";
+import { useApps, usePublishApp, useAppSnapshots, useCreateSnapshot, useRollbackSnapshot, useAppLock, useAcquireAppLock, useReleaseAppLock } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, usePublishPage, useUnpublishPage } from "@/shared/hooks/usePages";
 
@@ -132,6 +132,11 @@ function PublishSection({
   onPublish: () => void;
   publishing: boolean;
 }) {
+  const lockQ     = useAppLock(app?.id);
+  const acquireM  = useAcquireAppLock(app?.id ?? "");
+  const releaseM  = useReleaseAppLock(app?.id ?? "");
+  const lock      = lockQ.data;
+
   const checks = [
     { label: "Схема данных сущностей настроена",       status: "success" as const },
     { label: "Хотя бы одна страница создана",          status: app ? "success" as const : "warn" as const },
@@ -192,6 +197,48 @@ function PublishSection({
           </div>
         ))}
       </div>
+
+      {/* Lock card */}
+      {app && (
+        <div className={cn(
+          "rounded-[10px] border px-[16px] py-[12px] mb-[20px] flex items-center justify-between gap-3",
+          lock ? "bg-amber-50 border-amber-200" : "bg-white border-cardbg",
+        )}>
+          <div className="flex items-center gap-3">
+            <svg viewBox="0 0 20 20" fill="none" className={cn("w-5 h-5 shrink-0", lock ? "text-amber-500" : "text-primary/30")} stroke="currentColor" strokeWidth="1.8">
+              <rect x="4" y="9" width="12" height="9" rx="2" />
+              <path d="M7 9V6a3 3 0 016 0v3" strokeLinecap="round" />
+            </svg>
+            <div>
+              <p className={cn("text-[13px] font-semibold", lock ? "text-amber-700" : "text-primary")}>
+                {lock ? `Заблокировано: ${lock.locked_by}` : "Блокировка редактирования"}
+              </p>
+              <p className="text-[12px] text-primary/50">
+                {lock
+                  ? `с ${new Date(lock.locked_at).toLocaleString("ru")}`
+                  : "Захватите блокировку перед редактированием схемы"}
+              </p>
+            </div>
+          </div>
+          {lock ? (
+            <button
+              onClick={() => releaseM.mutate()}
+              disabled={releaseM.isPending}
+              className="h-[32px] px-3 text-[12px] font-medium text-amber-700 border border-amber-300 bg-amber-50 rounded-[8px] hover:bg-amber-100 transition-colors disabled:opacity-50"
+            >
+              {releaseM.isPending ? "…" : "Освободить"}
+            </button>
+          ) : (
+            <button
+              onClick={() => acquireM.mutate()}
+              disabled={acquireM.isPending}
+              className="h-[32px] px-3 text-[12px] font-medium text-cta border border-cta/30 bg-[#EBF4FF] rounded-[8px] hover:bg-[#D6EAFF] transition-colors disabled:opacity-50"
+            >
+              {acquireM.isPending ? "…" : "Захватить"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Action */}
       <div className="flex items-center gap-[12px]">
