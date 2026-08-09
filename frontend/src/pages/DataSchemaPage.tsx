@@ -946,7 +946,7 @@ function EntityModal({
   const [slug, setSlug]           = useState(entity?.slug ?? "");
   const [slugTouched, setSlugTouched] = useState(false);
   const [displayName, setDisplayName] = useState(entity?.display_name ?? "");
-  const [namePlural, setNamePlural]   = useState(entity?.name_plural ?? "");
+  const namePlural = entity?.name_plural ?? "";
   const [description, setDescription] = useState(entity?.description ?? "");
   const [icon, setIcon]           = useState(entity?.icon ?? "📋");
   const color                     = entity?.color ?? "#00205F";
@@ -1020,16 +1020,6 @@ function EntityModal({
               />
             </FormField>
           )}
-
-          {/* Plural name */}
-          <FormField label="Множественное число">
-            <input
-              value={namePlural}
-              onChange={(e) => setNamePlural(e.target.value)}
-              placeholder="Клиенты"
-              className="w-full px-3 py-2 border border-cardbg rounded-[8px] text-[14px] text-primary focus:outline-none focus:border-cta"
-            />
-          </FormField>
 
           {/* Description */}
           <FormField label="Описание">
