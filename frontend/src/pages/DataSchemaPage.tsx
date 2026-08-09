@@ -18,6 +18,12 @@ import {
   useUpdateRelation,
   useDeleteRelation,
 } from "@/shared/hooks/useEntities";
+import {
+  useSequences,
+  useCreateSequence,
+  useUpdateSequence,
+  useDeleteSequence,
+} from "@/shared/hooks/useSequences";
 import type {
   EntityRead,
   FieldCreate,
@@ -29,6 +35,7 @@ import type {
   RelationType,
   RelationUpdate,
 } from "@/shared/api/entities";
+import type { Sequence, SequenceCreate, SequenceUpdate } from "@/shared/api/sequences";
 
 // ─────────────────────────────────────────────
 // Field type metadata
@@ -171,7 +178,13 @@ export function DataSchemaPage() {
   const deleteRelationM = useDeleteRelation(appId);
 
   const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"fields" | "relations">("fields");
+  const [activeTab, setActiveTab] = useState<"fields" | "relations" | "sequences">("fields");
+
+  const sequencesQ     = useSequences(appId, activeEntityId ?? undefined);
+  const sequences      = sequencesQ.data ?? [];
+  const createSeqM     = useCreateSequence(appId, activeEntityId ?? "");
+  const updateSeqM     = useUpdateSequence(appId, activeEntityId ?? "");
+  const deleteSeqM     = useDeleteSequence(appId, activeEntityId ?? "");
 
   // Modal states
   const [entityModal, setEntityModal] = useState<{ mode: "create" | "edit"; entity?: EntityRead } | null>(null);
@@ -183,6 +196,8 @@ export function DataSchemaPage() {
   const [deleteEntityId, setDeleteEntityId] = useState<string | null>(null);
   const [deleteFieldId, setDeleteFieldId]   = useState<{ entityId: string; fieldId: string } | null>(null);
   const [deleteRelationId, setDeleteRelationId] = useState<string | null>(null);
+  const [seqModal, setSeqModal] = useState<{ mode: "create" | "edit"; seq?: Sequence } | null>(null);
+  const [deleteSeqId, setDeleteSeqId] = useState<string | null>(null);
 
   const activeEntity = entities.find((e) => e.id === activeEntityId) ?? null;
   const entityRelations = relations.filter(
@@ -361,7 +376,7 @@ export function DataSchemaPage() {
 
               {/* Tabs */}
               <div className="flex items-center gap-1 mt-4">
-                {(["fields", "relations"] as const).map((tab) => (
+                {(["fields", "relations", "sequences"] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -374,7 +389,9 @@ export function DataSchemaPage() {
                   >
                     {tab === "fields"
                       ? `Поля (${activeEntity.fields.length})`
-                      : `Связи (${entityRelations.length})`}
+                      : tab === "relations"
+                      ? `Связи (${entityRelations.length})`
+                      : `Последовательности (${sequences.length})`}
                   </button>
                 ))}
               </div>
@@ -401,6 +418,14 @@ export function DataSchemaPage() {
                   onAddRelation={() => setRelationModal(true)}
                   onEditRelation={(r) => { setEditRelation(r); setEditRelationError(null); }}
                   onDeleteRelation={(r) => setDeleteRelationId(r.id)}
+                />
+              )}
+              {activeTab === "sequences" && (
+                <SequencesTab
+                  sequences={sequences}
+                  onAdd={() => setSeqModal({ mode: "create" })}
+                  onEdit={(s) => setSeqModal({ mode: "edit", seq: s })}
+                  onDelete={(s) => setDeleteSeqId(s.id)}
                 />
               )}
             </div>
@@ -555,6 +580,38 @@ export function DataSchemaPage() {
             })
           }
           saving={deleteRelationM.isPending}
+        />
+      )}
+
+      {seqModal && activeEntity && (
+        <SequenceModal
+          mode={seqModal.mode}
+          seq={seqModal.seq}
+          onClose={() => setSeqModal(null)}
+          onCreate={(data) =>
+            createSeqM.mutate(data, { onSuccess: () => setSeqModal(null) })
+          }
+          onUpdate={(data) => {
+            if (!seqModal.seq) return;
+            updateSeqM.mutate(
+              { sequenceId: seqModal.seq.id, body: data },
+              { onSuccess: () => setSeqModal(null) },
+            );
+          }}
+          saving={createSeqM.isPending || updateSeqM.isPending}
+        />
+      )}
+
+      {deleteSeqId && (
+        <ConfirmModal
+          title="Удалить последовательность?"
+          body="Последовательность и её счётчик будут удалены безвозвратно."
+          confirmLabel="Удалить"
+          onClose={() => setDeleteSeqId(null)}
+          onConfirm={() =>
+            deleteSeqM.mutate(deleteSeqId, { onSuccess: () => setDeleteSeqId(null) })
+          }
+          saving={deleteSeqM.isPending}
         />
       )}
     </div>
@@ -2424,5 +2481,207 @@ function IconJson({ cls = "w-4 h-4" }: { cls?: string }) {
     <svg viewBox="0 0 16 16" className={cls} fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M5 2H3a1 1 0 00-1 1v3l-1 2 1 2v3a1 1 0 001 1h2M11 2h2a1 1 0 011 1v3l1 2-1 2v3a1 1 0 01-1 1h-2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SequencesTab
+// ─────────────────────────────────────────────
+
+function SequencesTab({
+  sequences,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  sequences: Sequence[];
+  onAdd: () => void;
+  onEdit: (s: Sequence) => void;
+  onDelete: (s: Sequence) => void;
+}) {
+  return (
+    <div className="max-w-[900px]">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-[13px] text-primary/60">
+          Последовательности автоматически генерируют уникальные номера для записей (например: ORD-0001, ORD-0002…).
+        </p>
+        <button
+          onClick={onAdd}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-cta text-white text-[13px] font-medium rounded-[8px] hover:bg-active transition-colors shrink-0 ml-4"
+        >
+          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+          </svg>
+          Добавить
+        </button>
+      </div>
+
+      {sequences.length === 0 ? (
+        <div className="bg-white rounded-[12px] border border-dashed border-cardbg p-8 text-center">
+          <p className="text-[13px] text-primary/40 mb-2">Нет последовательностей</p>
+          <button onClick={onAdd} className="text-[13px] text-cta hover:underline font-medium">
+            Добавить первую последовательность
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white rounded-[12px] border border-cardbg overflow-hidden">
+          {sequences.map((s, i) => (
+            <div
+              key={s.id}
+              className={cn(
+                "group flex items-center gap-4 px-4 py-3",
+                i < sequences.length - 1 && "border-b border-cardbg",
+              )}
+            >
+              <span className="px-2 py-0.5 text-[12px] font-bold rounded font-mono bg-cta/10 text-cta shrink-0">
+                SEQ
+              </span>
+              <div className="flex-1 min-w-0">
+                <span className="text-[13px] font-medium text-primary">{s.field_name}</span>
+                <span className="ml-3 text-[12px] font-mono text-primary/40">
+                  {[s.prefix, "N".padStart(s.padding, "0"), s.suffix].filter(Boolean).join("")}
+                </span>
+              </div>
+              <span className="text-[12px] text-primary/40 shrink-0">
+                шаг: {s.step} · следующий: {s.next_value}
+              </span>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => onEdit(s)}
+                  className="w-7 h-7 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-primary/40 hover:text-primary"
+                  title="Редактировать"
+                >
+                  <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M11 2l3 3-8 8H3v-3l8-8z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => onDelete(s)}
+                  className="w-7 h-7 flex items-center justify-center rounded-[6px] hover:bg-mainbg text-[#D32F2F]/60"
+                  title="Удалить"
+                >
+                  <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SequenceModal
+// ─────────────────────────────────────────────
+
+function SequenceModal({
+  mode,
+  seq,
+  onClose,
+  onCreate,
+  onUpdate,
+  saving,
+}: {
+  mode: "create" | "edit";
+  seq?: Sequence;
+  onClose: () => void;
+  onCreate: (data: SequenceCreate) => void;
+  onUpdate: (data: SequenceUpdate) => void;
+  saving: boolean;
+}) {
+  const [fieldName, setFieldName] = useState(seq?.field_name ?? "");
+  const [prefix, setPrefix]       = useState(seq?.prefix ?? "");
+  const [suffix, setSuffix]       = useState(seq?.suffix ?? "");
+  const [padding, setPadding]     = useState(seq?.padding ?? 4);
+  const [step, setStep]           = useState(seq?.step ?? 1);
+  const [start, setStart]         = useState(seq?.next_value ?? 1);
+  const [resetOn, setResetOn]     = useState(seq?.reset_on ?? "");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (mode === "create") {
+      onCreate({ field_name: fieldName, prefix, suffix, padding, step, start: start, reset_on: resetOn || null });
+    } else {
+      onUpdate({ prefix, suffix, padding, step, reset_on: resetOn || null });
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,32,95,0.35)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-[20px] w-[480px] flex flex-col"
+        style={{ boxShadow: "0 8px 40px rgba(0,32,95,0.18)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-[30px] pt-[28px] pb-[16px] border-b border-cardbg">
+          <span className="text-[18px] font-bold text-primary">
+            {mode === "create" ? "Новая последовательность" : "Изменить последовательность"}
+          </span>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-mainbg text-primary/40 text-[22px] leading-none">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 px-[30px] py-[20px] pb-[28px]">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[13px] font-medium text-primary/60">Поле <span className="text-red-500">*</span></label>
+            <input
+              required
+              value={fieldName}
+              onChange={(e) => setFieldName(e.target.value)}
+              disabled={mode === "edit"}
+              placeholder="например: order_number"
+              className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30 disabled:opacity-50"
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className="text-[13px] font-medium text-primary/60">Префикс</label>
+              <input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ORD-" className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30" />
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className="text-[13px] font-medium text-primary/60">Суффикс</label>
+              <input value={suffix} onChange={(e) => setSuffix(e.target.value)} placeholder="-2025" className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30" />
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className="text-[13px] font-medium text-primary/60">Длина числа</label>
+              <input type="number" min={1} max={20} value={padding} onChange={(e) => setPadding(Number(e.target.value))} className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta" />
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className="text-[13px] font-medium text-primary/60">Шаг</label>
+              <input type="number" min={1} value={step} onChange={(e) => setStep(Number(e.target.value))} className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta" />
+            </div>
+            {mode === "create" && (
+              <div className="flex flex-col gap-1.5 flex-1">
+                <label className="text-[13px] font-medium text-primary/60">Начало</label>
+                <input type="number" min={1} value={start} onChange={(e) => setStart(Number(e.target.value))} className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[13px] font-medium text-primary/60">Сброс по полю</label>
+            <input value={resetOn} onChange={(e) => setResetOn(e.target.value)} placeholder="например: created_year (необязательно)" className="h-[38px] px-3 bg-mainbg border border-cardbg rounded-[8px] text-[14px] text-primary outline-none focus:border-cta placeholder:text-primary/30" />
+          </div>
+
+          <div className="flex justify-end gap-2 mt-2">
+            <button type="button" onClick={onClose} className="h-[36px] px-4 text-[13px] font-medium text-primary/60 hover:text-primary rounded-[8px] hover:bg-mainbg transition-colors">
+              Отмена
+            </button>
+            <button type="submit" disabled={saving} className="h-[36px] px-5 bg-cta text-white text-[13px] font-medium rounded-[8px] hover:bg-active transition-colors disabled:opacity-50">
+              {saving ? "Сохранение…" : mode === "create" ? "Создать" : "Сохранить"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
