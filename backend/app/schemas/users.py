@@ -10,6 +10,7 @@ class RoleRead(BaseModel):
     display_name: str
     description: str | None = None
     is_system: bool = True
+    org_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

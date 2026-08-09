@@ -45,10 +45,13 @@ class RoleService:
 
     # ── Role CRUD ──────────────────────────────────────────────────────────
 
-    async def list_roles(self) -> list[RoleRead]:
-        result = await self._db.execute(
-            select(Role).order_by(Role.is_system.desc(), Role.display_name)
-        )
+    async def list_roles(self, actor_org_id: uuid.UUID | None = None) -> list[RoleRead]:
+        stmt = select(Role).order_by(Role.is_system.desc(), Role.display_name)
+        if actor_org_id is not None:
+            stmt = stmt.where(
+                (Role.is_system.is_(True)) | (Role.org_id == actor_org_id)
+            )
+        result = await self._db.execute(stmt)
         return [RoleRead.model_validate(r) for r in result.scalars()]
 
     async def create_role(
@@ -57,14 +60,15 @@ class RoleService:
         *,
         created_by: uuid.UUID | None = None,
         actor_email: str | None = None,
+        org_id: uuid.UUID | None = None,
     ) -> RoleRead:
-        # Generate a unique slug-style ID
         role_id = f"custom_{uuid.uuid4().hex[:12]}"
         role = Role(
             id=role_id,
             display_name=data.display_name,
             description=data.description,
             is_system=False,
+            org_id=org_id,
         )
         self._db.add(role)
         await self._db.flush()
@@ -119,10 +123,13 @@ class RoleService:
         *,
         deleted_by: uuid.UUID | None = None,
         actor_email: str | None = None,
+        actor_org_id: uuid.UUID | None = None,
     ) -> None:
         role = await self._get_role(role_id)
         if role.is_system:
             raise RolePermissionError("System roles cannot be deleted")
+        if actor_org_id is not None and role.org_id != actor_org_id:
+            raise RolePermissionError("Cannot delete role from another organisation")
         await self._db.delete(role)
         await self._db.flush()
 

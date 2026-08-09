@@ -38,7 +38,8 @@ def _require_platform_admin(current_user: AuthDep) -> None:
 async def list_roles(current_user: AuthDep, db: DbDep) -> list[RoleRead]:
     if not current_user.has_role("platform_admin", "org_admin", "auditor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
-    return await RoleService(db).list_roles()
+    actor_org_id = None if current_user.has_role("platform_admin") else current_user.org_id
+    return await RoleService(db).list_roles(actor_org_id=actor_org_id)
 
 
 @router.post(
@@ -48,11 +49,14 @@ async def list_roles(current_user: AuthDep, db: DbDep) -> list[RoleRead]:
     summary="Create a custom role",
 )
 async def create_role(body: RoleCreate, current_user: AuthDep, db: DbDep) -> RoleRead:
-    _require_platform_admin(current_user)
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    org_id = None if current_user.has_role("platform_admin") else current_user.org_id
     return await RoleService(db).create_role(
         body,
         created_by=current_user.user_id,
         actor_email=getattr(current_user, "email", None),
+        org_id=org_id,
     )
 
 
@@ -80,12 +84,15 @@ async def update_role(
     summary="Delete a custom (non-system) role",
 )
 async def delete_role(role_id: str, current_user: AuthDep, db: DbDep) -> None:
-    _require_platform_admin(current_user)
+    if not current_user.has_role("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    actor_org_id = None if current_user.has_role("platform_admin") else current_user.org_id
     try:
         await RoleService(db).delete_role(
             role_id,
             deleted_by=current_user.user_id,
             actor_email=getattr(current_user, "email", None),
+            actor_org_id=actor_org_id,
         )
     except RoleNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
