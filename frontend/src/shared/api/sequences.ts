@@ -31,6 +31,17 @@ export interface SequenceUpdate {
   reset_on?: string | null;
 }
 
+export async function getSequence(
+  appId: string,
+  entityId: string,
+  sequenceId: string,
+): Promise<Sequence> {
+  const { data } = await apiClient.get<Sequence>(
+    `/apps/${appId}/entities/${entityId}/sequences/${sequenceId}`,
+  );
+  return data;
+}
+
 export async function listSequences(appId: string, entityId: string): Promise<Sequence[]> {
   const { data } = await apiClient.get<Sequence[]>(
     `/apps/${appId}/entities/${entityId}/sequences`,

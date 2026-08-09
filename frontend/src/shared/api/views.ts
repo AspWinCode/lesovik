@@ -169,3 +169,48 @@ export async function reorderPages(
   const { data } = await apiClient.put<PageRead[]>(`/apps/${appId}/pages/nav-order`, { pages });
   return data;
 }
+
+/* ── View Field Configs ── */
+
+export type WidgetType =
+  | "default" | "text" | "rich_text" | "number" | "checkbox"
+  | "date_picker" | "select" | "file_upload" | "image" | "relation" | "formula";
+
+export interface ViewFieldConfigItem {
+  field_name: string;
+  is_visible: boolean;
+  is_readonly: boolean;
+  display_order: number;
+  width: number | null;
+  widget_type: WidgetType | null;
+  widget_config: Record<string, unknown>;
+}
+
+export interface ViewFieldConfigRead extends ViewFieldConfigItem {
+  id: string;
+  view_id: string;
+}
+
+export async function listFieldConfigs(
+  appId: string,
+  entityId: string,
+  viewId: string,
+): Promise<ViewFieldConfigRead[]> {
+  const { data } = await apiClient.get<ViewFieldConfigRead[]>(
+    `/apps/${appId}/entities/${entityId}/views/${viewId}/fields`,
+  );
+  return data;
+}
+
+export async function replaceFieldConfigs(
+  appId: string,
+  entityId: string,
+  viewId: string,
+  fields: ViewFieldConfigItem[],
+): Promise<ViewFieldConfigRead[]> {
+  const { data } = await apiClient.put<ViewFieldConfigRead[]>(
+    `/apps/${appId}/entities/${entityId}/views/${viewId}/fields`,
+    { fields },
+  );
+  return data;
+}

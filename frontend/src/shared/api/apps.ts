@@ -65,6 +65,30 @@ export async function listApps(params?: {
   return data;
 }
 
+export async function getApp(appId: string): Promise<App> {
+  const { data } = await apiClient.get<App>(`/apps/${appId}`);
+  return data;
+}
+
+export interface LockInfo {
+  locked_by: string;
+  locked_at: string;
+  expires_at: string | null;
+}
+
+export async function getAppLock(appId: string): Promise<LockInfo | null> {
+  const { data } = await apiClient.get<LockInfo | null>(`/apps/${appId}/lock`);
+  return data;
+}
+
+export async function acquireAppLock(appId: string): Promise<void> {
+  await apiClient.post(`/apps/${appId}/lock`);
+}
+
+export async function releaseAppLock(appId: string): Promise<void> {
+  await apiClient.delete(`/apps/${appId}/lock`);
+}
+
 export async function createApp(body: AppCreate): Promise<App> {
   const { data } = await apiClient.post<App>("/apps", body);
   return data;

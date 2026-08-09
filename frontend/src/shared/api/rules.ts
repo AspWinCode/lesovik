@@ -48,6 +48,21 @@ export async function listRules(
   return data;
 }
 
+export async function getRule(appId: string, ruleId: string): Promise<Rule> {
+  const { data } = await apiClient.get<Rule>(`/apps/${appId}/rules/${ruleId}`);
+  return data;
+}
+
+export interface CycleCheckResponse {
+  has_cycles: boolean;
+  cycles: string[][];
+}
+
+export async function checkCycles(appId: string): Promise<CycleCheckResponse> {
+  const { data } = await apiClient.get<CycleCheckResponse>(`/apps/${appId}/rules/cycles`);
+  return data;
+}
+
 export async function deleteRule(appId: string, ruleId: string): Promise<void> {
   await apiClient.delete(`/apps/${appId}/rules/${ruleId}`);
 }

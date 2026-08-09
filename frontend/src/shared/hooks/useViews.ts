@@ -6,10 +6,12 @@ import {
   deleteView,
   getPage,
   getPagePermissions,
+  listFieldConfigs,
   listPages,
   listViews,
   publishPage,
   reorderPages,
+  replaceFieldConfigs,
   setDefaultView,
   setPagePermissions,
   unpublishPage,
@@ -21,6 +23,8 @@ import {
   type PageRolePermission,
   type PageUpdate,
   type ViewCreate,
+  type ViewFieldConfigItem,
+  type ViewFieldConfigRead,
   type ViewUpdate,
 } from "../api/views";
 
@@ -165,6 +169,34 @@ export function useSetPagePermissions(appId: string) {
     }) => setPagePermissions(appId, pageId, permissions),
     onSuccess: (_, { pageId }) => {
       void qc.invalidateQueries({ queryKey: PAGE_PERMS_KEY(pageId) });
+    },
+  });
+}
+
+/* ── View Field Configs ── */
+
+const FIELD_CONFIGS_KEY = (appId: string, entityId: string, viewId: string) =>
+  ["view-field-configs", appId, entityId, viewId] as const;
+
+export function useViewFieldConfigs(
+  appId: string | undefined,
+  entityId: string | undefined,
+  viewId: string | undefined,
+) {
+  return useQuery<ViewFieldConfigRead[]>({
+    queryKey: FIELD_CONFIGS_KEY(appId ?? "", entityId ?? "", viewId ?? ""),
+    queryFn: () => listFieldConfigs(appId!, entityId!, viewId!),
+    enabled: !!appId && !!entityId && !!viewId,
+  });
+}
+
+export function useReplaceFieldConfigs(appId: string, entityId: string, viewId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fields: ViewFieldConfigItem[]) =>
+      replaceFieldConfigs(appId, entityId, viewId, fields),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: FIELD_CONFIGS_KEY(appId, entityId, viewId) });
     },
   });
 }

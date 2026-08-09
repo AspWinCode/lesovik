@@ -1,20 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  acquireAppLock,
   addAppMember,
   cloneApp,
   createApp,
   createSnapshot,
   deleteApp,
+  getApp,
+  getAppLock,
   listAppMembers,
   listApps,
   listSnapshots,
   publishApp,
+  releaseAppLock,
   removeAppMember,
   rollbackSnapshot,
   updateApp,
   type AppCloneCreate,
   type AppCreate,
   type AppUpdate,
+  type LockInfo,
 } from "../api/apps";
 
 const APPS_KEY = ["apps"] as const;
@@ -23,6 +28,39 @@ export function useApps() {
   return useQuery({
     queryKey: APPS_KEY,
     queryFn: () => listApps(),
+  });
+}
+
+export function useApp(appId: string | undefined) {
+  return useQuery({
+    queryKey: ["app", appId],
+    queryFn: () => getApp(appId!),
+    enabled: !!appId,
+  });
+}
+
+export function useAppLock(appId: string | undefined) {
+  return useQuery<LockInfo | null>({
+    queryKey: ["app-lock", appId],
+    queryFn: () => getAppLock(appId!),
+    enabled: !!appId,
+    refetchInterval: 15_000,
+  });
+}
+
+export function useAcquireAppLock(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => acquireAppLock(appId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["app-lock", appId] }); },
+  });
+}
+
+export function useReleaseAppLock(appId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => releaseAppLock(appId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["app-lock", appId] }); },
   });
 }
 

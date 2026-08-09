@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activateRule,
   addStep,
+  checkCycles,
   createRule,
   deactivateRule,
   deleteRule,
   deleteStep,
+  getRule,
   listRuleLogs,
   listRules,
   listSteps,
@@ -139,5 +141,21 @@ export function useRuleLogs(appId: string | undefined, ruleId: string | undefine
     queryKey: ["rule-logs", appId, ruleId],
     queryFn: () => listRuleLogs(appId!, ruleId!),
     enabled: !!appId && !!ruleId && enabled,
+  });
+}
+
+export function useRule(appId: string | undefined, ruleId: string | undefined) {
+  return useQuery({
+    queryKey: ["rule", appId, ruleId],
+    queryFn: () => getRule(appId!, ruleId!),
+    enabled: !!appId && !!ruleId,
+  });
+}
+
+export function useCheckCycles(appId: string | undefined) {
+  return useQuery({
+    queryKey: ["rule-cycles", appId],
+    queryFn: () => checkCycles(appId!),
+    enabled: !!appId,
   });
 }
