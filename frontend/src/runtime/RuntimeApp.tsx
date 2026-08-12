@@ -988,7 +988,9 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   if (block.type === "lookup") {
     const cfg = block.config ?? {};
     const refEntityId = (cfg.entity_id as string) ?? "";
-    const displayField = (cfg.display_field as string) ?? "id";
+    const refEntity = entities?.find((e) => e.id === refEntityId);
+    const autoDisplayField = refEntity?.fields?.find((f) => !f.is_system)?.name ?? "id";
+    const displayField = (cfg.display_field as string) || autoDisplayField;
     const fieldName = (cfg.field_name as string) ?? "";
     const label = (cfg.label as string) ?? block.title ?? "";
     return (
