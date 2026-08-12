@@ -707,6 +707,23 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
   const colFieldDef = pivotEntity?.fields.find((f) => f.name === colField);
   const records = recordsQuery.data?.items ?? [];
 
+  const rowTargetEntityId = rowFieldDef?.field_type === "relation" ? (rowFieldDef.field_options?.target_entity_id as string | undefined) : undefined;
+  const rowRelQuery = useQuery({
+    queryKey: ["rt-records", appId, rowTargetEntityId, "pivot-rel"],
+    queryFn: () => listRecords(appId, rowTargetEntityId!, { limit: 200 }),
+    enabled: !!rowTargetEntityId,
+  });
+  const rowRelEntity = entities.find((e) => e.id === rowTargetEntityId);
+  const rowRelDisplayField = rowRelEntity?.fields.find((f) => !f.is_system && f.field_type === "text")?.name;
+
+  function resolveLabel(def: FieldRead | undefined, raw: string): string {
+    if (def?.field_type === "relation" && rowRelDisplayField) {
+      const rec = rowRelQuery.data?.items.find((r) => r.id === raw);
+      return rec ? String(rec.payload[rowRelDisplayField] ?? "—") : (raw ? raw.slice(0, 8) : "—");
+    }
+    return fieldLabel(def, raw);
+  }
+
   if (!entityId || !rowField) {
     return (
       <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
@@ -759,7 +776,7 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
                 const rowTotal = colField ? aggregate(rowVals, agg === "count" || agg === "sum" ? "sum" : agg) : rowVals[0];
                 return (
                   <tr key={rk} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 500 }}>{fieldLabel(rowFieldDef, rk)}</td>
+                    <td style={{ padding: "8px 12px", fontWeight: 500 }}>{resolveLabel(rowFieldDef, rk)}</td>
                     {rowVals.map((v, i) => (
                       <td key={colKeys[i]} style={{ padding: "8px 12px", textAlign: "right" }}>{Number.isFinite(v) ? v.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) : "—"}</td>
                     ))}
