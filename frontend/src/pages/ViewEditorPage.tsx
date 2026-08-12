@@ -331,21 +331,24 @@ export function ViewEditorPage() {
     })
     .filter((g) => g.views.length > 0);
 
-  // Warning: non-system pages with no blocks or data-view pages with no entity_id
+  // Warning: non-system pages with no blocks (excluding data-view pages, which
+  // render automatically from layout.entity_id and don't need blocks) or
+  // data-view pages missing their entity_id.
   const warningPages = pages.filter((p) => {
     const lay = (p.layout ?? {}) as Record<string, unknown>;
     if (lay.is_system) return false;
     const blks = (p.blocks ?? []) as unknown[];
     const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
-    return blks.length === 0 || (isDataView && !lay.entity_id);
+    if (isDataView) return !lay.entity_id;
+    return blks.length === 0;
   });
   const warnings = warningPages.map((p) => {
     const lay = (p.layout ?? {}) as Record<string, unknown>;
     const blks = (p.blocks ?? []) as unknown[];
     const isDataView = ["table", "calendar", "deck", "gallery", "gantt", "map"].includes(lay.view_type as string);
-    const name = (lay.name as string) || "Без названия";
-    if (blks.length === 0) return { pageId: p.id, message: `Страница «${name}» пустая`, hint: "Перейдите и добавьте хотя бы один блок" };
+    const name = p.title || "Без названия";
     if (isDataView && !lay.entity_id) return { pageId: p.id, message: `Представление «${name}» не настроено`, hint: "Выберите таблицу данных для этого представления" };
+    if (blks.length === 0) return { pageId: p.id, message: `Страница «${name}» пустая`, hint: "Перейдите и добавьте хотя бы один блок" };
     return { pageId: p.id, message: `«${name}»`, hint: "" };
   });
 
