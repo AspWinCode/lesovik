@@ -699,7 +699,7 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
 }) {
   const recordsQuery = useQuery({
     queryKey: ["rt-records", appId, entityId, "pivot"],
-    queryFn: () => listRecords(appId, entityId, { limit: 500 }),
+    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
     enabled: !!entityId,
   });
   const pivotEntity = entities.find((e) => e.id === entityId);
