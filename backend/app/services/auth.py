@@ -318,7 +318,7 @@ class AuthService:
         from app.services.session_policy import SessionPolicyService
 
         now = datetime.now(UTC)
-        access = create_access_token(user.id, user.role_ids, org_id=user.org_id)
+        access = create_access_token(user.id, user.role_ids, org_id=user.org_id, email=user.email)
         refresh = create_refresh_token(user.id)
 
         expires_at = datetime.fromtimestamp(
