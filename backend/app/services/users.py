@@ -8,12 +8,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.password_policy import PasswordPolicyError, validate_password
+from app.core.password_policy import PasswordPolicyError
 from app.core.security import hash_password
 from app.models.identity import Role, User, UserRole
 from app.schemas.common import CursorPage
 from app.schemas.users import AuditLogRead, InviteUserRequest, UserCreate, UserListParams, UserRead, UserUpdate
 from app.services.audit import AuditService
+from app.services.password_policy import PasswordPolicyService
 
 logger = structlog.get_logger(__name__)
 
@@ -104,7 +105,7 @@ class UserService:
     ) -> UserRead:
         # Validate password policy
         try:
-            validate_password(data.password)
+            await PasswordPolicyService(self._db).validate(data.password)
         except PasswordPolicyError as exc:
             raise ValueError(str(exc)) from exc
 
@@ -236,7 +237,7 @@ class UserService:
     ) -> None:
         user = await self._fetch_user(user_id)
         try:
-            validate_password(new_password)
+            await PasswordPolicyService(self._db).validate(new_password)
         except PasswordPolicyError as exc:
             raise ValueError(str(exc)) from exc
         user.password_hash = hash_password(new_password)
