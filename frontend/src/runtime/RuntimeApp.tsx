@@ -1370,7 +1370,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
                   style={{ ...inputStyleCss(), cursor: "pointer" }}
                 >
                   <option value="">— выберите —</option>
-                  {((f.field_options?.choices as { value: string; label: string }[]) ?? []).map((c) => (
+                  {normalizeChoices(f.field_options?.choices).map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
                 </select>
@@ -1606,7 +1606,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                               style={{ height: 26, padding: "0 4px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
                             >
                               <option value="">—</option>
-                              {((f.field_options?.choices as { value: string; label: string }[]) ?? []).map((c) => (
+                              {normalizeChoices(f.field_options?.choices).map((c) => (
                                 <option key={c.value} value={c.value}>{c.label}</option>
                               ))}
                             </select>
@@ -1676,7 +1676,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
     const groupField = cols.find((f) => f.field_type === "select");
     const groups: { label: string; items: RecordRead[] }[] = groupField
       ? (() => {
-          const choices = (groupField.field_options?.choices as { value: string; label: string }[]) ?? [];
+          const choices = normalizeChoices(groupField.field_options?.choices);
           const result = choices.map((c) => ({
             label: c.label,
             items: records.filter((r) => r.payload[groupField.name] === c.value),
@@ -2234,12 +2234,19 @@ function evalVisibilityCond(cond: VisibilityCond | null | undefined, payload: Re
   }
 }
 
+function normalizeChoices(raw: unknown): { value: string; label: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((c) =>
+    typeof c === "string" ? { value: c, label: c } : (c as { value: string; label: string })
+  );
+}
+
 function formatCell(value: unknown, field: FieldRead): string {
   if (value === null || value === undefined || value === "") return "—";
   if (field.field_type === "boolean") return value ? "✓" : "✗";
   if (field.field_type === "relation") return "—";
   if (field.field_type === "select") {
-    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    const choices = normalizeChoices(field.field_options?.choices);
     return choices.find((c) => c.value === value)?.label ?? String(value);
   }
   if (field.field_type === "currency" || field.field_type === "formula") {
