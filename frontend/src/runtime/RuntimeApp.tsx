@@ -1065,6 +1065,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         colors={colors}
         inputStyle={inputStyle}
         labelPosition={labelPosition}
+        entities={entities ?? []}
         onSuccess={onRecordCreated}
       />
     );
@@ -1461,7 +1462,7 @@ function LookupBlock({ appId, refEntityId, displayField, fieldName: _fieldName, 
   );
 }
 
-function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, labelPosition, onSuccess }: {
+function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, labelPosition, entities, onSuccess }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -1470,6 +1471,7 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   colors: AppColors;
   inputStyle: string;
   labelPosition: string;
+  entities: EntityRead[];
   onSuccess: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
@@ -1569,6 +1571,16 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
                     <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
                 </select>
+              ) : f.field_type === "relation" ? (
+                <RelationSelect
+                  appId={appId}
+                  targetEntityId={(f.field_options?.target_entity_id as string | undefined) ?? null}
+                  entities={entities}
+                  value={values[f.name] ?? ""}
+                  required={f.is_required}
+                  style={{ ...inputStyleCss(), cursor: "pointer" }}
+                  onChange={(v) => setValues((prev) => ({ ...prev, [f.name]: v }))}
+                />
               ) : (
                 <input
                   type={f.field_type === "number" ? "number" : f.field_type === "date" ? "date" : "text"}
@@ -1605,6 +1617,41 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
         </form>
       )}
     </section>
+  );
+}
+
+function RelationSelect({ appId, targetEntityId, entities, value, required, style, onChange }: {
+  appId: string; targetEntityId: string | null; entities: EntityRead[];
+  value: string; required?: boolean; style: React.CSSProperties; onChange: (v: string) => void;
+}) {
+  const relEnt = targetEntityId ? entities.find((e) => e.id === targetEntityId) : null;
+  const nonSysFields = relEnt?.fields?.filter((f) => !f.is_system) ?? [];
+  const displayField = (
+    nonSysFields.find((f) => f.field_type === "text") ??
+    nonSysFields.find((f) => ["phone", "email"].includes(f.field_type)) ??
+    nonSysFields.find((f) => ["number", "currency"].includes(f.field_type))
+  )?.name ?? "";
+
+  const q = useQuery({
+    queryKey: ["rt-records", appId, targetEntityId, "rel-select"],
+    queryFn: () => listRecords(appId, targetEntityId!, { limit: 200 }),
+    enabled: !!targetEntityId,
+  });
+  const options = q.data?.items ?? [];
+
+  if (!targetEntityId) {
+    return <input disabled placeholder="Связь не настроена" style={style} />;
+  }
+
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} required={required} style={style}>
+      <option value="">— выберите —</option>
+      {options.map((r) => (
+        <option key={r.id} value={r.id}>
+          {displayField ? String(r.payload[displayField] ?? r.id.slice(0, 8)) : r.id.slice(0, 8)}
+        </option>
+      ))}
+    </select>
   );
 }
 
