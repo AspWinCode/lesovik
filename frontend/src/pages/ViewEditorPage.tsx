@@ -167,7 +167,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   // Input blocks
   if (type === "text_field")   return { label: "Текстовое поле", placeholder: "", mask: "", required: false, validation: "" };
   if (type === "number_field") return { label: "Число", format: "number", currency: "RUB", unit: "", min: "", max: "", required: false };
-  if (type === "date_field")   return { label: "Дата", mode: "single", date_format: "DD.MM.YYYY", required: false };
+  if (type === "date_field")   return { label: "Дата", field_name: "", mode: "single", date_format: "DD.MM.YYYY", required: false };
   if (type === "dropdown")     return { label: "Список", source: "static", options: "Вариант 1\nВариант 2", multiple: false, entity_id: "", display_field: "" };
   if (type === "toggle")       return { label: "Вкл/Выкл", default_value: false };
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
@@ -2788,6 +2788,12 @@ function BlockInlineSettings({
 
       {block.type === "date_field" && (
         <>
+          <ConfigSelect
+            label="Поле"
+            value={(block.config.field_name as string) ?? ""}
+            options={fieldOptions(fields, "— выберите —")}
+            onChange={(field_name) => onConfigChange({ field_name })}
+          />
           <ConfigSegmented
             label="Режим"
             value={(block.config.mode as string) ?? "single"}

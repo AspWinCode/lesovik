@@ -959,6 +959,43 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
+  if (block.type === "date_field") {
+    const cfg = block.config ?? {};
+    const fieldName = (cfg.field_name as string) ?? "";
+    const label = (cfg.label as string) ?? block.title ?? "";
+    const mode = (cfg.mode as string) ?? "single";
+    const inputSt: React.CSSProperties = {
+      height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8,
+      border: `1px solid ${colors.border}`, background: colors.surface,
+      color: colors.text, outline: "none", width: "100%", boxSizing: "border-box",
+    };
+    if (mode === "range") {
+      const rawValue = fieldName ? formValues?.[fieldName] : undefined;
+      const [fromValue, toValue] = typeof rawValue === "string" ? rawValue.split("|") : ["", ""];
+      const setRange = (from: string, to: string) => fieldName && onFormChange?.(fieldName, `${from}|${to}`);
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="date" value={fromValue ?? ""} onChange={(e) => setRange(e.target.value, toValue ?? "")} style={inputSt} />
+            <input type="date" value={toValue ?? ""} onChange={(e) => setRange(fromValue ?? "", e.target.value)} style={inputSt} />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+        <input
+          type="date"
+          value={fieldName ? String(formValues?.[fieldName] ?? "") : ""}
+          onChange={(e) => fieldName && onFormChange?.(fieldName, e.target.value)}
+          style={inputSt}
+        />
+      </div>
+    );
+  }
+
   if (block.type === "number_field") {
     const cfg = block.config ?? {};
     const fieldName = (cfg.field_name as string) ?? "";
