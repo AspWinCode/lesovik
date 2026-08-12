@@ -1055,11 +1055,14 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   }
 
   if (block.type === "form") {
+    const formEntityId = block.config?.entity_id as string | undefined;
+    const formEntity = formEntityId ? (entities?.find((e) => e.id === formEntityId) ?? entity) : entity;
+    const formCols = formEntityId ? (formEntity?.fields ?? []).filter((f) => !f.is_system) : cols;
     return (
       <FormBlock
         block={block}
-        entity={entity}
-        cols={cols}
+        entity={formEntity}
+        cols={formCols}
         appId={appId}
         accent={accent}
         colors={colors}
