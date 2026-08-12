@@ -675,6 +675,150 @@ function ImportBlock({ block, appId, entityId, parseCSV, accent, colors, onDone 
   );
 }
 
+function aggregate(values: number[], agg: string): number {
+  if (values.length === 0) return 0;
+  if (agg === "sum") return values.reduce((a, b) => a + b, 0);
+  if (agg === "avg") return values.reduce((a, b) => a + b, 0) / values.length;
+  if (agg === "min") return Math.min(...values);
+  if (agg === "max") return Math.max(...values);
+  return values.length; // count
+}
+
+function fieldLabel(f: FieldRead | undefined, raw: unknown): string {
+  if (raw === null || raw === undefined || raw === "") return "—";
+  if (f?.field_type === "select") {
+    const choices = normalizeChoices(f.field_options?.choices);
+    return choices.find((c) => c.value === raw)?.label ?? String(raw);
+  }
+  return String(raw);
+}
+
+function PivotBlock({ appId, entities, title, entityId, rowField, colField, valueField, agg, colors }: {
+  appId: string; entities: EntityRead[]; title?: string | null; entityId: string;
+  rowField: string; colField: string; valueField: string; agg: string; colors: AppColors;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, entityId, "pivot"],
+    queryFn: () => listRecords(appId, entityId, { limit: 500 }),
+    enabled: !!entityId,
+  });
+  const pivotEntity = entities.find((e) => e.id === entityId);
+  const rowFieldDef = pivotEntity?.fields.find((f) => f.name === rowField);
+  const colFieldDef = pivotEntity?.fields.find((f) => f.name === colField);
+  const records = recordsQuery.data?.items ?? [];
+
+  if (!entityId || !rowField) {
+    return (
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
+        Сводная таблица не настроена.
+      </section>
+    );
+  }
+
+  const rowKeys = Array.from(new Set(records.map((r) => String(r.payload[rowField] ?? "")))).sort();
+  const colKeys = colField ? Array.from(new Set(records.map((r) => String(r.payload[colField] ?? "")))).sort() : ["_all"];
+
+  function cellValue(rowKey: string, colKey: string): number {
+    const bucket = records.filter((r) =>
+      String(r.payload[rowField] ?? "") === rowKey &&
+      (colField ? String(r.payload[colField] ?? "") === colKey : true)
+    );
+    const nums = bucket.map((r) => Number(r.payload[valueField]) || 0);
+    return aggregate(nums, agg);
+  }
+
+  const aggLabel: Record<string, string> = { count: "Кол-во", sum: "Сумма", avg: "Среднее", min: "Минимум", max: "Максимум" };
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", color: colors.text }}>
+        <span>{title ?? "Сводная таблица"}</span>
+        <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 13 }}>{aggLabel[agg] ?? agg}{valueField ? ` · ${pivotEntity?.fields.find((f) => f.name === valueField)?.display_name ?? valueField}` : ""}</span>
+      </div>
+      {rowKeys.length === 0 ? (
+        <p style={{ padding: 14, color: colors.textMuted, fontSize: 14 }}>Нет данных.</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted }}>
+                  {rowFieldDef?.display_name ?? rowField}
+                </th>
+                {colKeys.map((ck) => (
+                  <th key={ck} style={{ textAlign: "right", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>
+                    {colField ? fieldLabel(colFieldDef, ck) : (aggLabel[agg] ?? agg)}
+                  </th>
+                ))}
+                <th style={{ textAlign: "right", padding: "8px 12px", fontWeight: 600, color: colors.textMuted }}>Итого</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rowKeys.map((rk) => {
+                const rowVals = colKeys.map((ck) => cellValue(rk, ck));
+                const rowTotal = colField ? aggregate(rowVals, agg === "count" || agg === "sum" ? "sum" : agg) : rowVals[0];
+                return (
+                  <tr key={rk} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 500 }}>{fieldLabel(rowFieldDef, rk)}</td>
+                    {rowVals.map((v, i) => (
+                      <td key={colKeys[i]} style={{ padding: "8px 12px", textAlign: "right" }}>{Number.isFinite(v) ? v.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) : "—"}</td>
+                    ))}
+                    <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600 }}>{Number.isFinite(rowTotal) ? rowTotal.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ChartBlock({ title, chartType, records, labelField, valueField, colors, accent }: {
+  title?: string | null; chartType: string; records: RecordRead[];
+  labelField: string; valueField: string; colors: AppColors; accent: string;
+}) {
+  const points = records.map((r) => ({
+    label: String(r.payload[labelField] ?? ""),
+    value: Number(r.payload[valueField]) || 0,
+  }));
+  const max = Math.max(1, ...points.map((p) => p.value));
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>
+        {title ?? "Диаграмма"}
+      </div>
+      {points.length === 0 || !valueField ? (
+        <p style={{ padding: 14, color: colors.textMuted, fontSize: 14 }}>Нет данных для отображения.</p>
+      ) : chartType === "line" ? (
+        <svg viewBox={`0 0 ${Math.max(100, points.length * 60)} 160`} style={{ width: "100%", height: 180, display: "block" }} preserveAspectRatio="none">
+          <polyline
+            fill="none"
+            stroke={accent}
+            strokeWidth={2}
+            points={points.map((p, i) => `${i * 60 + 30},${140 - (p.value / max) * 120}`).join(" ")}
+          />
+          {points.map((p, i) => (
+            <circle key={i} cx={i * 60 + 30} cy={140 - (p.value / max) * 120} r={3} fill={accent} />
+          ))}
+        </svg>
+      ) : (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 12, padding: 16, height: 180, overflowX: "auto" }}>
+          {points.map((p, i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 48 }}>
+              <span style={{ fontSize: 12, color: colors.text }}>{p.value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</span>
+              <div style={{ width: 32, height: Math.max(2, (p.value / max) * 120), background: accent, borderRadius: "4px 4px 0 0" }} />
+              <span style={{ fontSize: 11, color: colors.textMuted, whiteSpace: "nowrap", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }} title={p.label}>{p.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus, onRowClick }: {
   block: PageBlock;
   entity: EntityRead | null;
@@ -998,6 +1142,40 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
           <span style={{ fontSize: 12, color: colors.textMuted }}>{records.length} записей</span>
         )}
       </div>
+    );
+  }
+
+  if (block.type === "pivot") {
+    const cfg = block.config ?? {};
+    return (
+      <PivotBlock
+        appId={appId}
+        entities={entities ?? []}
+        title={block.title}
+        entityId={(cfg.entity_id as string) || entity?.id || ""}
+        rowField={(cfg.row_field as string) ?? ""}
+        colField={(cfg.col_field as string) ?? ""}
+        valueField={(cfg.value_field as string) ?? ""}
+        agg={(cfg.agg as string) ?? "count"}
+        colors={colors}
+      />
+    );
+  }
+
+  if (block.type === "chart") {
+    const cfg = block.config ?? {};
+    const valueField = (cfg.value_field as string) ?? "";
+    const labelField = cols.find((f) => f.field_type === "text")?.name ?? cols[0]?.name ?? "id";
+    return (
+      <ChartBlock
+        title={block.title}
+        chartType={(cfg.chart_type as string) ?? "bar"}
+        records={records}
+        labelField={labelField}
+        valueField={valueField}
+        colors={colors}
+        accent={accent}
+      />
     );
   }
 
