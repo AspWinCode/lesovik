@@ -172,7 +172,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "toggle")       return { label: "Вкл/Выкл", default_value: false };
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
   if (type === "file_upload")  return { label: "Файл", accept: "*", max_size_mb: 10, multiple: false };
-  if (type === "lookup")           return { label: "Справочник", entity_id: "", display_field: "", multiple: false };
+  if (type === "lookup")           return { label: "Справочник", field_name: "", entity_id: "", display_field: "", multiple: false };
   if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica" };
   // Display
   if (type === "record_card")  return { entity_id: "", fields: [] };
@@ -2892,6 +2892,12 @@ function BlockInlineSettings({
 
       {block.type === "lookup" && (
         <>
+          <ConfigSelect
+            label="Поле"
+            value={(block.config.field_name as string) ?? ""}
+            options={fieldOptions(fields, "— выберите —")}
+            onChange={(field_name) => onConfigChange({ field_name })}
+          />
           <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
           <ConfigSelect
             label="Поле-подпись"
