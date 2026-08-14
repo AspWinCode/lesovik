@@ -173,7 +173,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
   if (type === "file_upload")  return { label: "Файл", accept: "*", max_size_mb: 10, multiple: false };
   if (type === "lookup")           return { label: "Справочник", field_name: "", entity_id: "", display_field: "", multiple: false };
-  if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica" };
+  if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica", extra_lookup_entity_id: "", extra_lookup_display_field: "", extra_lookup_label: "Раздел", positions_entity_id: "", parent_field: "", item_field: "", extra_field: "", qty_field: "kolichestvo", row_total_field: "", total_field: "" };
   // Display
   if (type === "record_card")  return { entity_id: "", fields: [] };
   if (type === "pivot")        return { entity_id: "", row_field: "", col_field: "", value_field: "", agg: "count" };
@@ -3069,6 +3069,69 @@ function BlockInlineSettings({
             value={(block.config.catalog_unit_field as string) ?? "edinica"}
             onChange={(catalog_unit_field) => onConfigChange({ catalog_unit_field })}
             placeholder="edinica"
+          />
+
+          <div className="col-span-2 text-[11px] font-medium text-primary/50 uppercase tracking-wide pt-2">Доп. привязка на строку (опционально)</div>
+          <ConfigSelect
+            label="Доп. сущность"
+            value={(block.config.extra_lookup_entity_id as string) ?? ""}
+            options={entityOptions}
+            onChange={(extra_lookup_entity_id) => onConfigChange({ extra_lookup_entity_id })}
+          />
+          <ConfigSelect
+            label="Доп. поле-подпись"
+            value={(block.config.extra_lookup_display_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.extra_lookup_entity_id as string), "— авто —")}
+            onChange={(extra_lookup_display_field) => onConfigChange({ extra_lookup_display_field })}
+          />
+          <ConfigInput
+            label="Подпись доп. поля"
+            value={(block.config.extra_lookup_label as string) ?? "Раздел"}
+            onChange={(extra_lookup_label) => onConfigChange({ extra_lookup_label })}
+          />
+
+          <div className="col-span-2 text-[11px] font-medium text-primary/50 uppercase tracking-wide pt-2">Сохранение строк</div>
+          <ConfigSelect
+            label="Дочерняя сущность"
+            value={(block.config.positions_entity_id as string) ?? ""}
+            options={entityOptions}
+            onChange={(positions_entity_id) => onConfigChange({ positions_entity_id })}
+          />
+          <ConfigSelect
+            label="Поле родителя"
+            value={(block.config.parent_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
+            onChange={(parent_field) => onConfigChange({ parent_field })}
+          />
+          <ConfigSelect
+            label="Поле позиции"
+            value={(block.config.item_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
+            onChange={(item_field) => onConfigChange({ item_field })}
+          />
+          <ConfigSelect
+            label="Поле доп. привязки"
+            value={(block.config.extra_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
+            onChange={(extra_field) => onConfigChange({ extra_field })}
+          />
+          <ConfigSelect
+            label="Поле количества"
+            value={(block.config.qty_field as string) ?? "kolichestvo"}
+            options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
+            onChange={(qty_field) => onConfigChange({ qty_field })}
+          />
+          <ConfigSelect
+            label="Поле суммы строки"
+            value={(block.config.row_total_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
+            onChange={(row_total_field) => onConfigChange({ row_total_field })}
+          />
+          <ConfigSelect
+            label="Поле итога (в этой записи)"
+            value={(block.config.total_field as string) ?? ""}
+            options={fieldOptions(fields, "— не сохранять —")}
+            onChange={(total_field) => onConfigChange({ total_field })}
           />
         </>
       )}
