@@ -499,40 +499,18 @@ class RecordService:
     async def _cascade_soft_delete(
         self, entity_id: uuid.UUID, record_id: uuid.UUID, seen: set[tuple[uuid.UUID, uuid.UUID]]
     ) -> None:
-        """Soft-delete children in both relation directions (excluding MANY_TO_MANY)."""
+        """Soft-delete dependents: records in other entities whose relation field
+        points at this record (excluding MANY_TO_MANY).
+
+        Deliberately one-directional: a record's own outgoing relation fields
+        point at records it merely references (e.g. a shared catalog entry),
+        not records it owns. Cascading in that direction would soft-delete
+        unrelated rows still referenced elsewhere (see incident: deleting a
+        "Детали отчёта" row cascaded into soft-deleting the referenced
+        "Операция"/"Раздел предприятия" catalog records).
+        """
         cascade_types = ("one_to_one", "one_to_many")
 
-        # 1. Outgoing: this entity's record holds IDs of children in to_entity
-        out_rels = (await self._db.execute(
-            select(Relation).where(
-                Relation.from_entity_id == entity_id,
-                Relation.relation_type.in_(cascade_types),
-            )
-        )).scalars().all()
-
-        # Fetch the record payload once to read outgoing FK values
-        rec_result = await self._db.execute(
-            select(Record).where(
-                Record.entity_id == entity_id,
-                Record.id == record_id,
-            )
-        )
-        parent_record = rec_result.scalar_one_or_none()
-
-        if parent_record:
-            for rel in out_rels:
-                raw = parent_record.payload.get(rel.from_field_name)
-                if not raw:
-                    continue
-                child_ids = raw if isinstance(raw, list) else [raw]
-                for child_id_raw in child_ids:
-                    try:
-                        child_id = uuid.UUID(str(child_id_raw))
-                    except (ValueError, AttributeError):
-                        continue
-                    await self._soft_delete_child(rel.to_entity_id, child_id, record_id, seen)
-
-        # 2. Incoming: other entities' records hold this record's ID
         in_rels = (await self._db.execute(
             select(Relation).where(
                 Relation.to_entity_id == entity_id,
