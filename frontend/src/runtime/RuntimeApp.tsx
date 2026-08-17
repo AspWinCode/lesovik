@@ -7,6 +7,7 @@ import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api
 import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
 import { listRecords, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
 import { apiClient } from "@/shared/api/client";
+import { fetchMe } from "@/shared/api/auth";
 import { parseStaticOptions, groupRecordsByField, buildRecordTree } from "./blockHelpers";
 
 interface PageBlock {
@@ -1238,6 +1239,29 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
+  if (block.type === "responsible") {
+    const cfg = block.config ?? {};
+    const refEntityId = (cfg.entity_id as string) ?? "";
+    const refEntity = entities?.find((e) => e.id === refEntityId);
+    const autoDisplayField = refEntity?.fields?.find((f) => !f.is_system)?.name ?? "id";
+    const displayField = (cfg.display_field as string) || autoDisplayField;
+    const matchField = (cfg.match_field as string) || displayField;
+    const fieldName = (cfg.field_name as string) ?? "";
+    const label = (cfg.label as string) ?? block.title ?? "";
+    return (
+      <ResponsibleBlock
+        appId={appId}
+        refEntityId={refEntityId}
+        displayField={displayField}
+        matchField={matchField}
+        label={label}
+        value={fieldName ? String(formValues?.[fieldName] ?? "") : ""}
+        onChange={(v) => fieldName && onFormChange?.(fieldName, v)}
+        colors={colors}
+      />
+    );
+  }
+
   if (block.type === "button") {
     const cfg = block.config ?? {};
     const actionType = (cfg.actionType as string) ?? "url";
@@ -1893,6 +1917,51 @@ function LookupBlock({ appId, refEntityId, displayField, fieldName: _fieldName, 
     enabled: !!refEntityId,
   });
   const options = recordsQuery.data?.items ?? [];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.text, outline: "none", width: "100%", boxSizing: "border-box" }}
+      >
+        <option value="">— выберите —</option>
+        {options.map((r) => (
+          <option key={r.id} value={r.id}>{String(r.payload[displayField] ?? r.id)}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ResponsibleBlock({ appId, refEntityId, displayField, matchField, label, value, onChange, colors }: {
+  appId: string; refEntityId: string; displayField: string; matchField: string;
+  label: string; value: string; onChange: (v: string) => void; colors: AppColors;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, refEntityId],
+    queryFn: () => listRecords(appId, refEntityId, { limit: 200 }),
+    enabled: !!refEntityId,
+  });
+  const currentUserQuery = useQuery({
+    queryKey: ["current-user"],
+    queryFn: fetchMe,
+    staleTime: 5 * 60 * 1000,
+  });
+  const options = recordsQuery.data?.items ?? [];
+
+  // Auto-select once: match the logged-in account's display name against
+  // matchField, exact + case-insensitive. Never overrides a value already
+  // present (user's own pick, or an existing record being edited).
+  const autoSelected = useRef(false);
+  useEffect(() => {
+    if (autoSelected.current || value || !currentUserQuery.data || options.length === 0) return;
+    autoSelected.current = true;
+    const target = currentUserQuery.data.display_name.trim().toLowerCase();
+    const match = options.find((r) => String(r.payload[matchField] ?? "").trim().toLowerCase() === target);
+    if (match) onChange(match.id);
+  }, [value, currentUserQuery.data, options, matchField, onChange]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}

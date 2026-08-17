@@ -48,7 +48,7 @@ const EDITOR_TABS = ["Представления", "Правила формир�
 type PageBlockType =
   // Input
   | "text_field" | "number_field" | "date_field" | "dropdown" | "toggle" | "checkbox"
-  | "file_upload" | "lookup" | "form" | "positions_picker"
+  | "file_upload" | "lookup" | "responsible" | "form" | "positions_picker"
   // Display
   | "table" | "record_card" | "metric" | "kpi" | "chart" | "pivot"
   | "calendar" | "kanban" | "gantt" | "tree" | "rich_text" | "view"
@@ -108,6 +108,7 @@ const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; gro
   checkbox:     { label: "Чекбокс",          desc: "Галочка для булевого поля",            group: "Ввод" },
   file_upload:  { label: "Загрузка файла",    desc: "Файлы с контролем формата и размера",  group: "Ввод" },
   lookup:       { label: "Справочник",        desc: "Ссылка на запись другой сущности",     group: "Ввод" },
+  responsible:  { label: "Ответственный",     desc: "Список с автоподстановкой текущего пользователя", group: "Ввод" },
   form:             { label: "Форма ввода",       desc: "Группа полей для создания/редактирования записи", group: "Ввод" },
   positions_picker: { label: "Выбор позиций",    desc: "Таблица позиций из каталога (товары, услуги)",    group: "Ввод" },
   // Display
@@ -138,7 +139,7 @@ const BLOCK_TYPE_META: Record<PageBlockType, { label: string; desc?: string; gro
 const BLOCK_GROUPS: { id: string; label: string; types: PageBlockType[] }[] = [
   {
     id: "input", label: "Ввод",
-    types: ["text_field", "number_field", "date_field", "dropdown", "toggle", "checkbox", "file_upload", "lookup", "form", "positions_picker"],
+    types: ["text_field", "number_field", "date_field", "dropdown", "toggle", "checkbox", "file_upload", "lookup", "responsible", "form", "positions_picker"],
   },
   {
     id: "display", label: "Отображение",
@@ -173,6 +174,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
   if (type === "file_upload")  return { label: "Файл", field_name: "", accept: "*", max_size_mb: 10, multiple: false };
   if (type === "lookup")           return { label: "Справочник", field_name: "", entity_id: "", display_field: "", multiple: false };
+  if (type === "responsible")      return { label: "Ответственный", field_name: "", entity_id: "", display_field: "", match_field: "" };
   if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica", extra_lookup_entity_id: "", extra_lookup_display_field: "", extra_lookup_label: "Раздел", positions_entity_id: "", parent_field: "", item_field: "", extra_field: "", qty_field: "kolichestvo", row_total_field: "", total_field: "" };
   // Display
   if (type === "record_card")  return { entity_id: "", fields: [] };
@@ -2710,7 +2712,7 @@ function BlockInlineSettings({
       {/* ── Input blocks ── */}
       {(block.type === "text_field" || block.type === "number_field" || block.type === "date_field" ||
         block.type === "dropdown" || block.type === "toggle" || block.type === "checkbox" ||
-        block.type === "file_upload" || block.type === "lookup") && (
+        block.type === "file_upload" || block.type === "lookup" || block.type === "responsible") && (
         <ConfigInput
           label="Подпись поля"
           value={(block.config.label as string) ?? ""}
@@ -2933,6 +2935,30 @@ function BlockInlineSettings({
             value={(block.config.multiple as boolean) ? "yes" : "no"}
             options={[{ value: "no", label: "Нет" }, { value: "yes", label: "Да" }]}
             onChange={(v) => onConfigChange({ multiple: v === "yes" })}
+          />
+        </>
+      )}
+
+      {block.type === "responsible" && (
+        <>
+          <ConfigSelect
+            label="Поле"
+            value={(block.config.field_name as string) ?? ""}
+            options={fieldOptions(fields, "— выберите —")}
+            onChange={(field_name) => onConfigChange({ field_name })}
+          />
+          <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
+          <ConfigSelect
+            label="Поле-подпись"
+            value={(block.config.display_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.entity_id as string), "— авто —")}
+            onChange={(display_field) => onConfigChange({ display_field })}
+          />
+          <ConfigSelect
+            label="Поле для сопоставления с ФИО аккаунта"
+            value={(block.config.match_field as string) ?? ""}
+            options={fieldOptions(entityFields(block.config.entity_id as string), "— как поле-подпись —")}
+            onChange={(match_field) => onConfigChange({ match_field })}
           />
         </>
       )}
