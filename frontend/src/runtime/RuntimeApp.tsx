@@ -676,7 +676,7 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
                     );
                   }
                   return (
-                    <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
+                    <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>{formatCell(fieldValue(rec, f), f)}</td>
                   );
                 })}
               </tr>
@@ -1377,7 +1377,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
                       entities={entities ?? []}
                     />
                   ) : (
-                    String(rec.payload[f.name] ?? "—")
+                    String(fieldValue(rec, f) ?? "—")
                   )}
                 </div>
               </div>
@@ -1572,7 +1572,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
       const header = cols.map((f) => f.display_name).join(",");
       const rows = records.map((r) =>
         cols.map((f) => {
-          const v = r.payload[f.name];
+          const v = fieldValue(r, f);
           const s = v == null ? "" : String(v);
           return s.includes(",") || s.includes('"') || s.includes("\n")
             ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1707,7 +1707,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
                       );
                     }
                     return (
-                      <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(rec.payload[f.name], f)}</td>
+                      <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(fieldValue(rec, f), f)}</td>
                     );
                   })}
                 </tr>
@@ -2444,7 +2444,10 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
 
   function startEdit(rec: RecordRead) {
     const vals: Record<string, string> = {};
-    cols.forEach((f) => { vals[f.name] = rec.payload[f.name] != null ? String(rec.payload[f.name]) : ""; });
+    cols.forEach((f) => {
+      if (f.is_system) return;
+      vals[f.name] = rec.payload[f.name] != null ? String(rec.payload[f.name]) : "";
+    });
     setEditValues(vals);
     setEditRowId(rec.id);
   }
@@ -2455,6 +2458,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
     try {
       const payload: Record<string, unknown> = {};
       cols.forEach((f) => {
+        if (f.is_system) return;
         const v = editValues[f.name];
         if (v !== undefined) {
           if (f.field_type === "number" || f.field_type === "decimal") payload[f.name] = v === "" ? null : Number(v);
@@ -2489,13 +2493,14 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   if (viewType === "table") {
     const q = filterText.toLowerCase();
     const filtered = q
-      ? records.filter((r) => cols.some((f) => String(r.payload[f.name] ?? "").toLowerCase().includes(q)))
+      ? records.filter((r) => cols.some((f) => String(fieldValue(r, f) ?? "").toLowerCase().includes(q)))
       : records;
 
+    const sortFieldDef = cols.find((f) => f.name === sortField);
     const sorted = sortField
       ? [...filtered].sort((a, b) => {
-          const av = String(a.payload[sortField] ?? "");
-          const bv = String(b.payload[sortField] ?? "");
+          const av = String((sortFieldDef ? fieldValue(a, sortFieldDef) : a.payload[sortField]) ?? "");
+          const bv = String((sortFieldDef ? fieldValue(b, sortFieldDef) : b.payload[sortField]) ?? "");
           return sortDir === "asc" ? av.localeCompare(bv, "ru") : bv.localeCompare(av, "ru");
         })
       : filtered;
@@ -2573,7 +2578,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                   >
                     {cols.map((f) => (
                       <td key={f.id} style={{ padding: colPadding, whiteSpace: "nowrap" }}>
-                        {isEditing ? (
+                        {isEditing && !f.is_system ? (
                           (f.field_type === "select" || f.field_type === "multi_select") ? (
                             <select
                               value={editValues[f.name] ?? ""}
@@ -2602,7 +2607,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                             entities={entities}
                           />
                         ) : (
-                          formatCell(rec.payload[f.name], f)
+                          formatCell(fieldValue(rec, f), f)
                         )}
                       </td>
                     ))}
@@ -2847,7 +2852,7 @@ function ListView({ title, cols, records, accent, colors, onRowClick }: {
                   {subCols.length > 0 && (
                     <div style={{ display: "flex", gap: 12, marginTop: 2, flexWrap: "wrap" }}>
                       {subCols.map((f) => {
-                        const val = rec.payload[f.name];
+                        const val = fieldValue(rec, f);
                         if (val === null || val === undefined || val === "") return null;
                         return (
                           <span key={f.id} style={{ fontSize: 12, color: colors.textMuted }}>
@@ -2914,7 +2919,7 @@ function DetailView({ title, cols, records, accent, initialRecordId }: {
           {cols.map((f) => (
             <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#8898AA", textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</span>
-              <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>{formatCell(rec.payload[f.name], f)}</span>
+              <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>{formatCell(fieldValue(rec, f), f)}</span>
             </div>
           ))}
         </div>
@@ -3216,6 +3221,21 @@ function normalizeChoices(raw: unknown): { value: string; label: string }[] {
   return raw.map((c) =>
     typeof c === "string" ? { value: c, label: c } : (c as { value: string; label: string })
   );
+}
+
+/** System fields (id, created_at, updated_at, author_id, is_deleted) live as
+ * top-level RecordRead properties, not inside payload - reading
+ * rec.payload[f.name] for them is always undefined. */
+function fieldValue(rec: RecordRead, f: FieldRead): unknown {
+  if (!f.is_system) return rec.payload[f.name];
+  switch (f.name) {
+    case "id": return rec.id;
+    case "created_at": return rec.created_at;
+    case "updated_at": return rec.updated_at;
+    case "author_id": return rec.created_by;
+    case "is_deleted": return rec.is_deleted;
+    default: return rec.payload[f.name];
+  }
 }
 
 function formatCell(value: unknown, field: FieldRead): string {
