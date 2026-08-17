@@ -147,6 +147,59 @@ async def create_record(
     return record
 
 
+_EXPORT_CONTENT_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv; charset=utf-8",
+    "pdf": "application/pdf",
+}
+
+
+@router.get("/export", tags=["records"])
+async def export_records(
+    app_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    current_user: AuthDep,
+    db: DbDep,
+    format: str = Query(default="xlsx", pattern=r"^(xlsx|csv|pdf)$"),
+    filter: list[str] = Query(default=[]),
+    sort: str | None = Query(default=None),
+    sort_dir: str = Query(default="asc", pattern=r"^(asc|desc)$"),
+    limit: int = Query(default=5000, ge=1, le=10000, description="Max rows to export"),
+) -> Response:
+    """Export entity records as XLSX, CSV, or PDF. Returns the file directly."""
+    await _resolve_entity(app_id, entity_id, current_user, db)
+
+    try:
+        parsed_filters = parse_filters(filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    params = RecordListParams(
+        limit=limit,
+        filters=parsed_filters,
+        sort_field=sort,
+        sort_dir=sort_dir,
+    )
+
+    try:
+        file_bytes = await ExportService(db).export(entity_id, params, format=format)
+    except ExportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    content_type = _EXPORT_CONTENT_TYPES[format]
+    filename = f"export_{entity_id}.{format}"
+    return Response(
+        content=file_bytes,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# NOTE: registered before GET "/{record_id}" — a bare /export path would
+# otherwise match the {record_id}: uuid.UUID route first (and fail 422,
+# since "export" isn't a valid UUID) since Starlette matches routes in
+# registration order. Same reasoning applies to any other literal-suffix
+# route under this prefix (e.g. /import) if one is ever added as a GET.
 @router.get("/{record_id}", response_model=RecordRead)
 async def get_record(
     app_id: uuid.UUID,
@@ -310,54 +363,6 @@ async def get_download_url(
         return await svc.get_download_url(file_id, expires=expires)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found") from exc
-
-
-_EXPORT_CONTENT_TYPES = {
-    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "csv": "text/csv; charset=utf-8",
-    "pdf": "application/pdf",
-}
-
-
-@router.get("/export", tags=["records"])
-async def export_records(
-    app_id: uuid.UUID,
-    entity_id: uuid.UUID,
-    current_user: AuthDep,
-    db: DbDep,
-    format: str = Query(default="xlsx", pattern=r"^(xlsx|csv|pdf)$"),
-    filter: list[str] = Query(default=[]),
-    sort: str | None = Query(default=None),
-    sort_dir: str = Query(default="asc", pattern=r"^(asc|desc)$"),
-    limit: int = Query(default=5000, ge=1, le=10000, description="Max rows to export"),
-) -> Response:
-    """Export entity records as XLSX, CSV, or PDF. Returns the file directly."""
-    await _resolve_entity(app_id, entity_id, current_user, db)
-
-    try:
-        parsed_filters = parse_filters(filter)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-
-    params = RecordListParams(
-        limit=limit,
-        filters=parsed_filters,
-        sort_field=sort,
-        sort_dir=sort_dir,
-    )
-
-    try:
-        file_bytes = await ExportService(db).export(entity_id, params, format=format)
-    except ExportError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-    content_type = _EXPORT_CONTENT_TYPES[format]
-    filename = f"export_{entity_id}.{format}"
-    return Response(
-        content=file_bytes,
-        media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 @router.post("/import/preview", tags=["records"])
