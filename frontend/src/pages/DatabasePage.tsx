@@ -5,7 +5,7 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities, useCreateEntity, useCreateField, useRelations, useCreateRelation, useDeleteRelation } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
-import { uploadRecordFile, getRecordFileDownloadUrl } from "@/shared/api/records";
+import { uploadRecordFile, getRecordFileDownloadUrl, listRecords, type RecordRead } from "@/shared/api/records";
 import { normalizeChoices } from "@/shared/lib/choices";
 import type { FieldRead, FieldType } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
@@ -92,7 +92,44 @@ export function DatabasePage() {
   }, [entities, params]);
 
   const recordsQuery = useRecords(appId, entity?.id, { limit: 100 });
-  const records = recordsQuery.data?.items ?? [];
+  const firstPage = recordsQuery.data?.items ?? [];
+
+  // The first page tops out at 100 rows; "Показать ещё" appends further
+  // cursor pages on demand instead of silently hiding everything past #100.
+  const [extraRecords, setExtraRecords] = useState<RecordRead[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadedEntityId = useRef<string | undefined>(undefined);
+
+  if (entity?.id !== loadedEntityId.current) {
+    loadedEntityId.current = entity?.id;
+    if (extraRecords.length !== 0) setExtraRecords([]);
+    if (hasMore) setHasMore(false);
+    if (nextCursor !== null) setNextCursor(null);
+  }
+
+  useEffect(() => {
+    if (recordsQuery.data && extraRecords.length === 0) {
+      setNextCursor(recordsQuery.data.next_cursor);
+      setHasMore(recordsQuery.data.has_more);
+    }
+  }, [recordsQuery.data, extraRecords.length]);
+
+  async function loadMoreRecords() {
+    if (!appId || !entity?.id || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await listRecords(appId, entity.id, { limit: 100, cursor: nextCursor });
+      setExtraRecords((prev) => [...prev, ...page.items]);
+      setNextCursor(page.next_cursor);
+      setHasMore(page.has_more);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const records = [...firstPage, ...extraRecords];
 
   const displayFields: FieldRead[] = entity?.fields.filter((f) => showSystemFields || !f.is_system) ?? [];
 
@@ -392,7 +429,7 @@ export function DatabasePage() {
             </div>
           )}
           <span className="text-[13px] text-primary/50">
-            {recordsQuery.isLoading ? "загрузка..." : `${records.length} записей`}
+            {recordsQuery.isLoading ? "загрузка..." : `${records.length}${hasMore ? "+" : ""} записей`}
           </span>
         </div>
       </div>
@@ -469,6 +506,15 @@ export function DatabasePage() {
                   </svg>
                   Добавить запись
                 </button>
+                {hasMore && (
+                  <button
+                    onClick={loadMoreRecords}
+                    disabled={loadingMore}
+                    className="rounded-[12px] border border-cardbg text-cta hover:bg-mainbg/60 transition-colors flex items-center justify-center gap-2 p-4 min-h-[80px] text-[13px] disabled:opacity-50"
+                  >
+                    {loadingMore ? "Загрузка…" : "Показать ещё"}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -584,6 +630,19 @@ export function DatabasePage() {
                   Добавить запись
                 </td>
               </tr>
+              {hasMore && (
+                <tr className="border-b border-cardbg">
+                  <td colSpan={displayFields.length + 2} className="px-3 py-[6px] text-center">
+                    <button
+                      onClick={loadMoreRecords}
+                      disabled={loadingMore}
+                      className="text-[13px] text-cta hover:opacity-70 transition-opacity disabled:opacity-50"
+                    >
+                      {loadingMore ? "Загрузка…" : "Показать ещё записи"}
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
