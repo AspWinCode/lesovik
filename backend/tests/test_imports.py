@@ -48,17 +48,26 @@ async def _login(client: AsyncClient, email: str, pwd: str) -> str:
 
 async def _setup_entity(client: AsyncClient, token: str) -> tuple[str, str]:
     slug = f"import-app-{uuid.uuid4().hex[:6]}"
+    headers = {"Authorization": f"Bearer {token}"}
     app = await client.post(
         "/api/v1/apps", json={"slug": slug, "name": "Import Test App"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     app_id = app.json()["id"]
     entity = await client.post(
         f"/api/v1/apps/{app_id}/entities",
         json={"slug": "contacts", "display_name": "Contacts"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
-    return app_id, entity.json()["id"]
+    entity_id = entity.json()["id"]
+    for name, field_type in [("name", "text"), ("score", "number")]:
+        r = await client.post(
+            f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+            json={"name": name, "display_name": name, "field_type": field_type},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
+    return app_id, entity_id
 
 
 # ------------------------------------------------------------------
@@ -78,7 +87,10 @@ class TestCsvParser:
         assert rows[1] == {"name": "Bob", "email": "bob@example.com"}
 
     def test_csv_with_bom(self) -> None:
-        csv_data = "﻿name,email\nAlice,a@b.com\n".encode("utf-8-sig")
+        # .encode("utf-8-sig") already prepends the BOM bytes - the source string
+        # itself must NOT also contain a literal ﻿, or the decode step (which
+        # strips exactly one leading BOM) leaves the second one stuck to the header.
+        csv_data = "name,email\nAlice,a@b.com\n".encode("utf-8-sig")
         rows = self._svc()._parse_csv(csv_data)
         assert rows[0]["name"] == "Alice"
 
@@ -117,7 +129,11 @@ class TestUnsupportedType:
 class TestImportServiceUnit:
     @pytest.mark.asyncio
     async def test_skips_empty_rows(self, db_session: AsyncSession) -> None:
-        csv_data = b"name,email\n,,\n"
+        # One comma per header column (2 headers -> 1 comma) so csv.DictReader
+        # doesn't spill a third value into its `None` restkey - a row shaped
+        # like that isn't "empty", it's malformed, and correctly becomes an
+        # error rather than a skip.
+        csv_data = b"name,email\n,\n"
         svc = ImportService(db_session)
         result = await svc.import_records(
             uuid.uuid4(), uuid.uuid4(), csv_data, "data.csv"
@@ -156,7 +172,7 @@ async def test_import_csv_creates_records(client: AsyncClient, builder: User) ->
 
     csv_content = b"name,score\nAlice,90\nBob,85\n"
     resp = await client.post(
-        f"/api/v1/apps/{app_id}/entities/{entity_id}/import",
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
         headers=headers,
         files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
     )
@@ -192,7 +208,7 @@ async def test_import_csv_with_column_map(client: AsyncClient, builder: User) ->
     column_map = json.dumps({"Full Name": "name", "Score": "score"})
 
     resp = await client.post(
-        f"/api/v1/apps/{app_id}/entities/{entity_id}/import",
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
         headers=headers,
         files={"file": ("contacts.csv", io.BytesIO(csv_content), "text/csv")},
         params={"column_map": column_map},
@@ -218,7 +234,7 @@ async def test_import_unsupported_type_returns_400(client: AsyncClient, builder:
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = await client.post(
-        f"/api/v1/apps/{app_id}/entities/{entity_id}/import",
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
         headers=headers,
         files={"file": ("data.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
     )
@@ -234,7 +250,7 @@ async def test_import_invalid_column_map_returns_422(client: AsyncClient, builde
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = await client.post(
-        f"/api/v1/apps/{app_id}/entities/{entity_id}/import",
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
         headers=headers,
         files={"file": ("data.csv", io.BytesIO(b"a,b\n1,2\n"), "text/csv")},
         params={"column_map": "not-valid-json"},
@@ -262,7 +278,7 @@ async def test_import_returns_row_errors_for_invalid_rows(
     # Row 2 is valid (has email), row 3 is missing required email field
     csv_content = b"name,email\nAlice,alice@example.com\nBob,\n"
     resp = await client.post(
-        f"/api/v1/apps/{app_id}/entities/{entity_id}/import",
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
         headers=headers,
         files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
     )
