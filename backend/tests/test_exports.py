@@ -68,6 +68,16 @@ async def _create_record(client: AsyncClient, token: str, app_id: str, entity_id
     return r.json()
 
 
+async def _create_field(client: AsyncClient, token: str, app_id: str, entity_id: str,
+                         name: str, field_type: str) -> None:
+    r = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+        json={"name": name, "display_name": name, "field_type": field_type},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 201, r.text
+
+
 # ------------------------------------------------------------------
 # Unit tests — ExportService in isolation
 # ------------------------------------------------------------------
@@ -121,6 +131,8 @@ def test_to_pdf_produces_pdf_header() -> None:
 async def test_export_xlsx_returns_file(client: AsyncClient, builder: User) -> None:
     token = await _login(client, "export_builder@example.com", "Build1234!")
     app_id, entity_id = await _setup_entity(client, token)
+    await _create_field(client, token, app_id, entity_id, "name", "text")
+    await _create_field(client, token, app_id, entity_id, "age", "number")
     await _create_record(client, token, app_id, entity_id, {"name": "Alice", "age": 30})
 
     r = await client.get(
@@ -140,6 +152,8 @@ async def test_export_xlsx_returns_file(client: AsyncClient, builder: User) -> N
 async def test_export_csv_returns_file(client: AsyncClient, builder: User) -> None:
     token = await _login(client, "export_builder@example.com", "Build1234!")
     app_id, entity_id = await _setup_entity(client, token)
+    await _create_field(client, token, app_id, entity_id, "name", "text")
+    await _create_field(client, token, app_id, entity_id, "score", "number")
     await _create_record(client, token, app_id, entity_id, {"name": "Bob", "score": 99})
 
     r = await client.get(
@@ -158,6 +172,7 @@ async def test_export_csv_returns_file(client: AsyncClient, builder: User) -> No
 async def test_export_pdf_returns_file(client: AsyncClient, builder: User) -> None:
     token = await _login(client, "export_builder@example.com", "Build1234!")
     app_id, entity_id = await _setup_entity(client, token)
+    await _create_field(client, token, app_id, entity_id, "title", "text")
     await _create_record(client, token, app_id, entity_id, {"title": "Report"})
 
     r = await client.get(
