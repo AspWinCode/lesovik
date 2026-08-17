@@ -41,6 +41,7 @@ def _state(
     on_enter: list[dict] | None = None,
     on_exit: list[dict] | None = None,
     sla_breach: list[dict] | None = None,
+    escalation_levels: list[dict] | None = None,
 ) -> StateSpec:
     return StateSpec(
         name=name,
@@ -50,6 +51,7 @@ def _state(
         on_enter_actions=on_enter or [],
         on_exit_actions=on_exit or [],
         sla_breach_actions=sla_breach or [],
+        escalation_levels=escalation_levels or [],
     )
 
 

@@ -165,6 +165,12 @@ async def test_create_record_triggers_rule_evaluation(
     token = await _login(client, builder.email, "Build1234!")
     app_id, entity_id = await _setup_entity(client, token)
     headers = {"Authorization": f"Bearer {token}"}
+    field_resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+        json={"name": "note", "display_name": "Note", "field_type": "text"},
+        headers=headers,
+    )
+    assert field_resp.status_code == 201, field_resp.text
 
     # Create and activate a rule
     rule_resp = await client.post(
@@ -205,6 +211,12 @@ async def test_update_record_triggers_rule_evaluation(
     token = await _login(client, builder.email, "Build1234!")
     app_id, entity_id = await _setup_entity(client, token)
     headers = {"Authorization": f"Bearer {token}"}
+    field_resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+        json={"name": "note", "display_name": "Note", "field_type": "text"},
+        headers=headers,
+    )
+    assert field_resp.status_code == 201, field_resp.text
 
     rule_resp = await client.post(
         f"/api/v1/apps/{app_id}/rules",

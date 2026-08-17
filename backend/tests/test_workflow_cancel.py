@@ -82,6 +82,13 @@ async def _create_app_and_workflow(
     assert entity_r.status_code == 201, entity_r.text
     entity_id = entity_r.json()["id"]
 
+    field_r = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+        json={"name": "title", "display_name": "Title", "field_type": "text"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert field_r.status_code == 201, field_r.text
+
     wf_r = await client.post(
         f"/api/v1/apps/{app_id}/workflows",
         json={"name": "Ticket Flow", "initial_state": "open", "entity_id": entity_id},
