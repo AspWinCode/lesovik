@@ -6,6 +6,7 @@ import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities, useCreateEntity, useCreateField, useRelations, useCreateRelation, useDeleteRelation } from "@/shared/hooks/useEntities";
 import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
 import { uploadRecordFile, getRecordFileDownloadUrl } from "@/shared/api/records";
+import { normalizeChoices } from "@/shared/lib/choices";
 import type { FieldRead, FieldType } from "@/shared/api/entities";
 import { ImportModal } from "@/components/ImportModal";
 import { EditTableModal, EditColumnModal, RelationsModal, COLUMN_TYPE_TO_FIELD_TYPE, type ColumnOptions, type RelationItem } from "@/components/modals/DbModals";
@@ -756,7 +757,7 @@ function CellValue({ value, field }: { value: unknown; field: FieldRead }) {
   }
 
   if (et === "select" || et === "multi_select") {
-    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    const choices = normalizeChoices(field.field_options?.choices);
     const vals = et === "multi_select" ? String(value).split(",") : [String(value)];
     return (
       <span className="flex flex-wrap gap-1">
@@ -892,7 +893,7 @@ function InlineEdit({
   }
 
   if (et === "select") {
-    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    const choices = normalizeChoices(field.field_options?.choices);
     return (
       <select value={value} autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onFocus={onFocus}
@@ -1186,7 +1187,7 @@ function FieldInput({ field, et, value, onChange, required }: {
   }
 
   if (et === "select") {
-    const choices = (field.field_options?.choices as { value: string; label: string }[]) ?? [];
+    const choices = normalizeChoices(field.field_options?.choices);
     return (
       <select value={value} required={required} onChange={(e) => onChange(e.target.value)}
         className={base + " appearance-none"}>

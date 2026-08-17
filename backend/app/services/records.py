@@ -207,6 +207,19 @@ def _parse_date_value(value: Any) -> datetime:
     raise ValueError("not a date")
 
 
+def _choice_values(raw_choices: Any) -> list[Any]:
+    """Extract the selectable values from a field's `field_options.choices`.
+
+    Two shapes exist in the wild: entities created through the entity builder
+    store choices as bare strings (`["draft", "paid"]`), while module-installed
+    entities store `{"value": ..., "label": ...}` objects. Accept both so
+    validation doesn't crash on whichever shape a given field actually has.
+    """
+    if not isinstance(raw_choices, list):
+        return []
+    return [c["value"] if isinstance(c, dict) else c for c in raw_choices]
+
+
 def _validate_field_value(field: Field, name: str, value: Any) -> None:
     rules = field.validation_rules or {}
     try:
@@ -276,7 +289,7 @@ def _check_field_value(field: Field, name: str, value: Any, rules: dict) -> None
             raise RecordValidationError(f"Field '{name}' must be a past date")
 
     elif ft == "select":
-        choices = [c["value"] for c in opts.get("choices", [])]
+        choices = _choice_values(opts.get("choices", []))
         if choices and value not in choices:
             raise RecordValidationError(f"Field '{name}': {value!r} not in choices {choices}")
         allowed = rules.get("allowed_values")
@@ -290,7 +303,7 @@ def _check_field_value(field: Field, name: str, value: Any, rules: dict) -> None
     elif ft == "multi_select":
         if not isinstance(value, list):
             raise RecordValidationError(f"Field '{name}' expects list for multi_select")
-        choices = [c["value"] for c in opts.get("choices", [])]
+        choices = _choice_values(opts.get("choices", []))
         if choices:
             invalid = [v for v in value if v not in choices]
             if invalid:

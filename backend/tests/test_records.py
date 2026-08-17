@@ -99,6 +99,52 @@ async def test_create_and_get_record(client: AsyncClient, builder: User) -> None
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_select_field_with_string_choices(client: AsyncClient, builder: User) -> None:
+    """Fields created via the entity builder store `choices` as bare strings
+    (not `{value, label}` objects — see test_create_and_get_record's fixture
+    for that shape). Saving a value for such a field must not crash."""
+    token = await _login(client, builder.email, "Build1234!")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    import uuid
+    slug = f"rec-app-{uuid.uuid4().hex[:6]}"
+    app = await client.post(
+        "/api/v1/apps", json={"slug": slug, "name": "String Choices App"}, headers=headers,
+    )
+    app_id = app.json()["id"]
+    entity = await client.post(
+        f"/api/v1/apps/{app_id}/entities",
+        json={"slug": "employee", "display_name": "Employee"},
+        headers=headers,
+    )
+    entity_id = entity.json()["id"]
+    await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+        json={
+            "name": "position", "display_name": "Position", "field_type": "select",
+            "field_options": {"choices": ["Мастер", "Стажёр"]},
+        },
+        headers=headers,
+    )
+
+    ok = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records",
+        json={"payload": {"position": "Мастер"}},
+        headers=headers,
+    )
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["payload"]["position"] == "Мастер"
+
+    bad = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records",
+        json={"payload": {"position": "Директор"}},
+        headers=headers,
+    )
+    assert bad.status_code == 422, bad.text
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_update_record_increments_version(client: AsyncClient, builder: User) -> None:
     token = await _login(client, builder.email, "Build1234!")
     app_id, entity_id = await _setup_entity(client, token)

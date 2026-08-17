@@ -3,6 +3,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
+import { normalizeChoices } from "@/shared/lib/choices";
 import { useApps } from "@/shared/hooks/useApps";
 import { useEntities } from "@/shared/hooks/useEntities";
 import {
@@ -990,14 +991,14 @@ function CreateRecordModal({
                   <option value="true">Да</option>
                   <option value="false">Нет</option>
                 </select>
-              ) : f.field_type === "select" && Array.isArray((f.field_options as Record<string, unknown>)?.choices) ? (
+              ) : f.field_type === "select" && normalizeChoices((f.field_options as Record<string, unknown>)?.choices).length > 0 ? (
                 <select
                   value={values[f.name] ?? ""}
                   onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
                   className="h-[34px] px-[10px] rounded-btn border border-cardbg bg-mainbg text-[13px] text-primary focus:outline-none focus:border-cta"
                 >
                   <option value="">—</option>
-                  {((f.field_options as Record<string, unknown>)?.choices as { value: string; label: string }[]).map((c) => (
+                  {normalizeChoices((f.field_options as Record<string, unknown>)?.choices).map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
                 </select>
