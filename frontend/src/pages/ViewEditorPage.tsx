@@ -623,7 +623,7 @@ export function ViewEditorPage() {
             </button>
           ))}
         </div>
-        <div className="absolute flex items-center gap-[10px]" style={{ left: 620, top: 10.5, height: 34 }}>
+        <div className="absolute flex items-center gap-[10px]" style={{ right: 40, top: 10.5, height: 34 }}>
           <a
             href={appId ? `/app/?app=${appId}` : `/app/`}
             target="_blank"
