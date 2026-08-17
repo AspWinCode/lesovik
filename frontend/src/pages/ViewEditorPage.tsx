@@ -165,13 +165,13 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "iframe")       return { src: "" };
   if (type === "button")       return { width: "half", actionType: "url", href: "", label: "Кнопка" };
   // Input blocks
-  if (type === "text_field")   return { label: "Текстовое поле", placeholder: "", mask: "", required: false, validation: "" };
-  if (type === "number_field") return { label: "Число", format: "number", currency: "RUB", unit: "", min: "", max: "", required: false };
+  if (type === "text_field")   return { label: "Текстовое поле", field_name: "", placeholder: "", mask: "", required: false, validation: "" };
+  if (type === "number_field") return { label: "Число", field_name: "", format: "number", currency: "RUB", unit: "", min: "", max: "", required: false };
   if (type === "date_field")   return { label: "Дата", field_name: "", mode: "single", date_format: "DD.MM.YYYY", required: false };
-  if (type === "dropdown")     return { label: "Список", source: "static", options: "Вариант 1\nВариант 2", multiple: false, entity_id: "", display_field: "" };
-  if (type === "toggle")       return { label: "Вкл/Выкл", default_value: false };
+  if (type === "dropdown")     return { label: "Список", field_name: "", source: "static", options: "Вариант 1\nВариант 2", multiple: false, entity_id: "", display_field: "" };
+  if (type === "toggle")       return { label: "Вкл/Выкл", field_name: "", default_value: false };
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
-  if (type === "file_upload")  return { label: "Файл", accept: "*", max_size_mb: 10, multiple: false };
+  if (type === "file_upload")  return { label: "Файл", field_name: "", accept: "*", max_size_mb: 10, multiple: false };
   if (type === "lookup")           return { label: "Справочник", field_name: "", entity_id: "", display_field: "", multiple: false };
   if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica", extra_lookup_entity_id: "", extra_lookup_display_field: "", extra_lookup_label: "Раздел", positions_entity_id: "", parent_field: "", item_field: "", extra_field: "", qty_field: "kolichestvo", row_total_field: "", total_field: "" };
   // Display
@@ -181,10 +181,10 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "tree")         return { entity_id: "", parent_field: "", label_field: "" };
   // Action
   if (type === "import")       return { entity_id: "", accept: ".xlsx,.csv", has_header: true };
-  if (type === "export")       return { entity_id: "", format: "xlsx", filename: "" };
+  if (type === "export")       return { entity_id: "", format: "csv", filename: "" };
   // Container
-  if (type === "modal")        return { title: "Диалог", trigger_label: "Открыть", trigger_variant: "primary" };
-  if (type === "tabs")         return { tabs: [{ id: "tab1", label: "Вкладка 1" }, { id: "tab2", label: "Вкладка 2" }] };
+  if (type === "modal")        return { title: "Диалог", trigger_label: "Открыть", trigger_variant: "primary", content: "" };
+  if (type === "tabs")         return { tabs: [{ id: "tab1", label: "Вкладка 1", content: "" }, { id: "tab2", label: "Вкладка 2", content: "" }] };
   if (type === "filter_panel") return { entity_id: "", fields: [], position: "top" };
   return {};
 }
@@ -2709,11 +2709,22 @@ function BlockInlineSettings({
 
       {/* ── Input blocks ── */}
       {(block.type === "text_field" || block.type === "number_field" || block.type === "date_field" ||
-        block.type === "dropdown" || block.type === "toggle" || block.type === "file_upload" || block.type === "lookup") && (
+        block.type === "dropdown" || block.type === "toggle" || block.type === "checkbox" ||
+        block.type === "file_upload" || block.type === "lookup") && (
         <ConfigInput
           label="Подпись поля"
           value={(block.config.label as string) ?? ""}
           onChange={(label) => onConfigChange({ label })}
+        />
+      )}
+
+      {(block.type === "text_field" || block.type === "number_field" ||
+        block.type === "dropdown" || block.type === "toggle" || block.type === "checkbox") && (
+        <ConfigSelect
+          label="Поле"
+          value={(block.config.field_name as string) ?? ""}
+          options={fieldOptions(fields, "— выберите —")}
+          onChange={(field_name) => onConfigChange({ field_name })}
         />
       )}
 
@@ -2870,6 +2881,12 @@ function BlockInlineSettings({
 
       {block.type === "file_upload" && (
         <>
+          <ConfigSelect
+            label="Поле"
+            value={(block.config.field_name as string) ?? ""}
+            options={fieldOptions(fields, "— выберите —")}
+            onChange={(field_name) => onConfigChange({ field_name })}
+          />
           <ConfigInput
             label="Допустимые форматы"
             value={(block.config.accept as string) ?? "*"}
@@ -2980,14 +2997,13 @@ function BlockInlineSettings({
           <ConfigSelect label="Сущность" value={(block.config.entity_id as string) ?? ""} options={entityOptions} onChange={(entity_id) => onConfigChange({ entity_id })} />
           <ConfigSegmented
             label="Формат"
-            value={(block.config.format as string) ?? "xlsx"}
+            value="csv"
             options={[
-              { value: "xlsx", label: "Excel" },
-              { value: "csv",  label: "CSV" },
-              { value: "pdf",  label: "PDF" },
+              { value: "csv", label: "CSV" },
             ]}
-            onChange={(format) => onConfigChange({ format })}
+            onChange={() => onConfigChange({ format: "csv" })}
           />
+          <p className="col-span-2 text-[11px] text-primary/40">Excel и PDF пока не реализованы — блок всегда выгружает CSV.</p>
           <ConfigInput label="Имя файла" value={(block.config.filename as string) ?? ""} onChange={(filename) => onConfigChange({ filename })} placeholder="report" />
         </>
       )}
@@ -3007,23 +3023,58 @@ function BlockInlineSettings({
             ]}
             onChange={(trigger_variant) => onConfigChange({ trigger_variant })}
           />
+          <div className="flex flex-col gap-[5px] col-span-2">
+            <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">Текст в окне</span>
+            <textarea
+              rows={4}
+              value={(block.config.content as string) ?? ""}
+              onChange={(e) => onConfigChange({ content: e.target.value })}
+              className="bg-cardbg rounded-[8px] px-3 py-2 text-[13px] text-primary outline-none border border-transparent focus:border-cta/40 resize-none"
+              placeholder="Содержимое диалога…"
+            />
+          </div>
         </>
       )}
 
       {/* ── Container: tabs ── */}
       {block.type === "tabs" && (
-        <div className="flex flex-col gap-[5px] col-span-2">
-          <span className="text-[11px] font-medium text-primary/50 uppercase tracking-wide">Вкладки (по одному на строку)</span>
-          <textarea
-            rows={3}
-            value={((block.config.tabs as { label: string }[]) ?? []).map((t) => t.label).join("\n")}
-            onChange={(e) => {
-              const tabs = e.target.value.split("\n").filter(Boolean).map((label, i) => ({ id: `tab${i + 1}`, label }));
-              onConfigChange({ tabs });
+        <div className="flex flex-col gap-[10px] col-span-2">
+          {((block.config.tabs as { id: string; label: string; content?: string }[]) ?? []).map((tab, i, arr) => (
+            <div key={tab.id} className="flex flex-col gap-[5px] border-b border-mainbg pb-2">
+              <div className="flex items-center gap-[6px]">
+                <input
+                  value={tab.label}
+                  onChange={(e) => {
+                    const tabs = arr.map((t, j) => (j === i ? { ...t, label: e.target.value } : t));
+                    onConfigChange({ tabs });
+                  }}
+                  className="flex-1 h-[30px] bg-cardbg rounded-[6px] px-2 text-[13px] text-primary outline-none"
+                  placeholder={`Вкладка ${i + 1}`}
+                />
+                <button
+                  onClick={() => onConfigChange({ tabs: arr.filter((_, j) => j !== i) })}
+                  className="w-6 h-6 flex items-center justify-center rounded-full text-primary/40 hover:bg-red-50 hover:text-red-500 transition-colors text-[16px] leading-none"
+                >×</button>
+              </div>
+              <textarea
+                rows={2}
+                value={tab.content ?? ""}
+                onChange={(e) => {
+                  const tabs = arr.map((t, j) => (j === i ? { ...t, content: e.target.value } : t));
+                  onConfigChange({ tabs });
+                }}
+                className="bg-cardbg rounded-[8px] px-3 py-2 text-[13px] text-primary outline-none border border-transparent focus:border-cta/40 resize-none"
+                placeholder="Содержимое вкладки…"
+              />
+            </div>
+          ))}
+          <button
+            onClick={() => {
+              const current = (block.config.tabs as { id: string; label: string; content?: string }[]) ?? [];
+              onConfigChange({ tabs: [...current, { id: `tab${Date.now()}`, label: `Вкладка ${current.length + 1}`, content: "" }] });
             }}
-            className="bg-cardbg rounded-[8px] px-3 py-2 text-[13px] text-primary outline-none border border-transparent focus:border-cta/40 resize-none"
-            placeholder={"Вкладка 1\nВкладка 2"}
-          />
+            className="h-[30px] rounded-[6px] border border-dashed border-primary/20 text-[13px] text-primary/60 hover:text-primary hover:border-primary/40 transition-colors"
+          >+ Добавить вкладку</button>
         </div>
       )}
 

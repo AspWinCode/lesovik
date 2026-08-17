@@ -7,6 +7,7 @@ import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api
 import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
 import { listRecords, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
 import { apiClient } from "@/shared/api/client";
+import { parseStaticOptions, groupRecordsByField, buildRecordTree } from "./blockHelpers";
 
 interface PageBlock {
   id: string;
@@ -314,12 +315,38 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
 
   const hasDataView = !!viewType && viewType !== "form";
 
+  // Filter panel: active per-field filters, applied to this page's own bound records
+  // (blocks/views that share the page's entity — see filteredRecords below).
+  const [pageFilters, setPageFilters] = useState<Record<string, string>>({});
+  const filterPanelBlock = blocks.find((b) => b.type === "filter_panel");
+  const filterEntityMatches = !!entity && (filterPanelBlock?.config?.entity_id as string | undefined) === entity.id;
+  const filteredRecords = filterEntityMatches
+    ? records.filter((r) =>
+        Object.entries(pageFilters).every(([field, val]) => {
+          if (!val) return true;
+          return String(r.payload[field] ?? "").toLowerCase().includes(val.toLowerCase());
+        })
+      )
+    : records;
+
   // Page-level form state (shared across text_field / toggle / number_field blocks)
   const [pageFormValues, setPageFormValues] = useState<Record<string, unknown>>({});
+  const [pageFileValues, setPageFileValues] = useState<Record<string, File[]>>({});
   const [pageSaveStatus, setPageSaveStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
 
   function setFormField(field: string, value: unknown) {
     setPageFormValues((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function setFormFile(field: string, files: File[]) {
+    setPageFileValues((prev) => {
+      if (files.length === 0) {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      }
+      return { ...prev, [field]: files };
+    });
   }
 
   async function handlePageFormSave(targetPageId?: string) {
@@ -411,7 +438,21 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
         }));
       }
 
+      for (const [fieldName, files] of Object.entries(pageFileValues)) {
+        if (!validFields.has(fieldName)) continue;
+        for (const file of files) {
+          const fd = new FormData();
+          fd.append("file", file);
+          await apiClient.post(
+            `/apps/${appId}/entities/${entity.id}/records/${newRec.id}/files?field_name=${encodeURIComponent(fieldName)}`,
+            fd,
+            { headers: { "Content-Type": "multipart/form-data" } },
+          );
+        }
+      }
+
       setPageFormValues({});
+      setPageFileValues({});
       setPageSaveStatus("success");
       if (targetPageId) {
         setTimeout(() => onNavigate(targetPageId), 800);
@@ -465,7 +506,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
           viewType={viewType}
           entity={entity}
           cols={cols}
-          records={records}
+          records={filteredRecords}
           accent={accent}
           colors={colors}
           columnWidth={columnWidth}
@@ -485,7 +526,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
               block={b}
               entity={entity}
               cols={cols}
-              records={records}
+              records={filteredRecords}
               accent={accent}
               colors={colors}
               inputStyle={inputStyle}
@@ -497,6 +538,10 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
               onRecordCreated={() => recordsQuery.refetch()}
               formValues={pageFormValues}
               onFormChange={setFormField}
+              fileValues={pageFileValues}
+              onFileChange={setFormFile}
+              filterValues={pageFilters}
+              onFilterChange={(field, val) => setPageFilters((prev) => ({ ...prev, [field]: val }))}
               onFormSave={handlePageFormSave}
               formStatus={pageSaveStatus}
               onRowClick={onRowClick}
@@ -806,6 +851,99 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
   );
 }
 
+function GanttBlock({ appId, entities, title, entityId, startFieldName, endFieldName, titleFieldName, accent }: {
+  appId: string; entities: EntityRead[]; title: string; entityId: string;
+  startFieldName: string; endFieldName: string; titleFieldName: string; accent: string;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, entityId, "gantt"],
+    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+    enabled: !!entityId,
+  });
+  const ganttEntity = entities.find((e) => e.id === entityId);
+  const cols = (ganttEntity?.fields ?? []).filter((f) => !f.is_system);
+  const startField = cols.find((f) => f.name === startFieldName);
+  const endField = cols.find((f) => f.name === endFieldName) ?? startField;
+  const titleFieldDef = cols.find((f) => f.name === titleFieldName);
+
+  return (
+    <GanttView
+      title={title}
+      cols={cols}
+      records={recordsQuery.data?.items ?? []}
+      accent={accent}
+      startField={startField}
+      endField={endField}
+      nameField={titleFieldDef}
+    />
+  );
+}
+
+function TreeBlock({ appId, entities, title, entityId, labelFieldName, parentFieldName, colors, onRowClick }: {
+  appId: string; entities: EntityRead[]; title: string; entityId: string;
+  labelFieldName: string; parentFieldName: string; colors: AppColors;
+  onRowClick?: (entityId: string, recordId: string) => void;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, entityId, "tree"],
+    queryFn: () => listRecords(appId, entityId, { limit: 500 }),
+    enabled: !!entityId,
+  });
+  const treeEntity = entities.find((e) => e.id === entityId);
+  const labelField = (treeEntity?.fields ?? []).find((f) => f.name === labelFieldName)
+    ?? (treeEntity?.fields ?? []).find((f) => !f.is_system);
+  const records = recordsQuery.data?.items ?? [];
+
+  if (!entityId || !parentFieldName) {
+    return (
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
+        Дерево не настроено: выберите сущность и поле «Родитель».
+      </section>
+    );
+  }
+
+  const tree = buildRecordTree(records, parentFieldName);
+
+  function TreeRow({ node, depth }: { node: ReturnType<typeof buildRecordTree>[number]; depth: number }) {
+    return (
+      <>
+        <div
+          onClick={() => onRowClick?.(entityId, node.record.id)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 10px",
+            paddingLeft: 10 + depth * 20, fontSize: 13, color: colors.text,
+            cursor: onRowClick ? "pointer" : "default",
+            borderBottom: `1px solid ${colors.border}`,
+          }}
+        >
+          <span style={{ color: colors.textMuted, fontSize: 11, width: 14, flexShrink: 0 }}>
+            {node.children.length > 0 ? "▾" : "·"}
+          </span>
+          {labelField ? String(node.record.payload[labelField.name] ?? "—") : node.record.id.slice(0, 8)}
+        </div>
+        {node.children.map((child) => (
+          <TreeRow key={child.record.id} node={child} depth={depth + 1} />
+        ))}
+      </>
+    );
+  }
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>{title}</div>
+      {tree.length === 0 ? (
+        <div style={{ padding: 16, color: colors.textMuted, fontSize: 13 }}>Нет записей.</div>
+      ) : (
+        <div>
+          {tree.map((node) => (
+            <TreeRow key={node.record.id} node={node} depth={0} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ChartBlock({ title, chartType, records, labelField, valueField, colors, accent }: {
   title?: string | null; chartType: string; records: RecordRead[];
   labelField: string; valueField: string; colors: AppColors; accent: string;
@@ -850,7 +988,7 @@ function ChartBlock({ title, chartType, records, labelField, valueField, colors,
   );
 }
 
-function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, onFormSave, formStatus, onRowClick }: {
+function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, fileValues, onFileChange, filterValues, onFilterChange, onFormSave, formStatus, onRowClick }: {
   block: PageBlock;
   entity: EntityRead | null;
   cols: FieldRead[];
@@ -866,6 +1004,10 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   onRecordCreated: () => void;
   formValues?: Record<string, unknown>;
   onFormChange?: (field: string, value: unknown) => void;
+  fileValues?: Record<string, File[]>;
+  onFileChange?: (field: string, files: File[]) => void;
+  filterValues?: Record<string, string>;
+  onFilterChange?: (field: string, value: string) => void;
   onFormSave?: (targetPageId?: string) => Promise<void>;
   formStatus?: "idle" | "submitting" | "success" | "error";
   onRowClick?: (entityId: string, recordId: string) => void;
@@ -929,6 +1071,31 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
+  if (block.type === "modal") {
+    const cfg = block.config ?? {};
+    return (
+      <ModalBlock
+        title={(cfg.title as string) ?? "Диалог"}
+        triggerLabel={(cfg.trigger_label as string) || "Открыть"}
+        variant={(cfg.trigger_variant as string) ?? "primary"}
+        content={(cfg.content as string) ?? ""}
+        accent={accent}
+        colors={colors}
+      />
+    );
+  }
+
+  if (block.type === "tabs") {
+    const cfg = block.config ?? {};
+    return (
+      <TabsBlock
+        tabs={(cfg.tabs as { id: string; label: string; content?: string }[] | undefined) ?? []}
+        accent={accent}
+        colors={colors}
+      />
+    );
+  }
+
   if (block.type === "text_field") {
     const cfg = block.config ?? {};
     const fieldName = (cfg.field_name as string) ?? "";
@@ -970,6 +1137,41 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         />
         {label}
       </label>
+    );
+  }
+
+  if (block.type === "file_upload") {
+    const cfg = block.config ?? {};
+    const fieldName = (cfg.field_name as string) ?? "";
+    return (
+      <FileUploadBlock
+        label={(cfg.label as string) ?? block.title ?? ""}
+        accept={(cfg.accept as string) ?? "*"}
+        maxSizeMb={Number(cfg.max_size_mb ?? 10)}
+        multiple={Boolean(cfg.multiple)}
+        files={(fieldName ? fileValues?.[fieldName] : undefined) ?? []}
+        onChange={(files) => fieldName && onFileChange?.(fieldName, files)}
+        colors={colors}
+      />
+    );
+  }
+
+  if (block.type === "dropdown") {
+    const cfg = block.config ?? {};
+    const fieldName = (cfg.field_name as string) ?? "";
+    return (
+      <DropdownBlock
+        appId={appId}
+        label={(cfg.label as string) ?? block.title ?? ""}
+        source={(cfg.source as string) ?? "static"}
+        staticOptions={(cfg.options as string) ?? ""}
+        entityId={(cfg.entity_id as string) ?? ""}
+        displayField={(cfg.display_field as string) || "nazvanie"}
+        multiple={Boolean(cfg.multiple)}
+        value={fieldName ? formValues?.[fieldName] : undefined}
+        onChange={(v) => fieldName && onFormChange?.(fieldName, v)}
+        colors={colors}
+      />
     );
   }
 
@@ -1179,10 +1381,184 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     );
   }
 
+  if (block.type === "calendar") {
+    const cfg = block.config ?? {};
+    const dateField = cols.find((f) => f.name === cfg.date_field) ?? cols.find((f) => f.field_type === "date");
+    const titleField = cols.find((f) => f.name === cfg.title_field) ?? cols[0];
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = (new Date(year, month, 1).getDay() + 6) % 7;
+    const dayMap: Record<number, RecordRead[]> = {};
+    if (dateField) {
+      records.forEach((r) => {
+        const d = r.payload[dateField.name];
+        if (d) {
+          const day = new Date(String(d)).getDate();
+          if (!dayMap[day]) dayMap[day] = [];
+          dayMap[day].push(r);
+        }
+      });
+    }
+    const monthName = now.toLocaleString("ru-RU", { month: "long", year: "numeric" });
+    const cells: (number | null)[] = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+    while (cells.length % 7 !== 0) cells.push(null);
+    return (
+      <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>
+          {block.title ?? "Календарь"} — {monthName}
+        </div>
+        {!dateField ? (
+          <div style={{ padding: 16, color: colors.textMuted, fontSize: 13 }}>Выберите поле даты в настройках блока.</div>
+        ) : (
+          <div style={{ padding: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+              {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((d) => (
+                <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: colors.textMuted, padding: "4px 0" }}>{d}</div>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+              {cells.map((day, i) => (
+                <div key={i} style={{
+                  minHeight: 40, borderRadius: 6, padding: "4px 6px", fontSize: 12,
+                  background: day === now.getDate() ? accent + "22" : colors.bg,
+                  border: day === now.getDate() ? `1px solid ${accent}` : `1px solid ${colors.border}`,
+                  color: day ? colors.text : "transparent",
+                }}>
+                  <div style={{ fontWeight: 600 }}>{day ?? ""}</div>
+                  {day && dayMap[day]?.slice(0, 2).map((r) => (
+                    <div key={r.id} style={{ background: accent, color: "#fff", borderRadius: 3, padding: "1px 4px", fontSize: 10, marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                      {titleField ? String(r.payload[titleField.name] ?? "•") : "•"}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (block.type === "kanban") {
+    const cfg = block.config ?? {};
+    const groupField = cols.find((f) => f.name === cfg.group_by) ?? cols.find((f) => f.field_type === "select");
+    const cardTitleField = cols.find((f) => f.name === cfg.card_title) ?? cols[0];
+    const groups = groupField ? groupRecordsByField(records, groupField.name) : [];
+    return (
+      <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>{block.title ?? "Kanban"}</div>
+        {!groupField ? (
+          <div style={{ padding: 16, color: colors.textMuted, fontSize: 13 }}>Выберите поле группировки в настройках блока.</div>
+        ) : (
+          <div style={{ display: "flex", gap: 12, overflowX: "auto", padding: 12 }}>
+            {groups.map((g) => (
+              <div key={g.key} style={{ minWidth: 180, flex: "0 0 180px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, padding: "4px 0" }}>
+                  {fieldLabel(groupField, g.key)} <span style={{ fontWeight: 400 }}>({g.items.length})</span>
+                </div>
+                {g.items.map((rec) => (
+                  <div key={rec.id} style={{ background: colors.bg, borderRadius: 8, padding: "10px 12px", fontSize: 13, border: `1px solid ${colors.border}`, color: colors.text }}>
+                    {cardTitleField ? String(rec.payload[cardTitleField.name] ?? "—") : rec.id.slice(0, 8)}
+                  </div>
+                ))}
+                {g.items.length === 0 && (
+                  <div style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", padding: 8 }}>Пусто</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (block.type === "gantt") {
+    const cfg = block.config ?? {};
+    return (
+      <GanttBlock
+        appId={appId}
+        entities={entities ?? []}
+        title={block.title ?? "Диаграмма Ганта"}
+        entityId={(cfg.entity_id as string) || entity?.id || ""}
+        startFieldName={(cfg.start_field as string) ?? ""}
+        endFieldName={(cfg.end_field as string) ?? ""}
+        titleFieldName={(cfg.title_field as string) ?? ""}
+        accent={accent}
+      />
+    );
+  }
+
+  if (block.type === "tree") {
+    const cfg = block.config ?? {};
+    return (
+      <TreeBlock
+        appId={appId}
+        entities={entities ?? []}
+        title={block.title ?? "Дерево данных"}
+        entityId={(cfg.entity_id as string) || entity?.id || ""}
+        labelFieldName={(cfg.label_field as string) ?? ""}
+        parentFieldName={(cfg.parent_field as string) ?? ""}
+        colors={colors}
+        onRowClick={onRowClick}
+      />
+    );
+  }
+
+  if (block.type === "filter_panel") {
+    const cfg = block.config ?? {};
+    const targetEntityId = (cfg.entity_id as string) || entity?.id || "";
+    const position = (cfg.position as string) ?? "top";
+    const panelEntity = entities?.find((e) => e.id === targetEntityId);
+    const filterFields = (panelEntity?.fields ?? cols).filter((f) => !f.is_system);
+    const onSamePageEntity = targetEntityId === entity?.id;
+
+    return (
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 12, background: colors.surface }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, flexDirection: position === "side" ? "column" : "row" }}>
+          {filterFields.length === 0 ? (
+            <span style={{ fontSize: 13, color: colors.textMuted }}>Сущность не выбрана.</span>
+          ) : (
+            filterFields.map((f) => (
+              <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 140 }}>
+                <label style={{ fontSize: 11, color: colors.textMuted }}>{f.display_name}</label>
+                {f.field_type === "select" ? (
+                  <select
+                    value={filterValues?.[f.name] ?? ""}
+                    onChange={(e) => onFilterChange?.(f.name, e.target.value)}
+                    style={{ height: 32, padding: "0 8px", fontSize: 13, borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg, color: colors.text, outline: "none" }}
+                  >
+                    <option value="">Все</option>
+                    {normalizeChoices(f.field_options?.choices).map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={filterValues?.[f.name] ?? ""}
+                    onChange={(e) => onFilterChange?.(f.name, e.target.value)}
+                    placeholder="Поиск…"
+                    style={{ height: 32, padding: "0 8px", fontSize: 13, borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg, color: colors.text, outline: "none" }}
+                  />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        {!onSamePageEntity && targetEntityId && (
+          <p style={{ marginTop: 8, fontSize: 11, color: colors.textMuted }}>
+            Сущность фильтра отличается от источника данных страницы — фильтр не применяется ни к одному блоку.
+          </p>
+        )}
+      </section>
+    );
+  }
+
   if (block.type === "export") {
     const cfg = block.config ?? {};
     const filename = (cfg.filename as string) || entity?.display_name || "export";
-    const format = (cfg.format as string) || "csv";
 
     function handleExport() {
       if (!cols.length || !records.length) return;
@@ -1199,7 +1575,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
       const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `${filename}.${format === "csv" ? "csv" : "csv"}`; a.click();
+      a.href = url; a.download = `${filename}.csv`; a.click();
       URL.revokeObjectURL(url);
     }
 
@@ -1553,6 +1929,170 @@ function LookupBlock({ appId, refEntityId, displayField, fieldName: _fieldName, 
         ))}
       </select>
     </div>
+  );
+}
+
+function DropdownBlock({ appId, label, source, staticOptions, entityId, displayField, multiple, value, onChange, colors }: {
+  appId: string; label: string; source: string; staticOptions: string;
+  entityId: string; displayField: string; multiple: boolean;
+  value: unknown; onChange: (v: unknown) => void; colors: AppColors;
+}) {
+  const entityQuery = useQuery({
+    queryKey: ["rt-records", appId, entityId],
+    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+    enabled: source === "entity" && !!entityId,
+  });
+
+  const options: { value: string; label: string }[] = source === "entity"
+    ? (entityQuery.data?.items ?? []).map((r) => ({ value: r.id, label: String(r.payload[displayField] ?? r.id) }))
+    : parseStaticOptions(staticOptions).map((o) => ({ value: o, label: o }));
+
+  const selectSt: React.CSSProperties = {
+    height: multiple ? 100 : 38, padding: multiple ? 6 : "0 12px", fontSize: 14, borderRadius: 8,
+    border: `1px solid ${colors.border}`, background: colors.surface,
+    color: colors.text, outline: "none", width: "100%", boxSizing: "border-box",
+  };
+
+  if (multiple) {
+    const selected = Array.isArray(value) ? value.map(String) : [];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+        <select
+          multiple
+          value={selected}
+          onChange={(e) => onChange(Array.from(e.target.selectedOptions).map((o) => o.value))}
+          style={selectSt}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+      <select value={value ? String(value) : ""} onChange={(e) => onChange(e.target.value)} style={selectSt}>
+        <option value="">— выберите —</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function FileUploadBlock({ label, accept, maxSizeMb, multiple, files, onChange, colors }: {
+  label: string; accept: string; maxSizeMb: number; multiple: boolean;
+  files: File[]; onChange: (files: File[]) => void; colors: AppColors;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+      <input
+        type="file"
+        accept={accept === "*" ? undefined : accept}
+        multiple={multiple}
+        onChange={(e) => {
+          setError(null);
+          const picked = Array.from(e.target.files ?? []);
+          const tooBig = picked.find((f) => f.size > maxSizeMb * 1024 * 1024);
+          if (tooBig) {
+            setError(`«${tooBig.name}» больше ${maxSizeMb} МБ`);
+            onChange([]);
+            return;
+          }
+          onChange(picked);
+        }}
+        style={{ fontSize: 13, color: colors.text }}
+      />
+      {files.length > 0 && (
+        <span style={{ fontSize: 11, color: colors.textMuted }}>
+          {files.map((f) => `${f.name} (${(f.size / 1024).toFixed(0)} KB)`).join(", ")}
+        </span>
+      )}
+      {error && <span style={{ fontSize: 11, color: "#B91C1C" }}>{error}</span>}
+    </div>
+  );
+}
+
+function ModalBlock({ title, triggerLabel, variant, content, accent, colors }: {
+  title: string; triggerLabel: string; variant: string; content: string;
+  accent: string; colors: AppColors;
+}) {
+  const [open, setOpen] = useState(false);
+  const variantSt: React.CSSProperties =
+    variant === "secondary"
+      ? { background: colors.surface, color: colors.text, border: `1px solid ${colors.border}` }
+      : variant === "link"
+      ? { background: "transparent", color: accent, border: "none", textDecoration: "underline", padding: 0 }
+      : { background: accent, color: "#fff", border: "none" };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        style={{ ...variantSt, borderRadius: 8, padding: variant === "link" ? 0 : "10px 20px", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
+      >
+        {triggerLabel}
+      </button>
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: colors.surface, borderRadius: 12, padding: 20, minWidth: 320, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: colors.text, margin: 0 }}>{title}</h3>
+              <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: colors.textMuted, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ fontSize: 14, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{content}</div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function TabsBlock({ tabs, accent, colors }: {
+  tabs: { id: string; label: string; content?: string }[]; accent: string; colors: AppColors;
+}) {
+  const [activeTab, setActiveTab] = useState(tabs[0]?.id ?? "");
+  const active = tabs.find((t) => t.id === activeTab) ?? tabs[0];
+
+  if (tabs.length === 0) {
+    return <div style={{ padding: 16, color: colors.textMuted, fontSize: 13 }}>Вкладки не настроены.</div>;
+  }
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ display: "flex", borderBottom: `1px solid ${colors.border}`, overflowX: "auto" }}>
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            style={{
+              padding: "10px 16px", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap",
+              background: "none", border: "none", cursor: "pointer",
+              color: t.id === (active?.id ?? tabs[0].id) ? accent : colors.textMuted,
+              borderBottom: t.id === (active?.id ?? tabs[0].id) ? `2px solid ${accent}` : "2px solid transparent",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ padding: 16, fontSize: 14, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+        {active?.content || <span style={{ color: colors.textMuted }}>Пусто</span>}
+      </div>
+    </section>
   );
 }
 
@@ -2340,13 +2880,14 @@ function ChartView({ title, cols, records, accent, colors }: {
 }
 
 /* ── Gantt view: horizontal timeline bars ── */
-function GanttView({ title, cols, records, accent }: {
+function GanttView({ title, cols, records, accent, startField: startFieldProp, endField: endFieldProp, nameField: nameFieldProp }: {
   title: string; cols: FieldRead[]; records: RecordRead[]; accent: string;
+  startField?: FieldRead; endField?: FieldRead; nameField?: FieldRead;
 }) {
   const dateFields = cols.filter((f) => f.field_type === "date");
-  const startField = dateFields[0];
-  const endField = dateFields[1] ?? dateFields[0];
-  const nameField = cols.find((f) => f.field_type !== "date") ?? cols[0];
+  const startField = startFieldProp ?? dateFields[0];
+  const endField = endFieldProp ?? dateFields[1] ?? dateFields[0];
+  const nameField = nameFieldProp ?? cols.find((f) => f.field_type !== "date") ?? cols[0];
 
   const now = new Date();
   const viewStart = new Date(now.getFullYear(), now.getMonth(), 1);
