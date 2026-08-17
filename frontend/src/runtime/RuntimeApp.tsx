@@ -1178,37 +1178,15 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   if (block.type === "date_field") {
     const cfg = block.config ?? {};
     const fieldName = (cfg.field_name as string) ?? "";
-    const label = (cfg.label as string) ?? block.title ?? "";
-    const mode = (cfg.mode as string) ?? "single";
-    const inputSt: React.CSSProperties = {
-      height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8,
-      border: `1px solid ${colors.border}`, background: colors.surface,
-      color: colors.text, outline: "none", width: "100%", boxSizing: "border-box",
-    };
-    if (mode === "range") {
-      const rawValue = fieldName ? formValues?.[fieldName] : undefined;
-      const [fromValue, toValue] = typeof rawValue === "string" ? rawValue.split("|") : ["", ""];
-      const setRange = (from: string, to: string) => fieldName && onFormChange?.(fieldName, `${from}|${to}`);
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <input type="date" value={fromValue ?? ""} onChange={(e) => setRange(e.target.value, toValue ?? "")} style={inputSt} />
-            <input type="date" value={toValue ?? ""} onChange={(e) => setRange(fromValue ?? "", e.target.value)} style={inputSt} />
-          </div>
-        </div>
-      );
-    }
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
-        <input
-          type="date"
-          value={fieldName ? String(formValues?.[fieldName] ?? "") : ""}
-          onChange={(e) => fieldName && onFormChange?.(fieldName, e.target.value)}
-          style={inputSt}
-        />
-      </div>
+      <DateFieldBlock
+        label={(cfg.label as string) ?? block.title ?? ""}
+        mode={(cfg.mode as string) ?? "single"}
+        defaultToday={Boolean(cfg.default_today)}
+        value={fieldName ? formValues?.[fieldName] : undefined}
+        onChange={(v) => fieldName && onFormChange?.(fieldName, v)}
+        colors={colors}
+      />
     );
   }
 
@@ -1928,6 +1906,54 @@ function LookupBlock({ appId, refEntityId, displayField, fieldName: _fieldName, 
           <option key={r.id} value={r.id}>{String(r.payload[displayField] ?? r.id)}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function DateFieldBlock({ label, mode, defaultToday, value, onChange, colors }: {
+  label: string; mode: string; defaultToday: boolean;
+  value: unknown; onChange: (v: string) => void; colors: AppColors;
+}) {
+  const inputSt: React.CSSProperties = {
+    height: 38, padding: "0 12px", fontSize: 14, borderRadius: 8,
+    border: `1px solid ${colors.border}`, background: colors.surface,
+    color: colors.text, outline: "none", width: "100%", boxSizing: "border-box",
+  };
+
+  // Auto-fill today's date once on mount, only if the field is still empty -
+  // never overwrites a value the user already typed or that came from an
+  // existing record.
+  useEffect(() => {
+    if (!defaultToday || (value !== undefined && value !== "")) return;
+    const today = new Date().toISOString().slice(0, 10);
+    onChange(mode === "range" ? `${today}|` : today);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (mode === "range") {
+    const rawValue = value;
+    const [fromValue, toValue] = typeof rawValue === "string" ? rawValue.split("|") : ["", ""];
+    const setRange = (from: string, to: string) => onChange(`${from}|${to}`);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="date" value={fromValue ?? ""} onChange={(e) => setRange(e.target.value, toValue ?? "")} style={inputSt} />
+          <input type="date" value={toValue ?? ""} onChange={(e) => setRange(fromValue ?? "", e.target.value)} style={inputSt} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
+      <input
+        type="date"
+        value={value ? String(value) : ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputSt}
+      />
     </div>
   );
 }

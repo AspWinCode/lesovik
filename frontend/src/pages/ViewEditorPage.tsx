@@ -167,7 +167,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   // Input blocks
   if (type === "text_field")   return { label: "Текстовое поле", field_name: "", placeholder: "", mask: "", required: false, validation: "" };
   if (type === "number_field") return { label: "Число", field_name: "", format: "number", currency: "RUB", unit: "", min: "", max: "", required: false };
-  if (type === "date_field")   return { label: "Дата", field_name: "", mode: "single", date_format: "DD.MM.YYYY", required: false };
+  if (type === "date_field")   return { label: "Дата", field_name: "", mode: "single", date_format: "DD.MM.YYYY", required: false, default_today: false };
   if (type === "dropdown")     return { label: "Список", field_name: "", source: "static", options: "Вариант 1\nВариант 2", multiple: false, entity_id: "", display_field: "" };
   if (type === "toggle")       return { label: "Вкл/Выкл", field_name: "", default_value: false };
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
@@ -2826,6 +2826,12 @@ function BlockInlineSettings({
             value={(block.config.required as boolean) ? "yes" : "no"}
             options={[{ value: "yes", label: "Да" }, { value: "no", label: "Нет" }]}
             onChange={(v) => onConfigChange({ required: v === "yes" })}
+          />
+          <ConfigSegmented
+            label="По умолчанию"
+            value={(block.config.default_today as boolean) ? "today" : "none"}
+            options={[{ value: "none", label: "Нет" }, { value: "today", label: "Сегодня" }]}
+            onChange={(v) => onConfigChange({ default_today: v === "today" })}
           />
         </>
       )}
