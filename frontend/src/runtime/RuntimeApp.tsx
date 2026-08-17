@@ -3250,6 +3250,20 @@ function formatCell(value: unknown, field: FieldRead): string {
     const num = Number(value);
     if (!isNaN(num)) return num.toLocaleString("ru-RU") + " ₽";
   }
+  if (field.field_type === "date" || field.field_type === "datetime") {
+    const d = new Date(String(value));
+    if (!isNaN(d.getTime())) {
+      return field.field_type === "date"
+        ? d.toLocaleDateString("ru-RU")
+        : d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+  }
+  // System id-like fields (record id, author id) are UUIDs - too long to be
+  // useful in a table cell, shorten to a recognizable prefix.
+  if (field.is_system && (field.name === "id" || field.name === "author_id")) {
+    const s = String(value);
+    return s.length > 12 ? `${s.slice(0, 8)}…` : s;
+  }
   return String(value);
 }
 
