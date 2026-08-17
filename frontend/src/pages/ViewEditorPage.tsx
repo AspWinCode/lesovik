@@ -539,6 +539,7 @@ export function ViewEditorPage() {
 
   const selectedEntity = entities.find((e) => e.id === selectedEntityId);
   const userFields = (selectedEntity?.fields ?? []).filter((f) => !f.is_system);
+  const systemFields = (selectedEntity?.fields ?? []).filter((f) => f.is_system);
 
   // Entity-scoped saved views
   const viewsQuery = useViews(appId, selectedEntityId || undefined);
@@ -552,6 +553,7 @@ export function ViewEditorPage() {
   // Derived view settings (read from layout with defaults).
   const sortRules = (layout.sort as { field: string; dir: "asc" | "desc" }[]) ?? [];
   const hiddenColumns = (layout.hidden_columns as string[]) ?? [];
+  const visibleSystemColumns = (layout.visible_system_columns as string[]) ?? [];
   const columnWidth = (layout.column_width as string) ?? "Средняя";
   const quickEdit = (layout.quick_edit as boolean) ?? true;
   const colMode = (layout.column_order_mode as "auto" | "manual") ?? "manual";
@@ -888,6 +890,14 @@ export function ViewEditorPage() {
                           ? hiddenColumns.filter((c) => c !== fieldName)
                           : [...hiddenColumns, fieldName];
                         patchLayout({ hidden_columns: next });
+                      }}
+                      systemFields={systemFields}
+                      visibleSystem={visibleSystemColumns}
+                      onToggleSystemColumn={(fieldName) => {
+                        const next = visibleSystemColumns.includes(fieldName)
+                          ? visibleSystemColumns.filter((c) => c !== fieldName)
+                          : [...visibleSystemColumns, fieldName];
+                        patchLayout({ visible_system_columns: next });
                       }}
                     />
                   </FieldRow>
@@ -1678,12 +1688,18 @@ function ColumnOrder({
   fields,
   hidden,
   onToggleColumn,
+  systemFields = [],
+  visibleSystem = [],
+  onToggleSystemColumn,
 }: {
   mode: "auto" | "manual";
   onMode: (m: "auto" | "manual") => void;
   fields: FieldRead[];
   hidden: string[];
   onToggleColumn: (fieldName: string) => void;
+  systemFields?: FieldRead[];
+  visibleSystem?: string[];
+  onToggleSystemColumn?: (fieldName: string) => void;
 }) {
   return (
     <div className="w-[538px]">
@@ -1736,6 +1752,30 @@ function ColumnOrder({
             </div>
           );
         })}
+        {mode === "manual" && systemFields.length > 0 && (
+          <>
+            <span className="text-[12px] font-medium text-primary/40 uppercase tracking-wide pt-2">Системные поля</span>
+            {systemFields.map((f) => {
+              const visible = visibleSystem.includes(f.name);
+              return (
+                <div key={f.id} className="flex items-center justify-between h-[41px] px-5 bg-mainbg rounded-btn">
+                  <button onClick={() => onToggleSystemColumn?.(f.name)} className="flex items-center gap-[15px]">
+                    <span className={cn(
+                      "w-[23px] h-[23px] rounded-[5px] border-2 border-primary flex items-center justify-center",
+                      visible && "bg-primary",
+                    )}>
+                      {visible && (
+                        <svg viewBox="0 0 16 16" className="w-3 h-3"><path d="M3 8 L7 12 L13 4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      )}
+                    </span>
+                    <span className="text-[18px] text-primary/60">{f.display_name}</span>
+                  </button>
+                  <span className="text-[13px] text-primary/40">{f.field_type}</span>
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
     </div>
   );

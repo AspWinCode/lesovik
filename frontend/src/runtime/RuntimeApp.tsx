@@ -307,9 +307,14 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
   const activeView = savedViews.find((v) => v.id === activeViewId);
 
   const hiddenColumns = (activeView?.config?.hidden_columns as string[] | undefined) ?? (page.layout?.hidden_columns as string[] | undefined) ?? [];
+  const visibleSystemColumns = (activeView?.config?.visible_system_columns as string[] | undefined) ?? (page.layout?.visible_system_columns as string[] | undefined) ?? [];
   const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "auto";
   const columnWidth = (activeView?.config?.column_width as string) ?? (page.layout?.column_width as string) ?? "Средняя";
-  const allCols = (entity?.fields ?? []).filter((f) => !f.is_system);
+  // System fields stay excluded by default (matches prior behavior); manual
+  // mode can opt individual ones back in via visibleSystemColumns.
+  const allCols = colOrderMode === "manual"
+    ? (entity?.fields ?? []).filter((f) => !f.is_system || visibleSystemColumns.includes(f.name))
+    : (entity?.fields ?? []).filter((f) => !f.is_system);
   const cols = colOrderMode === "manual"
     ? allCols.filter((f) => !hiddenColumns.includes(f.name))
     : allCols;
