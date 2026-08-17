@@ -127,7 +127,11 @@ async def test_update_sequence(client: AsyncClient, app_and_entity):
 
 
 @pytest.mark.asyncio
-async def test_next_value_increments(client: AsyncClient, app_and_entity):
+async def test_next_value_previews_without_consuming(client: AsyncClient, app_and_entity):
+    """POST .../next is a preview for UI display (see its docstring) - it must
+    NOT advance the sequence. Actual consumption happens only via
+    SequenceService.next_value(), called internally from record creation
+    (fill_autonumber_fields), not through this endpoint."""
     app_id, entity_id, headers = app_and_entity
     url = _seq_url(app_id, entity_id)
 
@@ -144,11 +148,11 @@ async def test_next_value_increments(client: AsyncClient, app_and_entity):
     assert r1.status_code == 200, r1.text
     assert r2.status_code == 200, r2.text
     assert r1.json()["value"] == "ORD-0001"
-    assert r2.json()["value"] == "ORD-0002"
+    assert r2.json()["value"] == "ORD-0001"
 
 
 @pytest.mark.asyncio
-async def test_next_value_step(client: AsyncClient, app_and_entity):
+async def test_next_value_reflects_step_and_padding(client: AsyncClient, app_and_entity):
     app_id, entity_id, headers = app_and_entity
     url = _seq_url(app_id, entity_id)
 
@@ -160,9 +164,7 @@ async def test_next_value_step(client: AsyncClient, app_and_entity):
     seq_id = create_r.json()["id"]
 
     r1 = await client.post(f"{url}/{seq_id}/next", headers=headers)
-    r2 = await client.post(f"{url}/{seq_id}/next", headers=headers)
     assert r1.json()["value"] == "S1"
-    assert r2.json()["value"] == "S11"
 
 
 @pytest.mark.asyncio
