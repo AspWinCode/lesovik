@@ -676,7 +676,9 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
                     );
                   }
                   return (
-                    <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>{formatCell(fieldValue(rec, f), f)}</td>
+                    <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>
+                      {f.is_system && f.name === "author_id" ? <AuthorCell userId={String(fieldValue(rec, f) ?? "")} /> : formatCell(fieldValue(rec, f), f)}
+                    </td>
                   );
                 })}
               </tr>
@@ -1376,6 +1378,8 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
                       recordId={String(rec.payload[f.name] ?? "")}
                       entities={entities ?? []}
                     />
+                  ) : f.is_system && f.name === "author_id" ? (
+                    <AuthorCell userId={String(fieldValue(rec, f) ?? "")} />
                   ) : (
                     String(fieldValue(rec, f) ?? "—")
                   )}
@@ -1707,7 +1711,9 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
                       );
                     }
                     return (
-                      <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{formatCell(fieldValue(rec, f), f)}</td>
+                      <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                        {f.is_system && f.name === "author_id" ? <AuthorCell userId={String(fieldValue(rec, f) ?? "")} /> : formatCell(fieldValue(rec, f), f)}
+                      </td>
                     );
                   })}
                 </tr>
@@ -2414,6 +2420,24 @@ function RelationCell({ appId, relatedEntityId, recordId, entities }: {
   return <>{String(rec.payload[displayField] ?? "—")}</>;
 }
 
+/** Resolves the "Автор" system field (a platform account id) to that
+ * account's display name. GET /users/{id} 404s for accounts other than the
+ * viewer unless the viewer has an elevated role - falls back to a shortened
+ * id in that case rather than showing an error. */
+function AuthorCell({ userId }: { userId: string }) {
+  const q = useQuery({
+    queryKey: ["rt-user", userId],
+    queryFn: () => apiClient.get<{ display_name: string }>(`/users/${userId}`).then((r) => r.data),
+    enabled: !!userId,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  if (!userId) return <>—</>;
+  if (q.isLoading) return <>…</>;
+  if (q.data?.display_name) return <>{q.data.display_name}</>;
+  return <>{userId.slice(0, 8)}…</>;
+}
+
 function DataView({ viewType, entity, cols, records, accent, colors, columnWidth, appId, entities, relations, onRowClick, activeRecordId, onRecordUpdated }: {
   viewType: string;
   entity: EntityRead | null;
@@ -2606,6 +2630,8 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                             recordId={String(rec.payload[f.name] ?? "")}
                             entities={entities}
                           />
+                        ) : f.is_system && f.name === "author_id" ? (
+                          <AuthorCell userId={String(fieldValue(rec, f) ?? "")} />
                         ) : (
                           formatCell(fieldValue(rec, f), f)
                         )}
@@ -2857,7 +2883,7 @@ function ListView({ title, cols, records, accent, colors, onRowClick }: {
                         return (
                           <span key={f.id} style={{ fontSize: 12, color: colors.textMuted }}>
                             <span style={{ fontWeight: 500 }}>{f.display_name}:</span>{" "}
-                            {formatCell(val, f)}
+                            {f.is_system && f.name === "author_id" ? <AuthorCell userId={String(val ?? "")} /> : formatCell(val, f)}
                           </span>
                         );
                       })}
@@ -2919,7 +2945,9 @@ function DetailView({ title, cols, records, accent, initialRecordId }: {
           {cols.map((f) => (
             <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#8898AA", textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</span>
-              <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>{formatCell(fieldValue(rec, f), f)}</span>
+              <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>
+                {f.is_system && f.name === "author_id" ? <AuthorCell userId={String(fieldValue(rec, f) ?? "")} /> : formatCell(fieldValue(rec, f), f)}
+              </span>
             </div>
           ))}
         </div>
