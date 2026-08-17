@@ -152,6 +152,16 @@ async def test_cancel_forbidden_for_regular_user(
     admin_token = await _login(client, "cancel_admin@example.com", "Admin1234!")
     app_id, workflow_id, instance_id = await _create_app_and_workflow(client, admin_token, None)
 
+    # Membership (as a non-admin role) is required for the 403 role check to be
+    # reached at all - without it, app visibility is checked first and a
+    # non-member gets 404, not 403 (deliberate: don't leak app existence).
+    member_r = await client.post(
+        f"/api/v1/apps/{app_id}/members",
+        json={"user_id": str(regular_user.id), "role": "editor"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert member_r.status_code == 204, member_r.text
+
     user_token = await _login(client, "cancel_regular@example.com", "User1234!")
     r = await client.post(
         f"/api/v1/apps/{app_id}/workflows/{workflow_id}/instances/{instance_id}/cancel",

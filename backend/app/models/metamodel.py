@@ -32,6 +32,7 @@ class FieldType(str, Enum):
     PHONE = "phone"
     JSON = "json"
     LOOKUP = "lookup"
+    AUTONUMBER = "autonumber"
 
 
 class RelationType(str, Enum):
