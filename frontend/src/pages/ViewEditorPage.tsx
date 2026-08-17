@@ -606,16 +606,16 @@ export function ViewEditorPage() {
 
       {/* ── Top tab bar ── */}
       <div
-        className="absolute bg-mainbg rounded-[5px]"
+        className="absolute bg-mainbg rounded-[5px] flex items-center justify-between px-[24px]"
         style={{ left: navCollapsed ? 90 : 380, top: 70, width: navCollapsed ? 1235 : 945, height: 55, transition: "left 0.2s, width 0.2s" }}
       >
-        <div className="absolute left-[40px] top-0 h-[55px] flex items-center gap-[30px] py-[10px]">
+        <div className="flex items-center gap-[18px] shrink-0 min-w-0">
           {EDITOR_TABS.map((t) => (
             <button
               key={t}
               onClick={() => setEditorTab(t)}
               className={cn(
-                "text-[20px] leading-[150%] font-bold whitespace-nowrap transition-colors",
+                "text-[20px] leading-[150%] font-bold whitespace-nowrap transition-colors shrink-0",
                 editorTab === t ? "text-cta" : "text-primary"
               )}
             >
@@ -623,14 +623,14 @@ export function ViewEditorPage() {
             </button>
           ))}
         </div>
-        <div className="absolute flex items-center gap-[10px]" style={{ right: 40, top: 10.5, height: 34 }}>
+        <div className="flex items-center gap-[8px] shrink-0" style={{ height: 34 }}>
           <a
             href={appId ? `/app/?app=${appId}` : `/app/`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-[10px] px-5 py-[5px]
+            className="flex items-center justify-center gap-[8px] px-4 py-[5px]
                        border-2 border-primary rounded-[20px] text-meta font-semibold text-primary
-                       hover:bg-cardbg/40 transition-colors h-full"
+                       hover:bg-cardbg/40 transition-colors h-full whitespace-nowrap"
           >
             Предпросмотр
           </a>
@@ -647,7 +647,7 @@ export function ViewEditorPage() {
               }}
               disabled={publishPageMutation.isPending || unpublishPageMutation.isPending}
               className={cn(
-                "flex items-center justify-center gap-[8px] px-4 py-[5px] rounded-[20px] text-meta font-semibold transition-colors h-full border-2 disabled:opacity-60",
+                "flex items-center justify-center gap-[8px] px-3 py-[5px] rounded-[20px] text-meta font-semibold transition-colors h-full border-2 disabled:opacity-60 whitespace-nowrap",
                 (activePage as { is_published?: boolean }).is_published
                   ? "border-green-500 text-green-600 hover:bg-green-50"
                   : "border-cta text-cta hover:bg-[#EBF4FF]",
