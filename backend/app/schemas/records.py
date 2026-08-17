@@ -87,7 +87,11 @@ class RecordUpdate(BaseModel):
 
 class RecordListParams(BaseModel):
     cursor: str | None = None
-    limit: int = Field(default=50, ge=1, le=200)
+    # 10000 (not 200) to accommodate bulk export, which reuses this model with
+    # its own up-to-10000 limit (see export_records's Query bound); the
+    # interactive list endpoint still caps its own `limit` Query param at 200,
+    # so this wider bound doesn't loosen anything for paginated browsing.
+    limit: int = Field(default=50, ge=1, le=10000)
     filters: list[ParsedFilter] = Field(default_factory=list)
     sort_field: str | None = None
     sort_dir: str = Field(default="asc", pattern=r"^(asc|desc)$")
