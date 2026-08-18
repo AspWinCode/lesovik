@@ -3362,6 +3362,7 @@ function BlockInlineSettings({
       {block.type === "table" && (
         <TableBlockSettings
           entityId={(block.config.entity_id as string) ?? ""}
+          visibleSystemColumns={(block.config.visible_system_columns as string[]) ?? []}
           entities={entities}
           onConfigChange={onConfigChange}
         />
@@ -3483,10 +3484,12 @@ function VisibilitySection({
 /* ── Table block settings ── */
 function TableBlockSettings({
   entityId,
+  visibleSystemColumns,
   entities,
   onConfigChange,
 }: {
   entityId: string;
+  visibleSystemColumns: string[];
   entities: { id: string; display_name: string; fields: FieldRead[] }[];
   onConfigChange: (patch: Record<string, unknown>) => void;
 }) {
@@ -3494,14 +3497,48 @@ function TableBlockSettings({
     { value: "", label: "— выберите сущность —" },
     ...entities.map((e) => ({ value: e.id, label: e.display_name })),
   ];
+  const systemFields = (entities.find((e) => e.id === entityId)?.fields ?? []).filter((f) => f.is_system);
   return (
-    <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px] px-5 pb-4 pt-3 border-t border-mainbg">
-      <ConfigSelect
-        label="Источник данных"
-        value={entityId}
-        options={entityOptions}
-        onChange={(entity_id) => onConfigChange({ entity_id })}
-      />
+    <div className="px-5 pb-4 pt-3 border-t border-mainbg flex flex-col gap-[10px]">
+      <div className="grid grid-cols-2 gap-x-[12px] gap-y-[10px]">
+        <ConfigSelect
+          label="Источник данных"
+          value={entityId}
+          options={entityOptions}
+          onChange={(entity_id) => onConfigChange({ entity_id })}
+        />
+      </div>
+      {systemFields.length > 0 && (
+        <div className="flex flex-col gap-[6px]">
+          <span className="text-[12px] font-medium text-primary/40 uppercase tracking-wide pt-2">Системные поля</span>
+          {systemFields.map((f) => {
+            const visible = visibleSystemColumns.includes(f.name);
+            return (
+              <div key={f.id} className="flex items-center justify-between h-[41px] px-5 bg-mainbg rounded-btn">
+                <button
+                  onClick={() => onConfigChange({
+                    visible_system_columns: visible
+                      ? visibleSystemColumns.filter((c) => c !== f.name)
+                      : [...visibleSystemColumns, f.name],
+                  })}
+                  className="flex items-center gap-[15px]"
+                >
+                  <span className={cn(
+                    "w-[23px] h-[23px] rounded-[5px] border-2 border-primary flex items-center justify-center",
+                    visible && "bg-primary",
+                  )}>
+                    {visible && (
+                      <svg viewBox="0 0 16 16" className="w-3 h-3"><path d="M3 8 L7 12 L13 4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    )}
+                  </span>
+                  <span className="text-[18px] text-primary/60">{f.display_name}</span>
+                </button>
+                <span className="text-[13px] text-primary/40">{f.field_type}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -284,6 +284,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
   const viewType = (page.layout?.view_type as string) ?? "";
   const entity = entities.find((e) => e.id === entityId) ?? null;
   const blocks = (page.blocks ?? []) as unknown as PageBlock[];
+  const qc = useQueryClient();
 
   const recordsQuery = useQuery({
     queryKey: ["rt-records", appId, entity?.id],
@@ -457,6 +458,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
         }
       }
 
+      qc.invalidateQueries({ queryKey: ["rt-records", appId] });
       setPageFormValues({});
       setPageFileValues({});
       setPageSaveStatus("success");
@@ -996,9 +998,9 @@ function ChartBlock({ title, chartType, records, labelField, valueField, colors,
   );
 }
 
-function TableBlock({ appId, entities, relations, title, entityId, colors, onRowClick }: {
+function TableBlock({ appId, entities, relations, title, entityId, visibleSystemColumns, colors, onRowClick }: {
   appId: string; entities?: EntityRead[]; relations?: RelationRead[]; title?: string | null;
-  entityId: string; colors: AppColors; onRowClick?: (entityId: string, recordId: string) => void;
+  entityId: string; visibleSystemColumns?: string[]; colors: AppColors; onRowClick?: (entityId: string, recordId: string) => void;
 }) {
   const recordsQuery = useQuery({
     queryKey: ["rt-records", appId, entityId, "table-block"],
@@ -1007,7 +1009,7 @@ function TableBlock({ appId, entities, relations, title, entityId, colors, onRow
   });
   const tableEntity = entities?.find((e) => e.id === entityId) ?? null;
   const records = recordsQuery.data?.items ?? [];
-  const cols = (tableEntity?.fields ?? []).filter((f) => !f.is_system);
+  const cols = (tableEntity?.fields ?? []).filter((f) => !f.is_system || (visibleSystemColumns ?? []).includes(f.name));
 
   if (!tableEntity) {
     return (
@@ -1754,6 +1756,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         relations={relations}
         title={block.title}
         entityId={tableEntityId}
+        visibleSystemColumns={block.config?.visible_system_columns as string[] | undefined}
         colors={colors}
         onRowClick={onRowClick}
       />
