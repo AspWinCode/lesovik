@@ -337,6 +337,7 @@ export function MainPage() {
                   variant="apps"
                   isSelected={p.id === effectiveSelected}
                   onClick={() => setSelected(p.id)}
+                  onDoubleClick={() => navigate(`/views?app=${p.id}`)}
                   onShareClick={() => { setSelected(p.id); setModal("share"); }}
                   onRename={() => handleRenameApp(p.id, p.name)}
                   onClone={() => handleOpenClone(p.id)}

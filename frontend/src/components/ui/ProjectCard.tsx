@@ -17,6 +17,7 @@ interface ProjectCardProps {
   variant: "apps" | "databases";
   isSelected?: boolean;
   onClick?: () => void;
+  onDoubleClick?: () => void;
   onShareClick?: () => void;
   onRename?: () => void;
   onClone?: () => void;
@@ -29,6 +30,7 @@ export function ProjectCard({
   variant,
   isSelected,
   onClick,
+  onDoubleClick,
   onShareClick,
   onRename,
   onClone,
@@ -40,6 +42,7 @@ export function ProjectCard({
   return (
     <div
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       className={cn(
         "rounded-card border-2 cursor-pointer transition-all shrink-0 overflow-hidden",
         isSelected
