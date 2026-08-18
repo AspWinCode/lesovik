@@ -996,6 +996,80 @@ function ChartBlock({ title, chartType, records, labelField, valueField, colors,
   );
 }
 
+function TableBlock({ appId, entities, relations, title, entityId, colors, onRowClick }: {
+  appId: string; entities?: EntityRead[]; relations?: RelationRead[]; title?: string | null;
+  entityId: string; colors: AppColors; onRowClick?: (entityId: string, recordId: string) => void;
+}) {
+  const recordsQuery = useQuery({
+    queryKey: ["rt-records", appId, entityId, "table-block"],
+    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+    enabled: !!entityId,
+  });
+  const tableEntity = entities?.find((e) => e.id === entityId) ?? null;
+  const records = recordsQuery.data?.items ?? [];
+  const cols = (tableEntity?.fields ?? []).filter((f) => !f.is_system);
+
+  if (!tableEntity) {
+    return (
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, background: colors.surface, color: colors.textMuted, fontSize: 14 }}>
+        Таблица не выбрана.
+      </section>
+    );
+  }
+
+  return (
+    <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
+      <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", color: colors.text }}>
+        <span>{title ?? tableEntity.display_name ?? "Таблица"}</span>
+        <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 13 }}>{records.length} записей</span>
+      </div>
+      {cols.length === 0 ? (
+        <p style={{ padding: 14, color: colors.textMuted, fontSize: 14 }}>Таблица не выбрана.</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                {cols.map((f) => (
+                  <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rec) => (
+                <tr
+                  key={rec.id}
+                  style={{ borderBottom: `1px solid ${colors.border}`, cursor: onRowClick ? "pointer" : "default" }}
+                  onClick={onRowClick ? () => onRowClick(tableEntity.id, rec.id) : undefined}
+                >
+                  {cols.map((f) => {
+                    if (f.field_type === "relation") {
+                      const rel = relations?.find((r) => r.from_entity_id === tableEntity.id && r.from_field_name === f.name);
+                      return (
+                        <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                          <RelationCell appId={appId} relatedEntityId={rel?.to_entity_id ?? null} recordId={String(rec.payload[f.name] ?? "")} entities={entities ?? []} />
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                        {f.is_system && f.name === "author_id" ? <AuthorCell userId={String(fieldValue(rec, f) ?? "")} /> : formatCell(fieldValue(rec, f), f)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {records.length === 0 && (
+                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, fileValues, onFileChange, filterValues, onFilterChange, onFormSave, formStatus, onRowClick }: {
   block: PageBlock;
   entity: EntityRead | null;
@@ -1671,6 +1745,20 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   }
 
   // table (default)
+  const tableEntityId = (block.config?.entity_id as string) || "";
+  if (tableEntityId && tableEntityId !== entity?.id) {
+    return (
+      <TableBlock
+        appId={appId}
+        entities={entities}
+        relations={relations}
+        title={block.title}
+        entityId={tableEntityId}
+        colors={colors}
+        onRowClick={onRowClick}
+      />
+    );
+  }
   return (
     <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
       <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, display: "flex", justifyContent: "space-between", color: colors.text }}>
