@@ -64,6 +64,13 @@ interface PageBlock {
   config: Record<string, unknown>;
 }
 
+interface PositionsPickerExtra {
+  entity_id: string;
+  display_field: string;
+  label: string;
+  field: string;
+}
+
 interface RuleCond {
   id: string;
   field: string;
@@ -175,7 +182,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "file_upload")  return { label: "Файл", field_name: "", accept: "*", max_size_mb: 10, multiple: false };
   if (type === "lookup")           return { label: "Справочник", field_name: "", entity_id: "", display_field: "", multiple: false };
   if (type === "responsible")      return { label: "Ответственный", field_name: "", entity_id: "", display_field: "", match_field: "" };
-  if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica", extra_lookup_entity_id: "", extra_lookup_display_field: "", extra_lookup_label: "Раздел", positions_entity_id: "", parent_field: "", item_field: "", extra_field: "", qty_field: "kolichestvo", row_total_field: "", total_field: "" };
+  if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica", extras: [], positions_entity_id: "", parent_field: "", item_field: "", qty_field: "kolichestvo", row_total_field: "", total_field: "" };
   // Display
   if (type === "record_card")  return { entity_id: "", fields: [] };
   if (type === "pivot")        return { entity_id: "", row_field: "", col_field: "", value_field: "", agg: "count" };
@@ -3194,24 +3201,71 @@ function BlockInlineSettings({
             placeholder="edinica"
           />
 
-          <div className="col-span-2 text-[11px] font-medium text-primary/50 uppercase tracking-wide pt-2">Доп. привязка на строку (опционально)</div>
-          <ConfigSelect
-            label="Доп. сущность"
-            value={(block.config.extra_lookup_entity_id as string) ?? ""}
-            options={entityOptions}
-            onChange={(extra_lookup_entity_id) => onConfigChange({ extra_lookup_entity_id })}
-          />
-          <ConfigSelect
-            label="Доп. поле-подпись"
-            value={(block.config.extra_lookup_display_field as string) ?? ""}
-            options={fieldOptions(entityFields(block.config.extra_lookup_entity_id as string), "— авто —")}
-            onChange={(extra_lookup_display_field) => onConfigChange({ extra_lookup_display_field })}
-          />
-          <ConfigInput
-            label="Подпись доп. поля"
-            value={(block.config.extra_lookup_label as string) ?? "Раздел"}
-            onChange={(extra_lookup_label) => onConfigChange({ extra_lookup_label })}
-          />
+          {(() => {
+            const extras: PositionsPickerExtra[] = Array.isArray(block.config.extras)
+              ? (block.config.extras as PositionsPickerExtra[])
+              : (block.config.extra_lookup_entity_id
+                  ? [{
+                      entity_id: block.config.extra_lookup_entity_id as string,
+                      display_field: (block.config.extra_lookup_display_field as string) ?? "",
+                      label: (block.config.extra_lookup_label as string) ?? "Раздел",
+                      field: (block.config.extra_field as string) ?? "",
+                    }]
+                  : []);
+            function updateExtras(next: PositionsPickerExtra[]) {
+              onConfigChange({
+                extras: next,
+                extra_lookup_entity_id: undefined,
+                extra_lookup_display_field: undefined,
+                extra_lookup_label: undefined,
+                extra_field: undefined,
+              });
+            }
+            return (
+              <>
+                <div className="col-span-2 text-[11px] font-medium text-primary/50 uppercase tracking-wide pt-2">Доп. связи на строку (опционально)</div>
+                {extras.map((ex, i) => (
+                  <div key={i} className="col-span-2 grid grid-cols-2 gap-x-[12px] gap-y-[10px] p-3 bg-mainbg rounded-btn">
+                    <ConfigSelect
+                      label="Сущность"
+                      value={ex.entity_id}
+                      options={entityOptions}
+                      onChange={(entity_id) => updateExtras(extras.map((e, j) => j === i ? { ...e, entity_id, display_field: "" } : e))}
+                    />
+                    <ConfigSelect
+                      label="Поле-подпись"
+                      value={ex.display_field}
+                      options={fieldOptions(entityFields(ex.entity_id), "— авто —")}
+                      onChange={(display_field) => updateExtras(extras.map((e, j) => j === i ? { ...e, display_field } : e))}
+                    />
+                    <ConfigInput
+                      label="Подпись поля"
+                      value={ex.label}
+                      onChange={(label) => updateExtras(extras.map((e, j) => j === i ? { ...e, label } : e))}
+                    />
+                    <ConfigSelect
+                      label="Поле для сохранения"
+                      value={ex.field}
+                      options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
+                      onChange={(field) => updateExtras(extras.map((e, j) => j === i ? { ...e, field } : e))}
+                    />
+                    <button
+                      onClick={() => updateExtras(extras.filter((_, j) => j !== i))}
+                      className="col-span-2 text-[12px] text-mistake hover:underline text-left"
+                    >
+                      ✕ Удалить связь
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => updateExtras([...extras, { entity_id: "", display_field: "", label: "Раздел", field: "" }])}
+                  className="col-span-2 text-[13px] font-medium text-cta hover:text-active transition-colors text-left"
+                >
+                  + Добавить связь
+                </button>
+              </>
+            );
+          })()}
 
           <div className="col-span-2 text-[11px] font-medium text-primary/50 uppercase tracking-wide pt-2">Сохранение строк</div>
           <ConfigSelect
@@ -3231,12 +3285,6 @@ function BlockInlineSettings({
             value={(block.config.item_field as string) ?? ""}
             options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
             onChange={(item_field) => onConfigChange({ item_field })}
-          />
-          <ConfigSelect
-            label="Поле доп. привязки"
-            value={(block.config.extra_field as string) ?? ""}
-            options={fieldOptions(entityFields(block.config.positions_entity_id as string), "— выберите —")}
-            onChange={(extra_field) => onConfigChange({ extra_field })}
           />
           <ConfigSelect
             label="Поле количества"

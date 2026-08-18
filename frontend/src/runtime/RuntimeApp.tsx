@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, useSearchParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api/views";
@@ -400,13 +400,14 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
       });
 
       // Compute totals from positions picker and inject into entity payload
-      const positions = (formVals._positions as Array<{ catalog_id: string; nazvanie: string; kolichestvo: number; cena: number; edinica: string; extra_id?: string }>) ?? [];
+      const positions = (formVals._positions as Array<{ catalog_id: string; nazvanie: string; kolichestvo: number; cena: number; edinica: string; extra_ids?: Record<string, string> }>) ?? [];
       const pickerBlock = visibleBlocks.find((b) => b.type === "positions_picker");
       const pickerCfg = pickerBlock?.config as {
         positions_entity_id?: string; parent_field?: string; item_field?: string;
         qty_field?: string; price_field?: string; name_field?: string; unit_field?: string;
-        extra_field?: string; row_total_field?: string; total_field?: string;
+        row_total_field?: string; total_field?: string;
       } | undefined;
+      const pickerExtras = pickerBlock ? getPositionsPickerExtras(pickerBlock.config) : [];
       if (positions.length > 0) {
         const posTotal = positions.reduce((s, p) => s + p.kolichestvo * p.cena, 0);
         if (validFields.has("summa_tovarov")) payload["summa_tovarov"] = posTotal;
@@ -435,8 +436,11 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
           if (destFieldNames.has(nameField)) childPayload[nameField] = pos.nazvanie;
           const unitField = pickerCfg.unit_field ?? "edinica";
           if (destFieldNames.has(unitField)) childPayload[unitField] = pos.edinica;
-          if (pickerCfg.extra_field && pos.extra_id && destFieldNames.has(pickerCfg.extra_field)) {
-            childPayload[pickerCfg.extra_field] = pos.extra_id;
+          for (const extra of pickerExtras) {
+            const extraId = pos.extra_ids?.[extra.field];
+            if (extra.field && extraId && destFieldNames.has(extra.field)) {
+              childPayload[extra.field] = extraId;
+            }
           }
           if (pickerCfg.row_total_field && destFieldNames.has(pickerCfg.row_total_field)) {
             childPayload[pickerCfg.row_total_field] = Math.round(pos.kolichestvo * pos.cena);
@@ -1827,8 +1831,29 @@ interface PositionRow {
   kolichestvo: number;
   cena: number;
   edinica: string;
-  extra_id?: string;
-  extra_label?: string;
+  extra_ids?: Record<string, string>;
+  extra_labels?: Record<string, string>;
+}
+
+interface PositionsPickerExtra {
+  entity_id: string;
+  display_field: string;
+  label: string;
+  field: string;
+}
+
+/** extras: [] on new blocks; old blocks stored a single extra_lookup_* + extra_field set directly on config. */
+function getPositionsPickerExtras(config: Record<string, unknown>): PositionsPickerExtra[] {
+  if (Array.isArray(config.extras)) return config.extras as PositionsPickerExtra[];
+  if (config.extra_lookup_entity_id) {
+    return [{
+      entity_id: config.extra_lookup_entity_id as string,
+      display_field: (config.extra_lookup_display_field as string) ?? "",
+      label: (config.extra_lookup_label as string) ?? "Раздел",
+      field: (config.extra_field as string) ?? "",
+    }];
+  }
+  return [];
 }
 
 function PositionsPicker({ block, appId, formValues, onFormChange, colors, accent }: {
@@ -1842,9 +1867,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
   const displayField = (cfg.catalog_display_field as string) ?? "nazvanie";
   const priceField = (cfg.catalog_price_field as string) ?? "cena";
   const unitField = (cfg.catalog_unit_field as string) ?? "edinica";
-  const extraEntityId = (cfg.extra_lookup_entity_id as string) ?? "";
-  const extraDisplayField = (cfg.extra_lookup_display_field as string) ?? "nazvanie";
-  const extraLabel = (cfg.extra_lookup_label as string) ?? "Раздел";
+  const extras = getPositionsPickerExtras(cfg);
 
   const catalogQuery = useQuery({
     queryKey: ["rt-records", appId, catalogEntityId],
@@ -1853,15 +1876,19 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
   });
   const catalogItems = catalogQuery.data?.items ?? [];
 
-  const extraQuery = useQuery({
-    queryKey: ["rt-records", appId, extraEntityId],
-    queryFn: () => listRecords(appId, extraEntityId, { limit: 200 }),
-    enabled: !!extraEntityId,
+  const extraQueries = useQueries({
+    queries: extras.map((ex) => ({
+      queryKey: ["rt-records", appId, ex.entity_id, "picker-extra"],
+      queryFn: () => listRecords(appId, ex.entity_id, { limit: 200 }),
+      enabled: !!ex.entity_id,
+    })),
   });
-  const extraItems = extraQuery.data?.items ?? [];
+  const extraItemsByField = Object.fromEntries(
+    extras.map((ex, i) => [ex.field || `_extra_${i}`, extraQueries[i]?.data?.items ?? []])
+  );
 
   const [showDropdown, setShowDropdown] = useState(false);
-  const [pendingExtraId, setPendingExtraId] = useState("");
+  const [pendingExtraIds, setPendingExtraIds] = useState<Record<string, string>>({});
 
   const positions = ((formValues?._positions ?? []) as PositionRow[]);
 
@@ -1872,7 +1899,16 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
   }
 
   function addItem(item: { id: string; payload: Record<string, unknown> }) {
-    const extraItem = extraItems.find((e) => e.id === pendingExtraId);
+    const extraIds: Record<string, string> = {};
+    const extraLabels: Record<string, string> = {};
+    for (const ex of extras) {
+      const key = ex.field || ex.entity_id;
+      const selectedId = pendingExtraIds[key];
+      if (!selectedId) continue;
+      const extraItem = extraItemsByField[key]?.find((e) => e.id === selectedId);
+      extraIds[key] = selectedId;
+      if (extraItem) extraLabels[key] = String(extraItem.payload[ex.display_field] ?? "");
+    }
     const row: PositionRow = {
       id: Math.random().toString(36).slice(2),
       catalog_id: item.id,
@@ -1880,12 +1916,12 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
       kolichestvo: 1,
       cena: Number(item.payload[priceField] ?? 0),
       edinica: String(item.payload[unitField] ?? ""),
-      extra_id: pendingExtraId || undefined,
-      extra_label: extraItem ? String(extraItem.payload[extraDisplayField] ?? "") : undefined,
+      extra_ids: extraIds,
+      extra_labels: extraLabels,
     };
     setPositions([...positions, row]);
     setShowDropdown(false);
-    setPendingExtraId("");
+    setPendingExtraIds({});
   }
 
   function updateQty(rowId: string, qty: number) {
@@ -1898,7 +1934,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
 
   const total = positions.reduce((s, p) => s + p.kolichestvo * p.cena, 0);
   const label = (cfg.label as string) ?? "Позиции заказа";
-  const canAdd = !extraEntityId || !!pendingExtraId;
+  const canAdd = extras.every((ex) => !!pendingExtraIds[ex.field || ex.entity_id]);
   const selectSt: React.CSSProperties = {
     height: 34, padding: "0 10px", fontSize: 13, borderRadius: 6,
     border: `1px solid ${colors.border}`, background: colors.surface,
@@ -1919,17 +1955,24 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
 
       {showDropdown && (
         <div style={{ borderBottom: `1px solid ${colors.border}` }}>
-          {extraEntityId && (
-            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${colors.border}` }}>
-              <label style={{ fontSize: 12, color: colors.textMuted, display: "block", marginBottom: 4 }}>{extraLabel}</label>
-              <select value={pendingExtraId} onChange={(e) => setPendingExtraId(e.target.value)} style={selectSt}>
-                <option value="">— выберите —</option>
-                {extraItems.map((item) => (
-                  <option key={item.id} value={item.id}>{String(item.payload[extraDisplayField] ?? item.id)}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {extras.map((ex, i) => {
+            const key = ex.field || ex.entity_id;
+            return (
+              <div key={key + i} style={{ padding: "10px 14px", borderBottom: `1px solid ${colors.border}` }}>
+                <label style={{ fontSize: 12, color: colors.textMuted, display: "block", marginBottom: 4 }}>{ex.label}</label>
+                <select
+                  value={pendingExtraIds[key] ?? ""}
+                  onChange={(e) => setPendingExtraIds((prev) => ({ ...prev, [key]: e.target.value }))}
+                  style={selectSt}
+                >
+                  <option value="">— выберите —</option>
+                  {(extraItemsByField[key] ?? []).map((item) => (
+                    <option key={item.id} value={item.id}>{String(item.payload[ex.display_field] ?? item.id)}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
           <div style={{ maxHeight: 220, overflowY: "auto", opacity: canAdd ? 1 : 0.5, pointerEvents: canAdd ? "auto" : "none" }}>
             {catalogItems.length === 0 && (
               <div style={{ padding: "10px 14px", color: colors.textMuted, fontSize: 13 }}>Каталог пуст</div>
@@ -1957,7 +2000,9 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: colors.text }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
-                {extraEntityId && <th style={{ padding: "7px 12px", textAlign: "left", color: colors.textMuted, fontWeight: 600 }}>{extraLabel}</th>}
+                {extras.map((ex, i) => (
+                  <th key={(ex.field || ex.entity_id) + i} style={{ padding: "7px 12px", textAlign: "left", color: colors.textMuted, fontWeight: 600 }}>{ex.label}</th>
+                ))}
                 <th style={{ padding: "7px 12px", textAlign: "left", color: colors.textMuted, fontWeight: 600 }}>Наименование</th>
                 <th style={{ padding: "7px 8px", textAlign: "left", color: colors.textMuted, fontWeight: 600 }}>Ед.</th>
                 <th style={{ padding: "7px 8px", textAlign: "right", color: colors.textMuted, fontWeight: 600 }}>Кол-во</th>
@@ -1969,7 +2014,10 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
             <tbody>
               {positions.map((p) => (
                 <tr key={p.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  {extraEntityId && <td style={{ padding: "7px 12px" }}>{p.extra_label ?? "—"}</td>}
+                  {extras.map((ex, i) => {
+                    const key = ex.field || ex.entity_id;
+                    return <td key={key + i} style={{ padding: "7px 12px" }}>{p.extra_labels?.[key] ?? "—"}</td>;
+                  })}
                   <td style={{ padding: "7px 12px" }}>{p.nazvanie}</td>
                   <td style={{ padding: "7px 8px", color: colors.textMuted }}>{p.edinica}</td>
                   <td style={{ padding: "4px 8px", textAlign: "right" }}>
@@ -1990,7 +2038,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
                 </tr>
               ))}
               <tr style={{ borderTop: `2px solid ${colors.border}` }}>
-                <td colSpan={extraEntityId ? 5 : 4} style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: colors.textMuted, fontSize: 12 }}>ИТОГО:</td>
+                <td colSpan={extras.length + 4} style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: colors.textMuted, fontSize: 12 }}>ИТОГО:</td>
                 <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: accent, fontSize: 16 }}>
                   {Math.round(total).toLocaleString("ru-RU")} ₽
                 </td>
