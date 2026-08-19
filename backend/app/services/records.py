@@ -14,6 +14,7 @@ from sqlalchemy.types import Numeric
 
 from app.core.metrics import record_operations
 from app.models.data import Record
+from app.models.identity import AbacRule
 from app.models.metamodel import Entity, Field, Relation
 from app.schemas.common import CursorPage
 from app.schemas.records import FilterOp, ParsedFilter, RecordCreate, RecordListParams, RecordRead, RecordUpdate
@@ -345,6 +346,82 @@ def _evaluate_formulas(payload: dict[str, Any], fields: list[Field]) -> dict[str
 
 
 # ------------------------------------------------------------------
+# Row-level ABAC (AbacRule): only "author is the current user" is
+# implemented, since that's the only condition shape anything creates
+# today. Unsupported condition shapes are skipped (logged, ignored)
+# rather than failing open/closed in a way nobody asked for.
+# ------------------------------------------------------------------
+
+_SELF_TOKEN = "$self"
+_AUTHOR_FIELD_NAMES = {"author_id", "created_by"}
+
+
+def _abac_condition_to_sql(cond: dict, actor_id: uuid.UUID | None) -> Any | None:
+    if not isinstance(cond, dict):
+        return None
+    field_name = cond.get("field")
+    op = cond.get("op")
+    value = cond.get("value")
+    if field_name in _AUTHOR_FIELD_NAMES and op == "eq" and value == _SELF_TOKEN:
+        if actor_id is None:
+            return None
+        return Record.created_by == actor_id
+    logger.warning("abac_condition_unsupported", condition=cond)
+    return None
+
+
+def _abac_rule_clause(rule: "AbacRule", actor_id: uuid.UUID | None) -> Any | None:
+    """AND together every condition on one rule; None if any condition is unsupported."""
+    clauses = []
+    for cond in rule.condition_json or []:
+        sql_cond = _abac_condition_to_sql(cond, actor_id)
+        if sql_cond is None:
+            return None
+        clauses.append(sql_cond)
+    if not clauses:
+        return None
+    return and_(*clauses) if len(clauses) > 1 else clauses[0]
+
+
+async def _apply_abac_row_scope(
+    db: AsyncSession, stmt: Any, entity_id: uuid.UUID,
+    actor_id: uuid.UUID | None, actor_roles: list[str] | None,
+) -> Any:
+    """
+    Restrict a record-listing query per AbacRule rows targeting this entity
+    and one of the caller's roles. "allow" rules scope visibility to the
+    union of their conditions; "deny" rules exclude matching rows and win
+    over any "allow". No matching rules = no restriction (open by default).
+    """
+    if not actor_roles:
+        return stmt
+    result = await db.execute(
+        select(AbacRule).where(
+            AbacRule.resource_type == "entity",
+            or_(AbacRule.resource_id.is_(None), AbacRule.resource_id == str(entity_id)),
+            AbacRule.role_id.in_(actor_roles),
+        )
+    )
+    rules = result.scalars().all()
+    if not rules:
+        return stmt
+
+    allow_clauses = []
+    deny_clauses = []
+    for rule in rules:
+        clause = _abac_rule_clause(rule, actor_id)
+        if clause is None:
+            continue
+        (deny_clauses if rule.effect == "deny" else allow_clauses).append(clause)
+
+    if allow_clauses:
+        stmt = stmt.where(or_(*allow_clauses))
+    for clause in deny_clauses:
+        stmt = stmt.where(~clause)
+    return stmt
+
+
+# ------------------------------------------------------------------
 # RecordService
 # ------------------------------------------------------------------
 
@@ -353,7 +430,8 @@ class RecordService:
         self._db = db
 
     async def list_records(
-        self, entity_id: uuid.UUID, params: RecordListParams
+        self, entity_id: uuid.UUID, params: RecordListParams,
+        actor_id: uuid.UUID | None = None, actor_roles: list[str] | None = None,
     ) -> CursorPage[RecordRead]:
         stmt = (
             select(Record)
@@ -363,6 +441,8 @@ class RecordService:
 
         if not params.include_deleted:
             stmt = stmt.where(Record.is_deleted.is_(False))
+
+        stmt = await _apply_abac_row_scope(self._db, stmt, entity_id, actor_id, actor_roles)
 
         # JSONB filters
         for f in params.filters:
@@ -401,8 +481,18 @@ class RecordService:
             has_more=has_more,
         )
 
-    async def get_record(self, entity_id: uuid.UUID, record_id: uuid.UUID) -> RecordRead:
+    async def get_record(
+        self, entity_id: uuid.UUID, record_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None, actor_roles: list[str] | None = None,
+    ) -> RecordRead:
         record = await self._fetch(entity_id, record_id)
+        if actor_roles:
+            stmt = await _apply_abac_row_scope(
+                self._db, select(Record.id).where(Record.id == record_id), entity_id, actor_id, actor_roles,
+            )
+            visible = (await self._db.execute(stmt)).scalar_one_or_none()
+            if visible is None:
+                raise RecordNotFoundError(f"Record {record_id} not found")
         record_operations.labels(operation="read").inc()
         return RecordRead.model_validate(record)
 

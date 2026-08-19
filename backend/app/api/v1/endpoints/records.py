@@ -94,7 +94,9 @@ async def list_records(
         sort_dir=sort_dir,
         include_deleted=include_deleted and current_user.has_role("platform_admin", "app_admin"),
     )
-    page = await RecordService(db).list_records(entity_id, params)
+    page = await RecordService(db).list_records(
+        entity_id, params, actor_id=current_user.user_id, actor_roles=current_user.roles,
+    )
 
     restrictions = await ABACService(db).get_restrictions(entity_id, current_user.roles)
     if restrictions.denied_read:
@@ -182,7 +184,10 @@ async def export_records(
     )
 
     try:
-        file_bytes = await ExportService(db).export(entity_id, params, format=format)
+        file_bytes = await ExportService(db).export(
+            entity_id, params, format=format,
+            actor_id=current_user.user_id, actor_roles=current_user.roles,
+        )
     except ExportError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
@@ -210,7 +215,9 @@ async def get_record(
 ) -> RecordRead:
     await _resolve_entity(app_id, entity_id, current_user, db)
     try:
-        record = await RecordService(db).get_record(entity_id, record_id)
+        record = await RecordService(db).get_record(
+            entity_id, record_id, actor_id=current_user.user_id, actor_roles=current_user.roles,
+        )
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
 

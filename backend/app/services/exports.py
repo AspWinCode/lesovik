@@ -30,6 +30,8 @@ class ExportService:
         entity_id: uuid.UUID,
         params: Any,  # RecordListParams
         format: str = "xlsx",
+        actor_id: uuid.UUID | None = None,
+        actor_roles: list[str] | None = None,
     ) -> bytes:
         """Fetch all matching records and return serialized file bytes."""
         from app.services.records import RecordService
@@ -37,7 +39,9 @@ class ExportService:
 
         # Override limit to export cap; fetch up to _MAX_EXPORT_ROWS
         export_params = params.model_copy(update={"limit": min(params.limit, _MAX_EXPORT_ROWS)})
-        page = await RecordService(self._db).list_records(entity_id, export_params)
+        page = await RecordService(self._db).list_records(
+            entity_id, export_params, actor_id=actor_id, actor_roles=actor_roles,
+        )
         records = page.items
 
         if not records:
