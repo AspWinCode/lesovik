@@ -1964,6 +1964,8 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
 
   const [showDropdown, setShowDropdown] = useState(false);
   const [pendingExtraIds, setPendingExtraIds] = useState<Record<string, string>>({});
+  const [pendingCatalogId, setPendingCatalogId] = useState("");
+  const [pendingQty, setPendingQty] = useState(1);
 
   const positions = ((formValues?._positions ?? []) as PositionRow[]);
 
@@ -1973,7 +1975,9 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
     onFormChange?.("_positions_total", Math.round(total).toLocaleString("ru-RU") + " ₽");
   }
 
-  function addItem(item: { id: string; payload: Record<string, unknown> }) {
+  function confirmAdd() {
+    const item = catalogItems.find((c) => c.id === pendingCatalogId);
+    if (!item) return;
     const extraIds: Record<string, string> = {};
     const extraLabels: Record<string, string> = {};
     for (const ex of extras) {
@@ -1988,7 +1992,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
       id: Math.random().toString(36).slice(2),
       catalog_id: item.id,
       nazvanie: String(item.payload[displayField] ?? ""),
-      kolichestvo: 1,
+      kolichestvo: Math.max(1, pendingQty),
       cena: Number(item.payload[priceField] ?? 0),
       edinica: String(item.payload[unitField] ?? ""),
       extra_ids: extraIds,
@@ -1997,6 +2001,8 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
     setPositions([...positions, row]);
     setShowDropdown(false);
     setPendingExtraIds({});
+    setPendingCatalogId("");
+    setPendingQty(1);
   }
 
   function updateQty(rowId: string, qty: number) {
@@ -2009,7 +2015,8 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
 
   const total = positions.reduce((s, p) => s + p.kolichestvo * p.cena, 0);
   const label = (cfg.label as string) ?? "Позиции заказа";
-  const canAdd = extras.every((ex) => !!pendingExtraIds[ex.field || ex.entity_id]);
+  const extrasFilled = extras.every((ex) => !!pendingExtraIds[ex.field || ex.entity_id]);
+  const canAdd = extrasFilled && !!pendingCatalogId;
   const selectSt: React.CSSProperties = {
     height: 34, padding: "0 10px", fontSize: 13, borderRadius: 6,
     border: `1px solid ${colors.border}`, background: colors.surface,
@@ -2032,12 +2039,16 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
         <div style={{ borderBottom: `1px solid ${colors.border}` }}>
           {extras.map((ex, i) => {
             const key = ex.field || ex.entity_id;
+            // Each step unlocks only once every prior extra is filled, so the
+            // flow reads top-to-bottom: цех, затем операция, затем количество.
+            const priorFilled = extras.slice(0, i).every((p) => !!pendingExtraIds[p.field || p.entity_id]);
             return (
-              <div key={key + i} style={{ padding: "10px 14px", borderBottom: `1px solid ${colors.border}` }}>
+              <div key={key + i} style={{ padding: "10px 14px", borderBottom: `1px solid ${colors.border}`, opacity: priorFilled ? 1 : 0.5 }}>
                 <label style={{ fontSize: 12, color: colors.textMuted, display: "block", marginBottom: 4 }}>{ex.label}</label>
                 <select
                   value={pendingExtraIds[key] ?? ""}
                   onChange={(e) => setPendingExtraIds((prev) => ({ ...prev, [key]: e.target.value }))}
+                  disabled={!priorFilled}
                   style={selectSt}
                 >
                   <option value="">— выберите —</option>
@@ -2048,24 +2059,48 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
               </div>
             );
           })}
-          <div style={{ maxHeight: 220, overflowY: "auto", opacity: canAdd ? 1 : 0.5, pointerEvents: canAdd ? "auto" : "none" }}>
-            {catalogItems.length === 0 && (
-              <div style={{ padding: "10px 14px", color: colors.textMuted, fontSize: 13 }}>Каталог пуст</div>
-            )}
-            {catalogItems.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => canAdd && addItem(item)}
-                style={{ padding: "9px 14px", cursor: canAdd ? "pointer" : "default", fontSize: 13, color: colors.text, borderBottom: `1px solid ${colors.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                onMouseEnter={(e) => { if (canAdd) (e.currentTarget as HTMLDivElement).style.background = colors.bg; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
-              >
-                <span style={{ fontWeight: 500 }}>{String(item.payload[displayField] ?? "—")}</span>
-                <span style={{ color: colors.textMuted, fontSize: 12 }}>
-                  {Number(item.payload[priceField] ?? 0).toLocaleString("ru-RU")} ₽ / {String(item.payload[unitField] ?? "")}
-                </span>
-              </div>
-            ))}
+
+          {/* Операция */}
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${colors.border}`, opacity: extrasFilled ? 1 : 0.5 }}>
+            <label style={{ fontSize: 12, color: colors.textMuted, display: "block", marginBottom: 4 }}>Операция</label>
+            <select
+              value={pendingCatalogId}
+              onChange={(e) => setPendingCatalogId(e.target.value)}
+              disabled={!extrasFilled}
+              style={selectSt}
+            >
+              <option value="">— выберите —</option>
+              {catalogItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {String(item.payload[displayField] ?? "—")} — {Number(item.payload[priceField] ?? 0).toLocaleString("ru-RU")} ₽
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Количество */}
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${colors.border}`, opacity: pendingCatalogId ? 1 : 0.5 }}>
+            <label style={{ fontSize: 12, color: colors.textMuted, display: "block", marginBottom: 4 }}>Количество</label>
+            <input
+              type="number" min={1} value={pendingQty}
+              onChange={(e) => setPendingQty(Math.max(1, Number(e.target.value)))}
+              disabled={!pendingCatalogId}
+              style={selectSt}
+            />
+          </div>
+
+          <div style={{ padding: "10px 14px" }}>
+            <button
+              onClick={confirmAdd}
+              disabled={!canAdd}
+              style={{
+                width: "100%", background: canAdd ? accent : colors.border, color: "#fff", border: "none",
+                borderRadius: 6, padding: "8px 14px", fontSize: 13, fontWeight: 500,
+                cursor: canAdd ? "pointer" : "default",
+              }}
+            >
+              Добавить
+            </button>
           </div>
         </div>
       )}
