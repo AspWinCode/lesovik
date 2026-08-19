@@ -384,7 +384,11 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
 
   const hiddenColumns = (activeView?.config?.hidden_columns as string[] | undefined) ?? (page.layout?.hidden_columns as string[] | undefined) ?? [];
   const visibleSystemColumns = (activeView?.config?.visible_system_columns as string[] | undefined) ?? (page.layout?.visible_system_columns as string[] | undefined) ?? [];
-  const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "auto";
+  // Constructor's own toggle defaults to "manual" without ever persisting that
+  // choice unless the user actively switches modes — match that default here,
+  // otherwise hidden_columns/visibleSystemColumns silently do nothing on any
+  // page where the user never touched the Auto/Manual toggle.
+  const colOrderMode = (page.layout?.column_order_mode as "auto" | "manual") ?? "manual";
   const columnWidth = (activeView?.config?.column_width as string) ?? (page.layout?.column_width as string) ?? "Средняя";
   // System fields stay excluded by default (matches prior behavior); manual
   // mode can opt individual ones back in via visibleSystemColumns.
