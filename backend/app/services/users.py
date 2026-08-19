@@ -115,7 +115,7 @@ class UserService:
             raise UserConflictError(f"Email already registered: {data.email}")
 
         if actor_org_id is not None:
-            self._check_org_assignable_roles(data.roles)
+            await self._check_org_assignable_roles(data.roles, actor_org_id)
 
         user = User(
             email=data.email,
@@ -155,7 +155,7 @@ class UserService:
             raise UserConflictError(f"Email already registered: {data.email}")
 
         if actor_org_id is not None:
-            self._check_org_assignable_roles(data.roles)
+            await self._check_org_assignable_roles(data.roles, actor_org_id)
 
         temp_password = secrets.token_urlsafe(12)
         user = User(
@@ -210,7 +210,7 @@ class UserService:
             changed["is_blocked"] = data.is_blocked
         if data.roles is not None:
             if actor_org_id is not None:
-                self._check_org_assignable_roles(data.roles)
+                await self._check_org_assignable_roles(data.roles, actor_org_id)
             await self._set_roles(user_id, data.roles, granted_by=updated_by)
             changed["roles"] = data.roles
 
@@ -364,7 +364,16 @@ class UserService:
         "data_editor", "data_viewer", "workflow_actor", "auditor", "api_client",
     }
 
-    def _check_org_assignable_roles(self, role_ids: list[str]) -> None:
-        forbidden = set(role_ids) - self._ORG_ASSIGNABLE_ROLES
+    async def _check_org_assignable_roles(self, role_ids: list[str], actor_org_id: uuid.UUID) -> None:
+        # System roles are always assignable; custom roles are assignable if
+        # they belong to the org_admin's own org (custom roles are already
+        # org-scoped, so this doesn't leak across orgs).
+        non_system = set(role_ids) - self._ORG_ASSIGNABLE_ROLES
+        if non_system:
+            result = await self._db.execute(
+                select(Role.id).where(Role.id.in_(non_system), Role.org_id == actor_org_id)
+            )
+            non_system -= {r for r in result.scalars()}
+        forbidden = non_system
         if forbidden:
             raise PermissionError(f"Roles not assignable by org_admin: {forbidden}")
