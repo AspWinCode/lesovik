@@ -91,11 +91,14 @@ export function DatabasePage() {
     if (idx !== -1) setActiveEntityIdx(idx);
   }, [entities, params]);
 
-  const recordsQuery = useRecords(appId, entity?.id, { limit: 100 });
+  const AUTO_LOAD_LIMIT = 1000;
+  const PAGE_SIZE = 200; // max the interactive /records endpoint allows per request
+
+  const recordsQuery = useRecords(appId, entity?.id, { limit: PAGE_SIZE });
   const firstPage = recordsQuery.data?.items ?? [];
 
-  // The first page tops out at 100 rows; "Показать ещё" appends further
-  // cursor pages on demand instead of silently hiding everything past #100.
+  // The first page tops out at PAGE_SIZE rows; further cursor pages are
+  // auto-loaded up to AUTO_LOAD_LIMIT, then "Показать ещё" takes over.
   const [extraRecords, setExtraRecords] = useState<RecordRead[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -116,11 +119,19 @@ export function DatabasePage() {
     }
   }, [recordsQuery.data, extraRecords.length]);
 
+  const loadedCount = firstPage.length + extraRecords.length;
+  useEffect(() => {
+    if (hasMore && !loadingMore && loadedCount < AUTO_LOAD_LIMIT) {
+      void loadMoreRecords();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, loadingMore, loadedCount, entity?.id]);
+
   async function loadMoreRecords() {
     if (!appId || !entity?.id || !nextCursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await listRecords(appId, entity.id, { limit: 100, cursor: nextCursor });
+      const page = await listRecords(appId, entity.id, { limit: PAGE_SIZE, cursor: nextCursor });
       setExtraRecords((prev) => [...prev, ...page.items]);
       setNextCursor(page.next_cursor);
       setHasMore(page.has_more);
