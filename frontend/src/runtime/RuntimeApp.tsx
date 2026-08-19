@@ -3053,7 +3053,12 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   }
 
   if (viewType === "detail" || viewType === "details" || viewType === "card") {
-    return <DetailView title={title} cols={cols} records={records} accent={accent} initialRecordId={activeRecordId} />;
+    return (
+      <DetailView
+        title={title} cols={cols} records={records} accent={accent} initialRecordId={activeRecordId}
+        appId={appId} entities={entities ?? []} relations={relations ?? []} entityId={entity?.id}
+      />
+    );
   }
 
   if (viewType === "chart") {
@@ -3157,8 +3162,9 @@ function ListView({ title, cols, records, accent, colors, onRowClick }: {
 }
 
 /* ── Detail view: expanded cards for each record ── */
-function DetailView({ title, cols, records, accent, initialRecordId }: {
+function DetailView({ title, cols, records, accent, initialRecordId, appId, entities, relations, entityId }: {
   title: string; cols: FieldRead[]; records: RecordRead[]; accent: string; initialRecordId?: string | null;
+  appId: string; entities: EntityRead[]; relations: RelationRead[]; entityId?: string;
 }) {
   const startIdx = initialRecordId ? Math.max(0, records.findIndex((r) => r.id === initialRecordId)) : 0;
   const [activeIdx, setActiveIdx] = useState(startIdx);
@@ -3194,14 +3200,23 @@ function DetailView({ title, cols, records, accent, initialRecordId }: {
         <div style={{ padding: 20, color: "#8898AA", fontSize: 14 }}>Нет записей</div>
       ) : (
         <div style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 20px" }}>
-          {cols.map((f) => (
-            <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#8898AA", textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</span>
-              <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>
-                {f.is_system && f.name === "author_id" ? <AuthorCell userId={String(fieldValue(rec, f) ?? "")} /> : formatCell(fieldValue(rec, f), f)}
-              </span>
-            </div>
-          ))}
+          {cols.map((f) => {
+            const rel = f.field_type === "relation"
+              ? relations.find((r) => r.from_entity_id === entityId && r.from_field_name === f.name)
+              : undefined;
+            return (
+              <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#8898AA", textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</span>
+                <span style={{ fontSize: 14, color: "#00205F", wordBreak: "break-word" }}>
+                  {f.is_system && f.name === "author_id" ? (
+                    <AuthorCell userId={String(fieldValue(rec, f) ?? "")} />
+                  ) : f.field_type === "relation" ? (
+                    <RelationCell appId={appId} relatedEntityId={rel?.to_entity_id ?? null} recordId={String(fieldValue(rec, f) ?? "")} entities={entities} />
+                  ) : formatCell(fieldValue(rec, f), f)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
