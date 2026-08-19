@@ -1959,7 +1959,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
     })),
   });
   const extraItemsByField = Object.fromEntries(
-    extras.map((ex, i) => [ex.field || `_extra_${i}`, extraQueries[i]?.data?.items ?? []])
+    extras.map((ex, i) => [ex.field || ex.entity_id, extraQueries[i]?.data?.items ?? []])
   );
 
   const [showDropdown, setShowDropdown] = useState(false);
@@ -2042,7 +2042,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
                 >
                   <option value="">— выберите —</option>
                   {(extraItemsByField[key] ?? []).map((item) => (
-                    <option key={item.id} value={item.id}>{String(item.payload[ex.display_field] ?? item.id)}</option>
+                    <option key={item.id} value={item.id}>{String(item.payload[ex.display_field] ?? item.id.slice(0, 8) + "…")}</option>
                   ))}
                 </select>
               </div>
