@@ -634,9 +634,6 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
               onRowClick={onRowClick}
             />
           ))}
-          {pageSaveStatus === "success" && (
-            <p style={{ color: "#15803D", fontSize: 14, fontWeight: 500, padding: "8px 0" }}>✓ Заказ сохранён</p>
-          )}
           {pageSaveStatus === "error" && (
             <p style={{ color: "#B91C1C", fontSize: 14, padding: "8px 0" }}>Ошибка при сохранении. Попробуйте ещё раз.</p>
           )}
