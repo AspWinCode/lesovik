@@ -27,7 +27,7 @@ interface DesignConfig {
   text_size?: "12" | "14" | "16";
   input_style?: "outline" | "filled" | "minimal";
   label_position?: "top" | "inline";
-  nav_position?: "top" | "bottom";
+  nav_position?: "top" | "bottom" | "burger";
 }
 
 function RuntimeShell() {
@@ -93,6 +93,7 @@ function RuntimeShell() {
 
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [activeRecordId, setActiveRecordId] = useState<string | null>(null);
+  const [burgerOpen, setBurgerOpen] = useState(false);
   const [viewportW, setViewportW] = useState(window.innerWidth);
   useEffect(() => {
     const onResize = () => setViewportW(window.innerWidth);
@@ -179,7 +180,9 @@ function RuntimeShell() {
   const blockGap   = density === "compact" ? 8 : density === "spacious" ? 24 : 16;
   const navPosition = design.nav_position ?? "top";
 
-  const horizontalNav = navPages.length > 1 && narrow ? (
+  const showBurger = navPosition === "burger" && navPages.length > 1 && narrow;
+
+  const horizontalNav = navPosition !== "burger" && navPages.length > 1 && narrow ? (
     <nav
       style={{
         display: "flex", overflowX: "auto", gap: 4, padding: "8px 12px", background: colors.surface,
@@ -211,9 +214,63 @@ function RuntimeShell() {
   return (
     <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily, transition: "background 0.2s, color 0.2s", display: "flex", flexDirection: "column" }}>
       {/* App bar */}
-      <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", padding: "0 20px", fontWeight: 600, fontSize: 18, flexShrink: 0 }}>
-        {app.name}
+      <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", fontWeight: 600, fontSize: 18, flexShrink: 0 }}>
+        <span>{app.name}</span>
+        {showBurger && (
+          <button
+            onClick={() => setBurgerOpen(true)}
+            aria-label="Меню"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none">
+              <path d="M4 6h16M4 12h16M4 18h16" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </header>
+
+      {/* Burger drawer on narrow screens */}
+      {showBurger && burgerOpen && (
+        <div
+          onClick={() => setBurgerOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 20, display: "flex", justifyContent: "flex-end" }}
+        >
+          <nav
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(78vw, 300px)", height: "100%", background: colors.surface, boxShadow: "-4px 0 16px rgba(0,0,0,0.15)",
+              display: "flex", flexDirection: "column", padding: 12, gap: 2, boxSizing: "border-box",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px 12px" }}>
+              <span style={{ fontWeight: 600, fontSize: 15, color: colors.text }}>Меню</span>
+              <button
+                onClick={() => setBurgerOpen(false)}
+                aria-label="Закрыть"
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: colors.textMuted }}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            {navPages.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => { setActivePageId(p.id); setBurgerOpen(false); }}
+                style={{
+                  textAlign: "left", padding: "10px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                  fontSize: 15, background: p.id === activePage?.id ? colors.navActive : "transparent",
+                  color: p.id === activePage?.id ? accent : colors.text,
+                  fontWeight: p.id === activePage?.id ? 600 : 400,
+                }}
+              >
+                {p.title}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
 
       {/* Horizontal tab nav on narrow screens — top placement */}
       {navPosition === "top" && horizontalNav}

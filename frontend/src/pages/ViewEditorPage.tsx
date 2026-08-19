@@ -88,7 +88,7 @@ interface DesignConfig {
   body_size?: string;
   input_style?: "outline" | "filled" | "minimal";
   label_position?: "top" | "inline";
-  nav_position?: "top" | "bottom";
+  nav_position?: "top" | "bottom" | "burger";
 }
 
 const FONT_FAMILIES = ["Inter", "Roboto", "Open Sans", "Montserrat", "Lato", "Playfair Display", "JetBrains Mono"];
@@ -2214,17 +2214,18 @@ function DesignTab({
           <span className="text-[14px] text-primary/60">Где показывать вкладки страниц на смартфоне.</span>
         </div>
         <div className="flex">
-          {(["top", "bottom"] as const).map((pos, i) => (
+          {(["top", "bottom", "burger"] as const).map((pos, i, arr) => (
             <button
               key={pos}
               onClick={() => onChange({ ...design, nav_position: pos })}
               className={cn(
                 "h-[41px] px-7 flex items-center text-[16px] font-medium bg-cardbg border-r border-white",
-                i === 0 ? "rounded-l-btn" : "rounded-r-btn border-r-0",
+                i === 0 && "rounded-l-btn",
+                i === arr.length - 1 && "rounded-r-btn border-r-0",
                 navPosition === pos ? "border-2 border-cta text-cta z-10" : "text-primary",
               )}
             >
-              {pos === "top" ? "Сверху" : "Снизу"}
+              {pos === "top" ? "Сверху" : pos === "bottom" ? "Снизу" : "Бургер"}
             </button>
           ))}
         </div>
