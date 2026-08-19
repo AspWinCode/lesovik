@@ -1962,7 +1962,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
   const [showDropdown, setShowDropdown] = useState(false);
   const [pendingExtraIds, setPendingExtraIds] = useState<Record<string, string>>({});
   const [pendingCatalogId, setPendingCatalogId] = useState("");
-  const [pendingQty, setPendingQty] = useState(1);
+  const [pendingQty, setPendingQty] = useState("1");
 
   const positions = ((formValues?._positions ?? []) as PositionRow[]);
 
@@ -1989,7 +1989,7 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
       id: Math.random().toString(36).slice(2),
       catalog_id: item.id,
       nazvanie: String(item.payload[displayField] ?? ""),
-      kolichestvo: Math.max(1, pendingQty),
+      kolichestvo: Math.max(1, Number(pendingQty) || 1),
       cena: Number(item.payload[priceField] ?? 0),
       edinica: String(item.payload[unitField] ?? ""),
       extra_ids: extraIds,
@@ -1999,11 +1999,15 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
     setShowDropdown(false);
     setPendingExtraIds({});
     setPendingCatalogId("");
-    setPendingQty(1);
+    setPendingQty("1");
   }
 
   function updateQty(rowId: string, qty: number) {
-    setPositions(positions.map((p) => p.id === rowId ? { ...p, kolichestvo: Math.max(1, qty) } : p));
+    setPositions(positions.map((p) => p.id === rowId ? { ...p, kolichestvo: qty } : p));
+  }
+
+  function normalizeQty(rowId: string) {
+    setPositions(positions.map((p) => p.id === rowId ? { ...p, kolichestvo: Math.max(1, p.kolichestvo || 1) } : p));
   }
 
   function removeRow(rowId: string) {
@@ -2080,7 +2084,8 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
             <label style={{ fontSize: 12, color: colors.textMuted, display: "block", marginBottom: 4 }}>Количество</label>
             <input
               type="number" min={1} value={pendingQty}
-              onChange={(e) => setPendingQty(Math.max(1, Number(e.target.value)))}
+              onChange={(e) => setPendingQty(e.target.value)}
+              onBlur={() => setPendingQty(String(Math.max(1, Number(pendingQty) || 1)))}
               disabled={!pendingCatalogId}
               style={selectSt}
             />
@@ -2129,8 +2134,9 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
                   <td style={{ padding: "7px 8px", color: colors.textMuted }}>{p.edinica}</td>
                   <td style={{ padding: "4px 8px", textAlign: "right" }}>
                     <input
-                      type="number" min={1} value={p.kolichestvo}
-                      onChange={(e) => updateQty(p.id, Number(e.target.value))}
+                      type="number" min={1} value={p.kolichestvo === 0 ? "" : p.kolichestvo}
+                      onChange={(e) => updateQty(p.id, e.target.value === "" ? 0 : Number(e.target.value))}
+                      onBlur={() => normalizeQty(p.id)}
                       style={{ width: 60, textAlign: "right", height: 28, padding: "0 6px", fontSize: 13, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none" }}
                     />
                   </td>
