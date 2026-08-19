@@ -506,7 +506,11 @@ export function ViewEditorPage() {
   }
 
   function handleUpdateBlockConfig(blockId: string, patch: Record<string, unknown>) {
-    handleBlocksChange(blocks.map((block) => (
+    // Read from blocksRef, not the `blocks` state variable — two edits fired in
+    // quick succession (e.g. changing two fields of the same extras[] entry)
+    // can otherwise race: the second edit's closure still sees pre-first-edit
+    // state, and its computed patch silently clobbers the first edit.
+    handleBlocksChange(blocksRef.current.map((block) => (
       block.id === blockId ? { ...block, config: { ...block.config, ...patch } } : block
     )));
   }
