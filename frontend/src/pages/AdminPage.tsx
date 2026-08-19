@@ -730,8 +730,8 @@ export function InviteUserDialog({ onClose }: { onClose: () => void }) {
 
               {roleOpen && (
                 <div
-                  className="absolute left-0 right-0 top-[46px] z-50 bg-white rounded-[12px] py-[6px] flex flex-col overflow-hidden"
-                  style={{ boxShadow: "0 4px 24px rgba(0,32,95,0.14)" }}
+                  className="absolute left-0 right-0 top-[46px] z-50 bg-white rounded-[12px] py-[6px] flex flex-col overflow-y-auto"
+                  style={{ boxShadow: "0 4px 24px rgba(0,32,95,0.14)", maxHeight: 280 }}
                 >
                   <button
                     type="button"
