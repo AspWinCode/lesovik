@@ -88,6 +88,7 @@ interface DesignConfig {
   body_size?: string;
   input_style?: "outline" | "filled" | "minimal";
   label_position?: "top" | "inline";
+  nav_position?: "top" | "bottom";
 }
 
 const FONT_FAMILIES = ["Inter", "Roboto", "Open Sans", "Montserrat", "Lato", "Playfair Display", "JetBrains Mono"];
@@ -2120,6 +2121,7 @@ function DesignTab({
   const theme = design.theme ?? "light";
   const density = design.density ?? "normal";
   const showHeader = design.show_header ?? true;
+  const navPosition = design.nav_position ?? "top";
 
   return (
     <div className="flex flex-col gap-[30px] pt-[40px] px-[40px] pb-[40px]">
@@ -2203,6 +2205,29 @@ function DesignTab({
           <span className="text-[14px] text-primary/60">Название страницы вверху в приложении.</span>
         </div>
         <Toggle on={showHeader} onChange={() => onChange({ ...design, show_header: !showHeader })} />
+      </div>
+
+      {/* Nav position */}
+      <div className="flex flex-col gap-[10px]">
+        <div className="flex flex-col">
+          <span className="text-[18px] font-medium text-primary">Позиция меню навигации</span>
+          <span className="text-[14px] text-primary/60">Где показывать вкладки страниц на смартфоне.</span>
+        </div>
+        <div className="flex">
+          {(["top", "bottom"] as const).map((pos, i) => (
+            <button
+              key={pos}
+              onClick={() => onChange({ ...design, nav_position: pos })}
+              className={cn(
+                "h-[41px] px-7 flex items-center text-[16px] font-medium bg-cardbg border-r border-white",
+                i === 0 ? "rounded-l-btn" : "rounded-r-btn border-r-0",
+                navPosition === pos ? "border-2 border-cta text-cta z-10" : "text-primary",
+              )}
+            >
+              {pos === "top" ? "Сверху" : "Снизу"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── Typography ── */}

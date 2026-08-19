@@ -27,6 +27,7 @@ interface DesignConfig {
   text_size?: "12" | "14" | "16";
   input_style?: "outline" | "filled" | "minimal";
   label_position?: "top" | "inline";
+  nav_position?: "top" | "bottom";
 }
 
 function RuntimeShell() {
@@ -176,36 +177,48 @@ function RuntimeShell() {
   };
   const densityPad = density === "compact" ? "8px 10px" : density === "spacious" ? "16px 20px" : "12px 16px";
   const blockGap   = density === "compact" ? 8 : density === "spacious" ? 24 : 16;
+  const navPosition = design.nav_position ?? "top";
+
+  const horizontalNav = navPages.length > 1 && narrow ? (
+    <nav
+      style={{
+        display: "flex", overflowX: "auto", gap: 4, padding: "8px 12px", background: colors.surface,
+        borderBottom: navPosition === "top" ? `1px solid ${colors.border}` : "none",
+        borderTop: navPosition === "bottom" ? `1px solid ${colors.border}` : "none",
+        position: navPosition === "bottom" ? "sticky" : "static",
+        bottom: navPosition === "bottom" ? 0 : undefined,
+        zIndex: navPosition === "bottom" ? 10 : undefined,
+      }}
+    >
+      {navPages.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => setActivePageId(p.id)}
+          style={{
+            flexShrink: 0, padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer",
+            fontSize: 13, whiteSpace: "nowrap",
+            background: p.id === activePage?.id ? accent : colors.bg,
+            color: p.id === activePage?.id ? "#fff" : colors.text,
+            fontWeight: p.id === activePage?.id ? 600 : 400,
+          }}
+        >
+          {p.title}
+        </button>
+      ))}
+    </nav>
+  ) : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily, transition: "background 0.2s, color 0.2s" }}>
+    <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily, transition: "background 0.2s, color 0.2s", display: "flex", flexDirection: "column" }}>
       {/* App bar */}
       <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", padding: "0 20px", fontWeight: 600, fontSize: 18, flexShrink: 0 }}>
         {app.name}
       </header>
 
-      {/* Horizontal tab nav on narrow screens */}
-      {navPages.length > 1 && narrow && (
-        <nav style={{ display: "flex", overflowX: "auto", gap: 4, padding: "8px 12px", background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
-          {navPages.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setActivePageId(p.id)}
-              style={{
-                flexShrink: 0, padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer",
-                fontSize: 13, whiteSpace: "nowrap",
-                background: p.id === activePage?.id ? accent : colors.bg,
-                color: p.id === activePage?.id ? "#fff" : colors.text,
-                fontWeight: p.id === activePage?.id ? 600 : 400,
-              }}
-            >
-              {p.title}
-            </button>
-          ))}
-        </nav>
-      )}
+      {/* Horizontal tab nav on narrow screens — top placement */}
+      {navPosition === "top" && horizontalNav}
 
-      <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", padding: narrow ? densityPad : densityPad, gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", maxWidth: 1100, margin: "0 auto", width: "100%", flex: 1, padding: narrow ? densityPad : densityPad, gap: 16, boxSizing: "border-box" }}>
         {/* Sidebar nav on wide screens */}
         {navPages.length > 1 && !narrow && (
           <nav style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2, background: colors.surface, borderRadius: 10, padding: 8, border: `1px solid ${colors.border}` }}>
@@ -262,6 +275,9 @@ function RuntimeShell() {
           )}
         </main>
       </div>
+
+      {/* Horizontal tab nav on narrow screens — bottom placement */}
+      {navPosition === "bottom" && horizontalNav}
     </div>
   );
 }
