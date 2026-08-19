@@ -178,7 +178,9 @@ function RuntimeShell() {
   };
   const densityPad = density === "compact" ? "8px 10px" : density === "spacious" ? "16px 20px" : "12px 16px";
   const blockGap   = density === "compact" ? 8 : density === "spacious" ? 24 : 16;
-  const navPosition = design.nav_position ?? "top";
+  // Nav style is an app-wide concept — read it from the home page's design so it
+  // doesn't flip (e.g. burger disappearing) as the user browses to other pages.
+  const navPosition = ((navPages[0]?.layout?.design as DesignConfig | undefined)?.nav_position) ?? "top";
 
   const showBurger = navPosition === "burger" && navPages.length > 1 && narrow;
 
