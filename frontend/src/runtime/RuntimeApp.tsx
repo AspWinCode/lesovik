@@ -839,6 +839,9 @@ function fieldLabel(f: FieldRead | undefined, raw: unknown): string {
     const choices = normalizeChoices(f.field_options?.choices);
     return choices.find((c) => c.value === raw)?.label ?? String(raw);
   }
+  if (f?.field_type === "relation") {
+    return typeof raw === "string" ? raw.slice(0, 8) : String(raw);
+  }
   return String(raw);
 }
 
@@ -871,6 +874,23 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
       return rec ? String(rec.payload[rowRelDisplayField] ?? "—") : (raw ? raw.slice(0, 8) : "—");
     }
     return fieldLabel(def, raw);
+  }
+
+  const colTargetEntityId = colFieldDef?.field_type === "relation" ? (colFieldDef.field_options?.target_entity_id as string | undefined) : undefined;
+  const colRelQuery = useQuery({
+    queryKey: ["rt-records", appId, colTargetEntityId, "pivot-rel-col"],
+    queryFn: () => listRecords(appId, colTargetEntityId!, { limit: 200 }),
+    enabled: !!colTargetEntityId,
+  });
+  const colRelEntity = entities.find((e) => e.id === colTargetEntityId);
+  const colRelDisplayField = colRelEntity?.fields.find((f) => !f.is_system && f.field_type === "text")?.name;
+
+  function resolveColLabel(raw: string): string {
+    if (colFieldDef?.field_type === "relation" && colRelDisplayField) {
+      const rec = colRelQuery.data?.items.find((r) => r.id === raw);
+      return rec ? String(rec.payload[colRelDisplayField] ?? "—") : (raw ? raw.slice(0, 8) : "—");
+    }
+    return fieldLabel(colFieldDef, raw);
   }
 
   if (!entityId || !rowField) {
@@ -913,7 +933,7 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
                 </th>
                 {colKeys.map((ck) => (
                   <th key={ck} style={{ textAlign: "right", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>
-                    {colField ? fieldLabel(colFieldDef, ck) : (aggLabel[agg] ?? agg)}
+                    {colField ? resolveColLabel(ck) : (aggLabel[agg] ?? agg)}
                   </th>
                 ))}
                 <th style={{ textAlign: "right", padding: "8px 12px", fontWeight: 600, color: colors.textMuted }}>Итого</th>
@@ -981,7 +1001,7 @@ function TreeBlock({ appId, entities, title, entityId, labelFieldName, parentFie
   });
   const treeEntity = entities.find((e) => e.id === entityId);
   const labelField = (treeEntity?.fields ?? []).find((f) => f.name === labelFieldName)
-    ?? (treeEntity?.fields ?? []).find((f) => !f.is_system);
+    ?? (treeEntity?.fields ?? []).find((f) => !f.is_system && f.field_type !== "relation");
   const records = recordsQuery.data?.items ?? [];
 
   if (!entityId || !parentFieldName) {
@@ -1551,7 +1571,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   if (block.type === "calendar") {
     const cfg = block.config ?? {};
     const dateField = cols.find((f) => f.name === cfg.date_field) ?? cols.find((f) => f.field_type === "date");
-    const titleField = cols.find((f) => f.name === cfg.title_field) ?? cols[0];
+    const titleField = cols.find((f) => f.name === cfg.title_field && f.field_type !== "relation") ?? cols.find((f) => f.field_type !== "relation") ?? cols[0];
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -1611,7 +1631,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   if (block.type === "kanban") {
     const cfg = block.config ?? {};
     const groupField = cols.find((f) => f.name === cfg.group_by) ?? cols.find((f) => f.field_type === "select");
-    const cardTitleField = cols.find((f) => f.name === cfg.card_title) ?? cols[0];
+    const cardTitleField = cols.find((f) => f.name === cfg.card_title && f.field_type !== "relation") ?? cols.find((f) => f.field_type !== "relation") ?? cols[0];
     const groups = groupField ? groupRecordsByField(records, groupField.name) : [];
     return (
       <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
@@ -1782,7 +1802,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
   if (block.type === "chart") {
     const cfg = block.config ?? {};
     const valueField = (cfg.value_field as string) ?? "";
-    const labelField = cols.find((f) => f.field_type === "text")?.name ?? cols[0]?.name ?? "id";
+    const labelField = cols.find((f) => f.field_type === "text")?.name ?? cols.find((f) => f.field_type !== "relation")?.name ?? "id";
     return (
       <ChartBlock
         title={block.title}
@@ -2950,7 +2970,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
         })()
       : [{ label: title, items: records }];
 
-    const nameField = cols[0];
+    const nameField = cols.find((f) => f.field_type !== "relation") ?? cols[0];
     return (
       <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
         <div style={{ padding: "10px 14px", background: colors.bg, fontWeight: 600, fontSize: 15, color: colors.text }}>{title}</div>
@@ -2977,6 +2997,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
 
   if (viewType === "calendar") {
     const dateField = cols.find((f) => f.field_type === "date");
+    const calTitleField = cols.find((f) => f.field_type !== "relation" && f.field_type !== "date") ?? cols[0];
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -3018,7 +3039,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                 <div style={{ fontWeight: 600 }}>{day ?? ""}</div>
                 {day && dayMap[day]?.slice(0, 2).map((r) => (
                   <div key={r.id} style={{ background: accent, color: "#fff", borderRadius: 3, padding: "1px 4px", fontSize: 10, marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                    {cols[0] ? String(r.payload[cols[0].name] ?? "•") : "•"}
+                    {calTitleField ? String(r.payload[calTitleField.name] ?? "•") : "•"}
                   </div>
                 ))}
               </div>
@@ -3031,7 +3052,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
 
   if (viewType === "gallery") {
     const imgField = cols.find((f) => f.field_type === "file" || f.field_type === "url");
-    const nameField = cols[0];
+    const nameField = cols.find((f) => f.field_type !== "relation") ?? cols[0];
     return (
       <section style={{ background: "#fff", border: "1px solid #CBE3FF", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ padding: "10px 14px", background: "#F1F6FF", fontWeight: 600, fontSize: 15 }}>{title}</div>
@@ -3066,7 +3087,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   }
 
   if (viewType === "chart") {
-    return <ChartView title={title} cols={cols} records={records} accent={accent} colors={colors} />;
+    return <ChartView title={title} cols={cols} records={records} accent={accent} colors={colors} appId={appId} entities={entities ?? []} />;
   }
 
   if (viewType === "gantt") {
@@ -3085,11 +3106,14 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
         <div style={{ color: "#8898AA" }}>Нет записей</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {records.slice(0, 10).map((rec) => (
-            <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 6, padding: "6px 10px" }}>
-              {cols[0] ? String(rec.payload[cols[0].name] ?? "—") : rec.id.slice(0, 8)}
-            </div>
-          ))}
+          {records.slice(0, 10).map((rec) => {
+            const fallbackCol = cols.find((f) => f.field_type !== "relation") ?? cols[0];
+            return (
+              <div key={rec.id} style={{ background: "#F1F6FF", borderRadius: 6, padding: "6px 10px" }}>
+                {fallbackCol ? String(rec.payload[fallbackCol.name] ?? "—") : rec.id.slice(0, 8)}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
@@ -3101,8 +3125,8 @@ function ListView({ title, cols, records, accent, colors, onRowClick }: {
   title: string; cols: FieldRead[]; records: RecordRead[]; accent: string; colors: AppColors;
   onRowClick?: (recordId: string) => void;
 }) {
-  const labelCol = cols[0];
-  const subCols = cols.slice(1, 4);
+  const labelCol = cols.find((f) => f.field_type !== "relation") ?? cols[0];
+  const subCols = cols.filter((f) => f !== labelCol).slice(0, 3);
 
   return (
     <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", background: colors.surface }}>
@@ -3228,11 +3252,33 @@ function DetailView({ title, cols, records, accent, initialRecordId, appId, enti
 }
 
 /* ── Chart view: horizontal bar chart ── */
-function ChartView({ title, cols, records, accent, colors }: {
+function ChartView({ title, cols, records, accent, colors, appId, entities }: {
   title: string; cols: FieldRead[]; records: RecordRead[]; accent: string; colors: AppColors;
+  appId?: string; entities?: EntityRead[];
 }) {
   const catField = cols.find((f) => f.field_type === "select" || f.field_type === "text" || f.field_type === "relation");
   const numField = cols.find((f) => f.field_type === "number" || f.field_type === "decimal");
+
+  const catTargetEntityId = catField?.field_type === "relation" ? (catField.field_options?.target_entity_id as string | undefined) : undefined;
+  const catRelQuery = useQuery({
+    queryKey: ["rt-records", appId, catTargetEntityId, "chart-rel"],
+    queryFn: () => listRecords(appId!, catTargetEntityId!, { limit: 200 }),
+    enabled: !!appId && !!catTargetEntityId,
+  });
+  const catRelEntity = (entities ?? []).find((e) => e.id === catTargetEntityId);
+  const catRelDisplayField = catRelEntity?.fields.find((f) => !f.is_system && f.field_type === "text")?.name;
+
+  function resolveCatLabel(raw: string): string {
+    if (!raw) return "—";
+    if (catField?.field_type === "relation") {
+      if (catRelDisplayField) {
+        const rec = catRelQuery.data?.items.find((r) => r.id === raw);
+        if (rec) return String(rec.payload[catRelDisplayField] ?? "—");
+      }
+      return raw.slice(0, 8);
+    }
+    return raw;
+  }
 
   if (!catField) {
     return (
@@ -3245,7 +3291,8 @@ function ChartView({ title, cols, records, accent, colors }: {
   type Bucket = { label: string; value: number };
   const bucketMap = new Map<string, Bucket>();
   records.forEach((r) => {
-    const label = String(r.payload[catField.name] ?? "—") || "—";
+    const rawKey = String(r.payload[catField.name] ?? "");
+    const label = resolveCatLabel(rawKey) || "—";
     const num = numField ? Number(r.payload[numField.name] ?? 0) || 0 : 1;
     if (!bucketMap.has(label)) bucketMap.set(label, { label, value: 0 });
     bucketMap.get(label)!.value += num;
@@ -3291,7 +3338,7 @@ function GanttView({ title, cols, records, accent, startField: startFieldProp, e
   const dateFields = cols.filter((f) => f.field_type === "date");
   const startField = startFieldProp ?? dateFields[0];
   const endField = endFieldProp ?? dateFields[1] ?? dateFields[0];
-  const nameField = nameFieldProp ?? cols.find((f) => f.field_type !== "date") ?? cols[0];
+  const nameField = nameFieldProp ?? cols.find((f) => f.field_type !== "date" && f.field_type !== "relation") ?? cols[0];
 
   const now = new Date();
   const viewStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3391,7 +3438,7 @@ function MapView({ title, cols, records }: {
   const latField = cols.find((f) => ["lat","latitude","широта"].includes(f.name.toLowerCase()));
   const lngField = cols.find((f) => ["lng","lon","longitude","долгота"].includes(f.name.toLowerCase()));
   const addrField = cols.find((f) => ["address","addr","адрес"].includes(f.name.toLowerCase()));
-  const nameField = cols.find((f) => f.field_type !== "date" && f.field_type !== "number") ?? cols[0];
+  const nameField = cols.find((f) => f.field_type !== "date" && f.field_type !== "number" && f.field_type !== "relation") ?? cols[0];
 
   const points: { lat: number; lng: number; label: string }[] = [];
   if (latField && lngField) {
