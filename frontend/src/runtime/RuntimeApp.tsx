@@ -745,12 +745,12 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
               <tr key={rec.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                 {cols.map((f) => {
                   if (f.field_type === "relation") {
-                    const rel = relations.find((r) => r.from_entity_id === entity.id && r.from_field_name === f.name);
+                    const relTargetId = resolveRelationTargetEntityId(f, entity.id, relations);
                     return (
                       <td key={f.id} style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>
                         <RelationCell
                           appId={appId}
-                          relatedEntityId={rel?.to_entity_id ?? null}
+                          relatedEntityId={relTargetId}
                           recordId={String(rec.payload[f.name] ?? "")}
                           entities={entities}
                         />
@@ -1146,10 +1146,10 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
                 >
                   {cols.map((f) => {
                     if (f.field_type === "relation") {
-                      const rel = relations?.find((r) => r.from_entity_id === tableEntity.id && r.from_field_name === f.name);
+                      const relTargetId = resolveRelationTargetEntityId(f, tableEntity.id, relations ?? []);
                       return (
                         <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
-                          <RelationCell appId={appId} relatedEntityId={rel?.to_entity_id ?? null} recordId={String(rec.payload[f.name] ?? "")} entities={entities ?? []} />
+                          <RelationCell appId={appId} relatedEntityId={relTargetId} recordId={String(rec.payload[f.name] ?? "")} entities={entities ?? []} />
                         </td>
                       );
                     }
@@ -1550,7 +1550,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
                   {f.field_type === "relation" ? (
                     <RelationCell
                       appId={appId}
-                      relatedEntityId={(relations ?? []).find((r) => r.from_entity_id === entity?.id && r.from_field_name === f.name)?.to_entity_id ?? null}
+                      relatedEntityId={resolveRelationTargetEntityId(f, entity?.id, relations ?? [])}
                       recordId={String(rec.payload[f.name] ?? "")}
                       entities={entities ?? []}
                     />
@@ -1889,12 +1889,12 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
                 >
                   {cols.map((f) => {
                     if (f.field_type === "relation") {
-                      const rel = relations?.find((r) => r.from_entity_id === entity?.id && r.from_field_name === f.name);
+                      const relTargetId = resolveRelationTargetEntityId(f, entity?.id, relations ?? []);
                       return (
                         <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
                           <RelationCell
                             appId={appId}
-                            relatedEntityId={rel?.to_entity_id ?? null}
+                            relatedEntityId={relTargetId}
                             recordId={String(rec.payload[f.name] ?? "")}
                             entities={entities ?? []}
                           />
@@ -2737,9 +2737,8 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  function getRelatedEntityId(fieldName: string): string | null {
-    const rel = relations.find((r) => r.from_entity_id === entity?.id && r.from_field_name === fieldName);
-    return rel?.to_entity_id ?? null;
+  function getRelatedEntityId(field: FieldRead): string | null {
+    return resolveRelationTargetEntityId(field, entity?.id, relations);
   }
 
   function startEdit(rec: RecordRead) {
@@ -2902,7 +2901,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                         ) : f.field_type === "relation" ? (
                           <RelationCell
                             appId={appId}
-                            relatedEntityId={getRelatedEntityId(f.name)}
+                            relatedEntityId={getRelatedEntityId(f)}
                             recordId={String(rec.payload[f.name] ?? "")}
                             entities={entities}
                           />
@@ -3229,9 +3228,9 @@ function DetailView({ title, cols, records, accent, initialRecordId, appId, enti
       ) : (
         <div style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 20px" }}>
           {cols.map((f) => {
-            const rel = f.field_type === "relation"
-              ? relations.find((r) => r.from_entity_id === entityId && r.from_field_name === f.name)
-              : undefined;
+            const relTargetId = f.field_type === "relation"
+              ? resolveRelationTargetEntityId(f, entityId, relations)
+              : null;
             return (
               <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: "#8898AA", textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</span>
@@ -3239,7 +3238,7 @@ function DetailView({ title, cols, records, accent, initialRecordId, appId, enti
                   {f.is_system && f.name === "author_id" ? (
                     <AuthorCell userId={String(fieldValue(rec, f) ?? "")} />
                   ) : f.field_type === "relation" ? (
-                    <RelationCell appId={appId} relatedEntityId={rel?.to_entity_id ?? null} recordId={String(fieldValue(rec, f) ?? "")} entities={entities} />
+                    <RelationCell appId={appId} relatedEntityId={relTargetId} recordId={String(fieldValue(rec, f) ?? "")} entities={entities} />
                   ) : formatCell(fieldValue(rec, f), f)}
                 </span>
               </div>
@@ -3582,6 +3581,26 @@ function fieldValue(rec: RecordRead, f: FieldRead): unknown {
     case "is_deleted": return rec.is_deleted;
     default: return rec.payload[f.name];
   }
+}
+
+/** Resolves the related entity id for a relation field. Prefers the field's own
+ * field_options.target_entity_id (always correct) over scanning the relations list,
+ * whose from_/to_ sides depend on which end the relation was authored from and can
+ * point either way relative to the field's owning entity. */
+function resolveRelationTargetEntityId(
+  field: FieldRead,
+  entityId: string | null | undefined,
+  relations: RelationRead[],
+): string | null {
+  const direct = field.field_options?.target_entity_id as string | undefined;
+  if (direct) return direct;
+  const rel = relations.find(
+    (r) =>
+      (r.from_entity_id === entityId && r.from_field_name === field.name) ||
+      (r.to_entity_id === entityId && r.to_field_name === field.name)
+  );
+  if (!rel) return null;
+  return rel.from_entity_id === entityId ? rel.to_entity_id : rel.from_entity_id;
 }
 
 function formatCell(value: unknown, field: FieldRead): string {
