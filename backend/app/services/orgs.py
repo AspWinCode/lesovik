@@ -13,8 +13,7 @@ logger = structlog.get_logger(__name__)
 
 PROTECTED_ROLES = {"platform_admin"}
 ORG_ASSIGNABLE_ROLES = {
-    "org_admin", "app_builder", "app_admin",
-    "data_editor", "data_viewer", "workflow_actor", "auditor", "api_client",
+    "org_admin", "app_builder", "app_admin", "auditor",
 }
 
 

@@ -360,8 +360,7 @@ class UserService:
             self._db.add(UserRole(user_id=user_id, role_id=rid, granted_by=granted_by))
 
     _ORG_ASSIGNABLE_ROLES = {
-        "org_admin", "app_builder", "app_admin",
-        "data_editor", "data_viewer", "workflow_actor", "auditor", "api_client",
+        "org_admin", "app_builder", "app_admin", "auditor",
     }
 
     async def _check_org_assignable_roles(self, role_ids: list[str], actor_org_id: uuid.UUID) -> None:

@@ -26,11 +26,7 @@ ROLES = [
     {"id": "org_admin",      "display_name": "Администратор организации"},
     {"id": "app_builder",    "display_name": "Конструктор приложений"},
     {"id": "app_admin",      "display_name": "Администратор приложения"},
-    {"id": "data_editor",    "display_name": "Редактор данных"},
-    {"id": "data_viewer",    "display_name": "Читатель данных"},
-    {"id": "workflow_actor", "display_name": "Участник процессов"},
     {"id": "auditor",        "display_name": "Аудитор"},
-    {"id": "api_client",     "display_name": "API-клиент"},
 ]
 
 ADMIN_ROLES = ["platform_admin", "app_builder"]

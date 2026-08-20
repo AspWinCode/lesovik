@@ -20,11 +20,6 @@ from app.services.audit import AuditService
 
 logger = structlog.get_logger(__name__)
 
-SYSTEM_ROLES = {
-    "platform_admin", "org_admin", "app_admin",
-    "app_editor", "app_viewer", "auditor", "data_viewer",
-}
-
 
 class RoleNotFoundError(Exception):
     pass
