@@ -10,6 +10,22 @@ import { apiClient } from "@/shared/api/client";
 import { fetchMe } from "@/shared/api/auth";
 import { parseStaticOptions, groupRecordsByField, buildRecordTree } from "./blockHelpers";
 
+/** Aggregation/visualization blocks (pivot, chart, kanban, tree, gantt...) need
+ * the whole table to compute correct totals/groupings/labels - unlike a browsable
+ * table, there's no "click for more" that makes sense for a silently-partial sum.
+ * Follows cursor pages until exhausted, capped as a sanity limit rather than a
+ * expected ceiling. */
+async function listAllRecords(appId: string, entityId: string, hardCap = 5000): Promise<RecordRead[]> {
+  const all: RecordRead[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await listRecords(appId, entityId, { limit: 200, cursor });
+    all.push(...page.items);
+    cursor = page.has_more ? (page.next_cursor ?? undefined) : undefined;
+  } while (cursor && all.length < hardCap);
+  return all;
+}
+
 interface PageBlock {
   id: string;
   type: string;
@@ -726,17 +742,19 @@ function InlineBlock({ appId, entity, relation, parentRecordId, inlineTitle, acc
   inlineTitle: string; accent: string; colors: AppColors;
   entities: EntityRead[]; relations: RelationRead[];
 }) {
+  // Filter child records by FK field server-side (not a client-side .filter over
+  // a capped fetch of the whole child entity, which silently dropped any matching
+  // child record that wasn't within the first page of the *entire* table).
+  const fkName = relation.from_field_name;
   const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, entity.id],
-    queryFn: () => listRecords(appId, entity.id, { limit: 50 }),
+    queryKey: ["rt-records-inline", appId, entity.id, fkName, parentRecordId],
+    queryFn: () => listRecords(appId, entity.id, {
+      limit: 200,
+      filter: fkName ? `${fkName}:eq:${parentRecordId}` : undefined,
+    }),
     enabled: true,
   });
-  const allRecords = recordsQuery.data?.items ?? [];
-  // Filter child records by FK field that references the parent record
-  const fkName = relation.from_field_name;
-  const records = fkName
-    ? allRecords.filter((r) => String(r.payload[fkName]) === parentRecordId)
-    : allRecords;
+  const records = recordsQuery.data?.items ?? [];
 
   const cols = (entity.fields ?? []).filter((f) => !f.is_system);
 
@@ -868,19 +886,19 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
   rowField: string; colField: string; valueField: string; agg: string; colors: AppColors;
 }) {
   const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, entityId, "pivot"],
-    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, entityId, "pivot"],
+    queryFn: () => listAllRecords(appId, entityId),
     enabled: !!entityId,
   });
   const pivotEntity = entities.find((e) => e.id === entityId);
   const rowFieldDef = pivotEntity?.fields.find((f) => f.name === rowField);
   const colFieldDef = pivotEntity?.fields.find((f) => f.name === colField);
-  const records = recordsQuery.data?.items ?? [];
+  const records = recordsQuery.data ?? [];
 
   const rowTargetEntityId = rowFieldDef?.field_type === "relation" ? (rowFieldDef.field_options?.target_entity_id as string | undefined) : undefined;
   const rowRelQuery = useQuery({
-    queryKey: ["rt-records", appId, rowTargetEntityId, "pivot-rel"],
-    queryFn: () => listRecords(appId, rowTargetEntityId!, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, rowTargetEntityId, "pivot-rel"],
+    queryFn: () => listAllRecords(appId, rowTargetEntityId!),
     enabled: !!rowTargetEntityId,
   });
   const rowRelEntity = entities.find((e) => e.id === rowTargetEntityId);
@@ -888,7 +906,7 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
 
   function resolveLabel(def: FieldRead | undefined, raw: string): string {
     if (def?.field_type === "relation" && rowRelDisplayField) {
-      const rec = rowRelQuery.data?.items.find((r) => r.id === raw);
+      const rec = rowRelQuery.data?.find((r) => r.id === raw);
       return rec ? String(rec.payload[rowRelDisplayField] ?? "—") : (raw ? raw.slice(0, 8) : "—");
     }
     return fieldLabel(def, raw);
@@ -896,8 +914,8 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
 
   const colTargetEntityId = colFieldDef?.field_type === "relation" ? (colFieldDef.field_options?.target_entity_id as string | undefined) : undefined;
   const colRelQuery = useQuery({
-    queryKey: ["rt-records", appId, colTargetEntityId, "pivot-rel-col"],
-    queryFn: () => listRecords(appId, colTargetEntityId!, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, colTargetEntityId, "pivot-rel-col"],
+    queryFn: () => listAllRecords(appId, colTargetEntityId!),
     enabled: !!colTargetEntityId,
   });
   const colRelEntity = entities.find((e) => e.id === colTargetEntityId);
@@ -905,7 +923,7 @@ function PivotBlock({ appId, entities, title, entityId, rowField, colField, valu
 
   function resolveColLabel(raw: string): string {
     if (colFieldDef?.field_type === "relation" && colRelDisplayField) {
-      const rec = colRelQuery.data?.items.find((r) => r.id === raw);
+      const rec = colRelQuery.data?.find((r) => r.id === raw);
       return rec ? String(rec.payload[colRelDisplayField] ?? "—") : (raw ? raw.slice(0, 8) : "—");
     }
     return fieldLabel(colFieldDef, raw);
@@ -984,8 +1002,8 @@ function GanttBlock({ appId, entities, title, entityId, startFieldName, endField
   startFieldName: string; endFieldName: string; titleFieldName: string; accent: string;
 }) {
   const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, entityId, "gantt"],
-    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, entityId, "gantt"],
+    queryFn: () => listAllRecords(appId, entityId),
     enabled: !!entityId,
   });
   const ganttEntity = entities.find((e) => e.id === entityId);
@@ -998,7 +1016,7 @@ function GanttBlock({ appId, entities, title, entityId, startFieldName, endField
     <GanttView
       title={title}
       cols={cols}
-      records={recordsQuery.data?.items ?? []}
+      records={recordsQuery.data ?? []}
       accent={accent}
       startField={startField}
       endField={endField}
@@ -1013,14 +1031,14 @@ function TreeBlock({ appId, entities, title, entityId, labelFieldName, parentFie
   onRowClick?: (entityId: string, recordId: string) => void;
 }) {
   const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, entityId, "tree"],
-    queryFn: () => listRecords(appId, entityId, { limit: 500 }),
+    queryKey: ["rt-records-all", appId, entityId, "tree"],
+    queryFn: () => listAllRecords(appId, entityId),
     enabled: !!entityId,
   });
   const treeEntity = entities.find((e) => e.id === entityId);
   const labelField = (treeEntity?.fields ?? []).find((f) => f.name === labelFieldName)
     ?? (treeEntity?.fields ?? []).find((f) => !f.is_system && f.field_type !== "relation");
-  const records = recordsQuery.data?.items ?? [];
+  const records = recordsQuery.data ?? [];
 
   if (!entityId || !parentFieldName) {
     return (
@@ -1120,13 +1138,15 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
   appId: string; entities?: EntityRead[]; relations?: RelationRead[]; title?: string | null;
   entityId: string; visibleSystemColumns?: string[]; colors: AppColors; onRowClick?: (entityId: string, recordId: string) => void;
 }) {
-  const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, entityId, "table-block"],
-    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+  const recordsQuery = useInfiniteQuery({
+    queryKey: ["rt-records-page", appId, entityId, "table-block"],
+    queryFn: ({ pageParam }: { pageParam?: string }) => listRecords(appId, entityId, { limit: 200, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => (lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined),
     enabled: !!entityId,
   });
   const tableEntity = entities?.find((e) => e.id === entityId) ?? null;
-  const records = recordsQuery.data?.items ?? [];
+  const records = recordsQuery.data?.pages.flatMap((p) => p.items) ?? [];
   const cols = (tableEntity?.fields ?? []).filter((f) => !f.is_system || (visibleSystemColumns ?? []).includes(f.name));
 
   if (!tableEntity) {
@@ -1184,6 +1204,17 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
               )}
             </tbody>
           </table>
+          {recordsQuery.hasNextPage && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}>
+              <button
+                onClick={() => recordsQuery.fetchNextPage()}
+                disabled={recordsQuery.isFetchingNextPage}
+                style={{ padding: "6px 16px", fontSize: 13, fontWeight: 500, borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.text, cursor: recordsQuery.isFetchingNextPage ? "default" : "pointer" }}
+              >
+                {recordsQuery.isFetchingNextPage ? "Загрузка…" : `Показать ещё (загружено ${records.length})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -1984,21 +2015,21 @@ function PositionsPicker({ block, appId, formValues, onFormChange, colors, accen
   const extras = getPositionsPickerExtras(cfg);
 
   const catalogQuery = useQuery({
-    queryKey: ["rt-records", appId, catalogEntityId],
-    queryFn: () => listRecords(appId, catalogEntityId, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, catalogEntityId],
+    queryFn: () => listAllRecords(appId, catalogEntityId),
     enabled: !!catalogEntityId,
   });
-  const catalogItems = catalogQuery.data?.items ?? [];
+  const catalogItems = catalogQuery.data ?? [];
 
   const extraQueries = useQueries({
     queries: extras.map((ex) => ({
-      queryKey: ["rt-records", appId, ex.entity_id, "picker-extra"],
-      queryFn: () => listRecords(appId, ex.entity_id, { limit: 200 }),
+      queryKey: ["rt-records-all", appId, ex.entity_id, "picker-extra"],
+      queryFn: () => listAllRecords(appId, ex.entity_id),
       enabled: !!ex.entity_id,
     })),
   });
   const extraItemsByField = Object.fromEntries(
-    extras.map((ex, i) => [ex.field || ex.entity_id, extraQueries[i]?.data?.items ?? []])
+    extras.map((ex, i) => [ex.field || ex.entity_id, extraQueries[i]?.data ?? []])
   );
 
   const [showDropdown, setShowDropdown] = useState(false);
@@ -2217,11 +2248,11 @@ function LookupBlock({ appId, refEntityId, displayField, fieldName: _fieldName, 
   onChange: (v: string) => void; colors: AppColors;
 }) {
   const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, refEntityId],
-    queryFn: () => listRecords(appId, refEntityId, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, refEntityId],
+    queryFn: () => listAllRecords(appId, refEntityId),
     enabled: !!refEntityId,
   });
-  const options = recordsQuery.data?.items ?? [];
+  const options = recordsQuery.data ?? [];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {label && <label style={{ fontSize: 13, color: colors.textMuted }}>{label}</label>}
@@ -2244,8 +2275,8 @@ function ResponsibleBlock({ appId, refEntityId, displayField, matchField, label,
   label: string; value: string; onChange: (v: string) => void; colors: AppColors;
 }) {
   const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, refEntityId],
-    queryFn: () => listRecords(appId, refEntityId, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, refEntityId],
+    queryFn: () => listAllRecords(appId, refEntityId),
     enabled: !!refEntityId,
   });
   const currentUserQuery = useQuery({
@@ -2253,7 +2284,7 @@ function ResponsibleBlock({ appId, refEntityId, displayField, matchField, label,
     queryFn: fetchMe,
     staleTime: 5 * 60 * 1000,
   });
-  const options = recordsQuery.data?.items ?? [];
+  const options = recordsQuery.data ?? [];
 
   // Auto-select once: match the logged-in account's display name against
   // matchField, exact + case-insensitive. Never overrides a value already
@@ -2338,13 +2369,13 @@ function DropdownBlock({ appId, label, source, staticOptions, entityId, displayF
   value: unknown; onChange: (v: unknown) => void; colors: AppColors;
 }) {
   const entityQuery = useQuery({
-    queryKey: ["rt-records", appId, entityId],
-    queryFn: () => listRecords(appId, entityId, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, entityId],
+    queryFn: () => listAllRecords(appId, entityId),
     enabled: source === "entity" && !!entityId,
   });
 
   const options: { value: string; label: string }[] = source === "entity"
-    ? (entityQuery.data?.items ?? []).map((r) => ({ value: r.id, label: String(r.payload[displayField] ?? r.id) }))
+    ? (entityQuery.data ?? []).map((r) => ({ value: r.id, label: String(r.payload[displayField] ?? r.id) }))
     : parseStaticOptions(staticOptions).map((o) => ({ value: o, label: o }));
 
   const selectSt: React.CSSProperties = {
@@ -3366,8 +3397,8 @@ function ChartView({ title, cols, records, accent, colors, appId, entities }: {
 
   const catTargetEntityId = catField?.field_type === "relation" ? (catField.field_options?.target_entity_id as string | undefined) : undefined;
   const catRelQuery = useQuery({
-    queryKey: ["rt-records", appId, catTargetEntityId, "chart-rel"],
-    queryFn: () => listRecords(appId!, catTargetEntityId!, { limit: 200 }),
+    queryKey: ["rt-records-all", appId, catTargetEntityId, "chart-rel"],
+    queryFn: () => listAllRecords(appId!, catTargetEntityId!),
     enabled: !!appId && !!catTargetEntityId,
   });
   const catRelEntity = (entities ?? []).find((e) => e.id === catTargetEntityId);
@@ -3377,7 +3408,7 @@ function ChartView({ title, cols, records, accent, colors, appId, entities }: {
     if (!raw) return "—";
     if (catField?.field_type === "relation") {
       if (catRelDisplayField) {
-        const rec = catRelQuery.data?.items.find((r) => r.id === raw);
+        const rec = catRelQuery.data?.find((r) => r.id === raw);
         if (rec) return String(rec.payload[catRelDisplayField] ?? "—");
       }
       return raw.slice(0, 8);
