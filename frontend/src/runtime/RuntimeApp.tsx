@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, useSearchParams } from "react-router-dom";
-import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api/views";
@@ -361,12 +361,14 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
   const blocks = (page.blocks ?? []) as unknown as PageBlock[];
   const qc = useQueryClient();
 
-  const recordsQuery = useQuery({
-    queryKey: ["rt-records", appId, entity?.id],
-    queryFn: () => listRecords(appId, entity!.id, { limit: 200 }),
+  const recordsQuery = useInfiniteQuery({
+    queryKey: ["rt-records-page", appId, entity?.id],
+    queryFn: ({ pageParam }: { pageParam?: string }) => listRecords(appId, entity!.id, { limit: 200, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => (lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined),
     enabled: !!entity,
   });
-  const allRecords = recordsQuery.data?.items ?? [];
+  const allRecords = recordsQuery.data?.pages.flatMap((p) => p.items) ?? [];
   // On a detail page, show only the active record
   const records = (page.layout?.system_type === "detail" && activeRecordId)
     ? allRecords.filter((r) => r.id === activeRecordId)
@@ -542,6 +544,7 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
       }
 
       qc.invalidateQueries({ queryKey: ["rt-records", appId] });
+      qc.invalidateQueries({ queryKey: ["rt-records-page", appId] });
       setPageFormValues({});
       setPageFileValues({});
       setPageSaveStatus("success");
@@ -608,6 +611,21 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
           activeRecordId={activeRecordId}
           onRecordUpdated={() => recordsQuery.refetch()}
         />
+      )}
+      {hasDataView && page.layout?.system_type !== "detail" && recordsQuery.hasNextPage && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+          <button
+            onClick={() => recordsQuery.fetchNextPage()}
+            disabled={recordsQuery.isFetchingNextPage}
+            style={{
+              padding: "8px 18px", fontSize: 13, fontWeight: 500, borderRadius: 8,
+              border: `1px solid ${colors.border}`, background: colors.surface, color: colors.text,
+              cursor: recordsQuery.isFetchingNextPage ? "default" : "pointer",
+            }}
+          >
+            {recordsQuery.isFetchingNextPage ? "Загрузка…" : `Показать ещё (загружено ${allRecords.length})`}
+          </button>
+        </div>
       )}
       {visibleBlocks.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: blockGap, marginTop: hasDataView ? blockGap : 0 }}>
@@ -2636,6 +2654,11 @@ function FormBlock({ block, entity, cols, appId, accent, colors, inputStyle, lab
   );
 }
 
+/** A record-picker combobox rather than a plain <select>: the related entity
+ * can have far more records than fit in one page, so options are searched
+ * server-side (icontains on the display field) instead of being loaded once
+ * and filtered client-side - a plain <select> would make anything past the
+ * first page unreachable no matter how the user scrolled it. */
 function RelationSelect({ appId, targetEntityId, entities, value, required, style, onChange }: {
   appId: string; targetEntityId: string | null; entities: EntityRead[];
   value: string; required?: boolean; style: React.CSSProperties; onChange: (v: string) => void;
@@ -2648,26 +2671,98 @@ function RelationSelect({ appId, targetEntityId, entities, value, required, styl
     nonSysFields.find((f) => ["number", "currency"].includes(f.field_type))
   )?.name ?? "";
 
-  const q = useQuery({
-    queryKey: ["rt-records", appId, targetEntityId, "rel-select"],
-    queryFn: () => listRecords(appId, targetEntityId!, { limit: 200 }),
-    enabled: !!targetEntityId,
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const listQ = useQuery({
+    queryKey: ["rt-records", appId, targetEntityId, "rel-select", debouncedQuery],
+    queryFn: () => listRecords(appId, targetEntityId!, {
+      limit: 50,
+      filter: debouncedQuery && displayField ? `${displayField}:icontains:${debouncedQuery}` : undefined,
+    }),
+    enabled: !!targetEntityId && isOpen,
   });
-  const options = q.data?.items ?? [];
+  const options = listQ.data?.items ?? [];
+  const selectedInList = options.find((r) => r.id === value);
+
+  // The currently selected record may not be in `options` (search-scoped,
+  // capped at 50) - resolve its label directly so editing an existing
+  // record always shows something meaningful, not a raw id.
+  const selectedDirectQ = useQuery({
+    queryKey: ["rt-record", appId, targetEntityId, value],
+    queryFn: () => getRecord(appId, targetEntityId!, value),
+    enabled: !!targetEntityId && !!value && !selectedInList,
+    retry: false,
+  });
+  const selectedRec = selectedInList ?? selectedDirectQ.data;
+  const selectedLabel = value
+    ? (selectedRec
+        ? (displayField ? String(selectedRec.payload[displayField] ?? selectedRec.id.slice(0, 8)) : selectedRec.id.slice(0, 8))
+        : "…")
+    : "";
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
 
   if (!targetEntityId) {
     return <input disabled placeholder="Связь не настроена" style={style} />;
   }
 
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} required={required} style={style}>
-      <option value="">— выберите —</option>
-      {options.map((r) => (
-        <option key={r.id} value={r.id}>
-          {displayField ? String(r.payload[displayField] ?? r.id.slice(0, 8)) : r.id.slice(0, 8)}
-        </option>
-      ))}
-    </select>
+    <div ref={containerRef} style={{ position: "relative" }}>
+      <input
+        value={isOpen ? query : selectedLabel}
+        onChange={(e) => { setQuery(e.target.value); if (!isOpen) setIsOpen(true); }}
+        onFocus={() => { setIsOpen(true); setQuery(""); }}
+        placeholder="— выберите —"
+        required={required}
+        style={{ ...style, paddingRight: value && !isOpen ? 24 : undefined }}
+      />
+      {value && !isOpen && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Очистить"
+          style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", border: "none", background: "none", cursor: "pointer", color: "#8898AA", fontSize: 13, lineHeight: 1, padding: 2 }}
+        >✕</button>
+      )}
+      {isOpen && (
+        <div style={{ position: "absolute", zIndex: 20, top: "100%", left: 0, right: 0, marginTop: 2, maxHeight: 220, overflowY: "auto", background: "#fff", border: "1px solid #CBE3FF", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+          {listQ.isLoading && <div style={{ padding: 8, fontSize: 12, color: "#8898AA" }}>Загрузка…</div>}
+          {!listQ.isLoading && options.length === 0 && (
+            <div style={{ padding: 8, fontSize: 12, color: "#8898AA" }}>Ничего не найдено</div>
+          )}
+          {!listQ.isLoading && !debouncedQuery && !displayField && (
+            <div style={{ padding: "4px 8px 8px", fontSize: 11, color: "#8898AA" }}>Поиск недоступен: нет текстового поля для отображения</div>
+          )}
+          {options.map((r) => (
+            <div
+              key={r.id}
+              onClick={() => { onChange(r.id); setIsOpen(false); setQuery(""); }}
+              style={{ padding: "6px 10px", fontSize: 13, cursor: "pointer", background: r.id === value ? "#F1F6FF" : "transparent" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#F1F6FF"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = r.id === value ? "#F1F6FF" : "transparent"; }}
+            >
+              {displayField ? String(r.payload[displayField] ?? r.id.slice(0, 8)) : r.id.slice(0, 8)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
