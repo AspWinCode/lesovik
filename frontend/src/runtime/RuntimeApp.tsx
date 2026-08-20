@@ -5,7 +5,7 @@ import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api/views";
 import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
-import { listRecords, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
+import { listRecords, getRecord, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
 import { apiClient } from "@/shared/api/client";
 import { fetchMe } from "@/shared/api/auth";
 import { parseStaticOptions, groupRecordsByField, buildRecordTree } from "./blockHelpers";
@@ -2682,16 +2682,27 @@ function RelationCell({ appId, relatedEntityId, recordId, entities }: {
     nonSysFields.find((f) => ["number", "currency"].includes(f.field_type))
   )?.name ?? "";
 
-  const q = useQuery({
+  const listQ = useQuery({
     queryKey: ["rt-records", appId, relatedEntityId],
     queryFn: () => listRecords(appId, relatedEntityId!, { limit: 200 }),
     enabled: !!relatedEntityId && !!recordId,
   });
+  const foundInList = listQ.data?.items.find((r) => r.id === recordId);
+  // The related entity can have more than 200 records, in which case the
+  // target row may not be in this capped list - fetch it directly rather
+  // than showing the raw id just because it wasn't on the first page.
+  const needsDirectFetch = !!relatedEntityId && !!recordId && listQ.isSuccess && !foundInList;
+  const directQ = useQuery({
+    queryKey: ["rt-record", appId, relatedEntityId, recordId],
+    queryFn: () => getRecord(appId, relatedEntityId!, recordId),
+    enabled: needsDirectFetch,
+    retry: false,
+  });
 
   if (!recordId || recordId === "" || recordId === "undefined") return <>—</>;
   if (!relatedEntityId) return <>{recordId.slice(0, 8)}</>;
-  if (q.isLoading) return <>…</>;
-  const rec = q.data?.items.find((r) => r.id === recordId);
+  if (listQ.isLoading || (needsDirectFetch && directQ.isLoading)) return <>…</>;
+  const rec = foundInList ?? directQ.data;
   if (!rec || !displayField) return <>{recordId.slice(0, 8)}</>;
   return <>{String(rec.payload[displayField] ?? "—")}</>;
 }
