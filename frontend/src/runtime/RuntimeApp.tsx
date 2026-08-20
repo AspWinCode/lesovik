@@ -3611,9 +3611,19 @@ function formatCell(value: unknown, field: FieldRead): string {
     const choices = normalizeChoices(field.field_options?.choices);
     return choices.find((c) => c.value === value)?.label ?? String(value);
   }
-  if (field.field_type === "currency" || field.field_type === "formula") {
+  if (field.field_type === "multi_select") {
+    const choices = normalizeChoices(field.field_options?.choices);
+    const raw = Array.isArray(value) ? value : [value];
+    return raw.map((v) => choices.find((c) => c.value === v)?.label ?? String(v)).join(", ");
+  }
+  if (field.field_type === "currency") {
     const num = Number(value);
     if (!isNaN(num)) return num.toLocaleString("ru-RU") + " ₽";
+  }
+  if (field.field_type === "formula") {
+    if (typeof value === "boolean") return value ? "✓" : "✗";
+    const num = Number(value);
+    if (!isNaN(num) && value !== "" && typeof value !== "boolean") return num.toLocaleString("ru-RU");
   }
   if (field.field_type === "date" || field.field_type === "datetime") {
     const d = new Date(String(value));
@@ -3628,6 +3638,9 @@ function formatCell(value: unknown, field: FieldRead): string {
   if (field.is_system && (field.name === "id" || field.name === "author_id")) {
     const s = String(value);
     return s.length > 12 ? `${s.slice(0, 8)}…` : s;
+  }
+  if (field.field_type === "json" && typeof value === "object") {
+    try { return JSON.stringify(value); } catch { return String(value); }
   }
   return String(value);
 }
