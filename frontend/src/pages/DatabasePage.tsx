@@ -999,6 +999,9 @@ function InlineEdit({
         value={value}
         onChange={onChange}
         required={false}
+        autoFocus={autoFocus}
+        onFocus={onFocus}
+        onBlur={onBlur}
       />
     );
   }
@@ -1126,8 +1129,9 @@ function RelationCellDisplay({ field, value }: { field: FieldRead; value: string
 }
 
 /* ── Relation record picker — loads records from the target entity ── */
-function RelationPickerInput({ field, value, onChange, required }: {
+function RelationPickerInput({ field, value, onChange, required, autoFocus, onFocus, onBlur }: {
   field: FieldRead; value: string; onChange: (v: string) => void; required: boolean;
+  autoFocus?: boolean; onFocus?: () => void; onBlur?: () => void;
 }) {
   const targetEntityId = field.field_options?.target_entity_id as string | undefined;
   const appsQ = useApps();
@@ -1143,15 +1147,26 @@ function RelationPickerInput({ field, value, onChange, required }: {
         type="text"
         value={value}
         required={required}
+        autoFocus={autoFocus}
         placeholder="ID записи"
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
         className={base}
       />
     );
   }
 
   return (
-    <select value={value} required={required} onChange={(e) => onChange(e.target.value)} className={base}>
+    <select
+      value={value}
+      required={required}
+      autoFocus={autoFocus}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      className={base}
+    >
       <option value="">— Выберите запись —</option>
       {records.map((r) => (
         <option key={r.id} value={r.id}>
