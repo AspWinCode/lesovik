@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities, useCreateEntity, useCreateField, useRelations, useCreateRelation, useDeleteRelation } from "@/shared/hooks/useEntities";
-import { useRecords, useCreateRecord, useUpdateRecord } from "@/shared/hooks/useRecords";
+import { useRecords, useCreateRecord, useUpdateRecord, useDeleteRecord } from "@/shared/hooks/useRecords";
 import { uploadRecordFile, getRecordFileDownloadUrl, listRecords, type RecordRead } from "@/shared/api/records";
 import { normalizeChoices } from "@/shared/lib/choices";
 import type { FieldRead, FieldType } from "@/shared/api/entities";
@@ -164,6 +164,13 @@ export function DatabasePage() {
 
   const createRecord = useCreateRecord(appId ?? "", entity?.id ?? "");
   const updateRecord = useUpdateRecord(appId ?? "", entity?.id ?? "");
+  const deleteRecordMutation = useDeleteRecord(appId ?? "", entity?.id ?? "");
+
+  function handleDeleteRecord(e: React.MouseEvent, recordId: string) {
+    e.stopPropagation();
+    if (!window.confirm("Удалить эту запись?")) return;
+    deleteRecordMutation.mutate(recordId);
+  }
   const createEntityMutation  = useCreateEntity(appId ?? "");
   const createFieldMutation   = useCreateField(appId ?? "");
   const relationsQuery        = useRelations(appId);
@@ -623,7 +630,17 @@ export function DatabasePage() {
                           </td>
                         );
                       })}
-                      <td />
+                      <td className="w-10 px-2 text-center">
+                        <button
+                          onClick={(e) => handleDeleteRecord(e, rec.id)}
+                          title="Удалить запись"
+                          className="text-primary/30 hover:text-red-500 transition-colors"
+                        >
+                          <svg viewBox="0 0 16 16" className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.5 9.5a1 1 0 0 0 1 .95h4a1 1 0 0 0 1-.95L11.5 4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </td>
                     </tr>
                   );
                 })

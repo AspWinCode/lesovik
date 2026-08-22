@@ -79,10 +79,12 @@ class Entity(Base):
         "Field", back_populates="entity", cascade="all, delete-orphan", lazy="selectin"
     )
     outgoing_relations: Mapped[list["Relation"]] = relationship(
-        "Relation", foreign_keys="[Relation.from_entity_id]", back_populates="from_entity"
+        "Relation", foreign_keys="[Relation.from_entity_id]", back_populates="from_entity",
+        passive_deletes=True,
     )
     incoming_relations: Mapped[list["Relation"]] = relationship(
-        "Relation", foreign_keys="[Relation.to_entity_id]", back_populates="to_entity"
+        "Relation", foreign_keys="[Relation.to_entity_id]", back_populates="to_entity",
+        passive_deletes=True,
     )
 
 
