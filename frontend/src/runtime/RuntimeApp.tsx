@@ -2738,6 +2738,7 @@ function RelationSelect({ appId, targetEntityId, entities, value, required, styl
     : "";
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -2748,6 +2749,21 @@ function RelationSelect({ appId, targetEntityId, entities, value, required, styl
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
+  // Belt-and-suspenders: whenever the selected value actually changes (a real
+  // selection went through), force the dropdown closed regardless of any
+  // click/focus event-ordering quirk in the browser that might otherwise
+  // leave it visually open after onClick already fired.
+  useEffect(() => {
+    setIsOpen(false);
+    setQuery("");
+  }, [value]);
+
+  function selectOption(id: string) {
+    onChange(id);
+    setIsOpen(false);
+    setQuery("");
+    inputRef.current?.blur();
+  }
 
   if (!targetEntityId) {
     return <input disabled placeholder="Связь не настроена" style={style} />;
@@ -2756,6 +2772,7 @@ function RelationSelect({ appId, targetEntityId, entities, value, required, styl
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       <input
+        ref={inputRef}
         value={isOpen ? query : selectedLabel}
         onChange={(e) => { setQuery(e.target.value); if (!isOpen) setIsOpen(true); }}
         onFocus={() => { setIsOpen(true); setQuery(""); }}
@@ -2783,7 +2800,8 @@ function RelationSelect({ appId, targetEntityId, entities, value, required, styl
           {options.map((r) => (
             <div
               key={r.id}
-              onClick={() => { onChange(r.id); setIsOpen(false); setQuery(""); }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => selectOption(r.id)}
               style={{ padding: "6px 10px", fontSize: 13, cursor: "pointer", background: r.id === value ? "#F1F6FF" : "transparent" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#F1F6FF"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = r.id === value ? "#F1F6FF" : "transparent"; }}
