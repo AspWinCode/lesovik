@@ -2497,27 +2497,31 @@ function IframePreview({
         }}
       >
         {src ? (
-          <iframe
-            ref={iframeRef}
-            src={src}
+          // A scaled iframe won't reliably clip to a rounded ancestor in
+          // every browser (its content is its own compositing layer) —
+          // rather than rely on border-radius on the iframe itself, mask it
+          // with a plain div (guaranteed to clip) sized/scaled identically,
+          // and let the iframe just fill that div at 100%.
+          <div
             style={{
               position: "absolute",
               top: 0,
               left: 0,
               width: cfg.iframeW,
               height: iframeH,
-              border: 0,
-              // A scaled (transform) iframe is its own compositing layer —
-              // Chrome/Firefox won't clip it to the parent's overflow:hidden
-              // + border-radius alone, so the radius has to be repeated here
-              // (scaled up by 1/scale so the rendered/visible radius matches
-              // the parent's after the CSS transform shrinks everything).
               borderRadius: cfg.borderR / scale,
+              overflow: "hidden",
               transformOrigin: "top left",
               transform: `scale(${scale})`,
             }}
-            title="Предпросмотр приложения"
-          />
+          >
+            <iframe
+              ref={iframeRef}
+              src={src}
+              style={{ width: "100%", height: "100%", border: 0, display: "block" }}
+              title="Предпросмотр приложения"
+            />
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full text-primary/30 text-[14px]">
             Выберите приложение

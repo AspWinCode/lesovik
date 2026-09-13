@@ -80,22 +80,18 @@ export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: Pre
           }}
         >
           {runtimeUrl ? (
-            <iframe
-              key={`${appId}-${device}`}
-              src={runtimeUrl}
-              title={projectName}
-              style={{
-                width: "100%",
-                height: "100%",
-                border: "none",
-                display: "block",
-                // An iframe is always its own compositing layer — the parent's
-                // overflow:hidden + border-radius alone doesn't reliably clip
-                // it in Chrome/Firefox, so repeat the radius here too.
-                borderRadius: outerR,
-              }}
-              sandbox="allow-scripts allow-same-origin allow-forms"
-            />
+            // A mask div around the iframe, not border-radius on the iframe
+            // itself — an iframe's content is its own compositing layer and
+            // doesn't reliably clip to border-radius in every browser.
+            <div style={{ width: "100%", height: "100%", borderRadius: outerR, overflow: "hidden" }}>
+              <iframe
+                key={`${appId}-${device}`}
+                src={runtimeUrl}
+                title={projectName}
+                style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+                sandbox="allow-scripts allow-same-origin allow-forms"
+              />
+            </div>
           ) : (
             <div className="w-full h-full flex items-center justify-center text-primary/40 text-sm">
               Выберите приложение
