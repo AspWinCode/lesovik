@@ -4,6 +4,7 @@ import {
   deleteRecord,
   exportRecords,
   listRecords,
+  listRecycleBin,
   restoreRecord,
   updateRecord,
   type RecordCreate,
@@ -37,6 +38,16 @@ export function useTrashRecords(
       return { ...page, items: page.items.filter((r) => r.is_deleted) };
     },
     enabled: !!appId && !!entityId,
+  });
+}
+
+/** App-wide «Корзина» (ТЗ 3.9.1) — every deleted record across all entities,
+ * unlike useTrashRecords which is scoped to one entity's own list. */
+export function useRecycleBin(appId: string | undefined, entityId?: string, enabled = false) {
+  return useQuery({
+    queryKey: ["recycle-bin", appId, entityId],
+    queryFn: () => listRecycleBin(appId!, entityId, { limit: 100 }),
+    enabled: !!appId && enabled,
   });
 }
 

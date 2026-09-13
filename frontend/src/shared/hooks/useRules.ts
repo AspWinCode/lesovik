@@ -8,6 +8,7 @@ import {
   deleteRule,
   deleteStep,
   getRule,
+  listRuleConflicts,
   listRuleLogs,
   listRules,
   listSteps,
@@ -141,6 +142,14 @@ export function useRuleLogs(appId: string | undefined, ruleId: string | undefine
     queryKey: ["rule-logs", appId, ruleId],
     queryFn: () => listRuleLogs(appId!, ruleId!),
     enabled: !!appId && !!ruleId && enabled,
+  });
+}
+
+export function useRuleConflicts(appId: string | undefined, entityId: string | undefined, enabled = false) {
+  return useQuery({
+    queryKey: ["rule-conflicts", appId, entityId],
+    queryFn: () => listRuleConflicts(appId!, entityId),
+    enabled: !!appId && enabled,
   });
 }
 

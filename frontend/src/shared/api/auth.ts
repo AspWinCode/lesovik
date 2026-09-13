@@ -87,6 +87,25 @@ export async function updatePasswordPolicy(body: PasswordPolicyUpdate): Promise<
   return data;
 }
 
+export interface FilePolicy {
+  max_file_size_mb: number;
+  max_files_per_record: number;
+  allowed_extensions: string[];
+  updated_at: string;
+}
+
+export type FilePolicyUpdate = Partial<Omit<FilePolicy, "updated_at">>;
+
+export async function fetchFilePolicy(): Promise<FilePolicy> {
+  const { data } = await apiClient.get<FilePolicy>("/auth/file-policy");
+  return data;
+}
+
+export async function updateFilePolicy(body: FilePolicyUpdate): Promise<FilePolicy> {
+  const { data } = await apiClient.put<FilePolicy>("/auth/file-policy", body);
+  return data;
+}
+
 export async function fetchLdapStatus(): Promise<LdapStatus> {
   const { data } = await apiClient.get<LdapStatus>("/auth/ldap-status");
   return data;

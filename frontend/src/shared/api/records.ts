@@ -7,10 +7,23 @@ export interface RecordRead {
   payload: Record<string, unknown>;
   version: number;
   is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface TrashedRecordRead {
+  id: string;
+  entity_id: string;
+  entity_slug: string;
+  entity_display_name: string;
+  payload: Record<string, unknown>;
+  is_cascade_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface RecordCreate {
@@ -73,6 +86,18 @@ export async function getRecord(appId: string, entityId: string, recordId: strin
   return data;
 }
 
+export async function listRecycleBin(
+  appId: string,
+  entityId?: string,
+  params?: { limit?: number; cursor?: string },
+): Promise<CursorPage<TrashedRecordRead>> {
+  const { data } = await apiClient.get<CursorPage<TrashedRecordRead>>(
+    `/apps/${appId}/recycle-bin`,
+    { params: { ...(entityId ? { entity_id: entityId } : {}), ...params } },
+  );
+  return data;
+}
+
 export async function createRecord(appId: string, entityId: string, body: RecordCreate): Promise<RecordRead> {
   const { data } = await apiClient.post<RecordRead>(
     `/apps/${appId}/entities/${entityId}/records`,
@@ -117,7 +142,9 @@ export interface ImportPreview {
 export interface ImportResult {
   total: number;
   created: number;
+  updated: number;
   skipped: number;
+  aborted: boolean;
   errors: { row: number; error: string; data: Record<string, unknown> }[];
 }
 
@@ -145,6 +172,9 @@ export interface RecordFileRead {
   download_url: string | null;
   is_scanned: boolean;
   is_infected: boolean | null;
+  version: number;
+  is_latest: boolean;
+  previous_version_id: string | null;
   created_at: string;
 }
 
@@ -154,13 +184,17 @@ export async function uploadRecordFile(
   recordId: string,
   fieldName: string,
   file: File,
+  options?: { replace?: boolean },
 ): Promise<RecordFileRead> {
   const form = new FormData();
   form.append("file", file);
   const { data } = await apiClient.post<RecordFileRead>(
     `/apps/${appId}/entities/${entityId}/records/${recordId}/files`,
     form,
-    { headers: { "Content-Type": "multipart/form-data" }, params: { field_name: fieldName } },
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      params: { field_name: fieldName, replace: options?.replace ?? false },
+    },
   );
   return data;
 }
@@ -174,6 +208,18 @@ export async function listRecordFiles(
   const { data } = await apiClient.get<RecordFileRead[]>(
     `/apps/${appId}/entities/${entityId}/records/${recordId}/files`,
     fieldName ? { params: { field_name: fieldName } } : undefined,
+  );
+  return data;
+}
+
+export async function listRecordFileVersions(
+  appId: string,
+  entityId: string,
+  recordId: string,
+  fileId: string,
+): Promise<RecordFileRead[]> {
+  const { data } = await apiClient.get<RecordFileRead[]>(
+    `/apps/${appId}/entities/${entityId}/records/${recordId}/files/${fileId}/versions`,
   );
   return data;
 }
@@ -206,6 +252,7 @@ export async function importRecords(
   entityId: string,
   file: File,
   columnMap: Record<string, string>,
+  options?: { onError?: "skip" | "abort"; keyField?: string },
 ): Promise<ImportResult> {
   const form = new FormData();
   form.append("file", file);
@@ -214,7 +261,11 @@ export async function importRecords(
     form,
     {
       headers: { "Content-Type": "multipart/form-data" },
-      params: { column_map: JSON.stringify(columnMap) },
+      params: {
+        column_map: JSON.stringify(columnMap),
+        on_error: options?.onError ?? "skip",
+        ...(options?.keyField ? { key_field: options.keyField } : {}),
+      },
     },
   );
   return data;

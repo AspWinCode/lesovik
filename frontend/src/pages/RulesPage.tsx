@@ -6,9 +6,9 @@ import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
-import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs } from "@/shared/hooks/useRules";
+import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs, useRuleConflicts } from "@/shared/hooks/useRules";
 import type { FieldRead } from "@/shared/api/entities";
-import type { Rule, RuleTestResponse, RuleExecutionLogRead } from "@/shared/api/rules";
+import type { Rule, RuleTestResponse, RuleExecutionLogRead, RuleConflictLogRead } from "@/shared/api/rules";
 
 function uid() { return Math.random().toString(36).slice(2); }
 
@@ -790,6 +790,68 @@ function RuleLogsDrawer({ appId, rule, onClose }: { appId: string; rule: Rule; o
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Rule conflicts drawer (ТЗ 3.5.4) — app-wide, optionally scoped to
+   the currently selected entity
+   ════════════════════════════════════════════════════════════════ */
+function ConflictsDrawer({ appId, entityId, onClose }: { appId: string; entityId?: string; onClose: () => void }) {
+  const conflictsQuery = useRuleConflicts(appId, entityId, true);
+  const conflicts: RuleConflictLogRead[] = conflictsQuery.data ?? [];
+
+  function fmt(value: unknown): string {
+    if (value === null || value === undefined) return "—";
+    return typeof value === "string" ? value : JSON.stringify(value);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-t-[16px] shadow-2xl w-full max-w-[900px] max-h-[70vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-7 py-4 border-b border-cardbg shrink-0">
+          <div>
+            <h2 className="text-[17px] font-bold text-primary">Журнал конфликтов правил</h2>
+            <p className="text-[12px] text-primary/50 mt-0.5">
+              Когда два правила пишут разные значения в одно поле, побеждает правило с более высоким приоритетом
+            </p>
+          </div>
+          <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-7 py-4">
+          {conflictsQuery.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+          {!conflictsQuery.isLoading && conflicts.length === 0 && (
+            <p className="text-[13px] text-primary/40 text-center py-10">Конфликтов не зафиксировано</p>
+          )}
+          {conflicts.length > 0 && (
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-primary/50 text-left border-b border-cardbg">
+                  <th className="py-2 pr-4 font-medium">Время</th>
+                  <th className="py-2 pr-4 font-medium">Поле</th>
+                  <th className="py-2 pr-4 font-medium">Применено</th>
+                  <th className="py-2 font-medium">Проигравшие правила</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conflicts.map((c) => (
+                  <tr key={c.id} className="border-b border-cardbg/50 hover:bg-mainbg align-top">
+                    <td className="py-2 pr-4 text-primary/60 whitespace-nowrap">{new Date(c.detected_at).toLocaleString("ru")}</td>
+                    <td className="py-2 pr-4 text-primary font-medium">{c.field_name}</td>
+                    <td className="py-2 pr-4 text-green-700">{fmt(c.winning_value)}</td>
+                    <td className="py-2 text-mistake text-[12px]">
+                      {c.losing_writes.map((w, i) => (
+                        <div key={i}>{w.rule_id.slice(0, 8)}… → {fmt(w.value)}</div>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
    Rule card
    ════════════════════════════════════════════════════════════════ */
 function RuleCard({ rule, appId, onEdit }: { rule: Rule; appId: string; onEdit: () => void; }) {
@@ -860,6 +922,7 @@ export function RulesPage() {
   const [ruleTab, setRuleTab] = useState<"automation" | "autofill">("automation");
   const [modal, setModal] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const [showConflicts, setShowConflicts] = useState(false);
 
   const appsQuery = useApps();
   const app = useActiveApp(appsQuery.data?.items ?? []);
@@ -954,15 +1017,25 @@ export function RulesPage() {
                 </p>
               )}
             </div>
-            {activeEntity && (
-              <button
-                onClick={openCreate}
-                className="h-[38px] px-5 rounded-[10px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 flex items-center gap-2"
-              >
-                <span className="text-xl leading-none">+</span>
-                {isAutofill ? "Добавить автозаполнение" : "Добавить правило"}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {appId && (
+                <button
+                  onClick={() => setShowConflicts(true)}
+                  className="h-[38px] px-4 rounded-[10px] border border-cardbg text-[14px] text-primary hover:bg-mainbg"
+                >
+                  Конфликты
+                </button>
+              )}
+              {activeEntity && (
+                <button
+                  onClick={openCreate}
+                  className="h-[38px] px-5 rounded-[10px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 flex items-center gap-2"
+                >
+                  <span className="text-xl leading-none">+</span>
+                  {isAutofill ? "Добавить автозаполнение" : "Добавить правило"}
+                </button>
+              )}
+            </div>
           </div>
 
           {rulesQuery.isLoading && <p className="text-[14px] text-primary/40">Загрузка…</p>}
@@ -990,6 +1063,10 @@ export function RulesPage() {
       </main>
 
       <PreviewPanel projectName={app?.name ?? "Lesovik"} />
+
+      {showConflicts && appId && (
+        <ConflictsDrawer appId={appId} entityId={activeEntityId || undefined} onClose={() => setShowConflicts(false)} />
+      )}
 
       {modal.open && activeEntity && !isAutofill && (
         <RuleModal

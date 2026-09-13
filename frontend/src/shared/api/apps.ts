@@ -108,6 +108,23 @@ export async function publishApp(appId: string): Promise<App> {
   return data;
 }
 
+export interface PublishIssue {
+  severity: "error" | "warning";
+  category: "block_no_source" | "rule_empty" | "workflow_transition" | "relation_invalid";
+  message: string;
+  location: Record<string, string>;
+}
+
+export interface PublishCheckResult {
+  can_publish: boolean;
+  issues: PublishIssue[];
+}
+
+export async function checkPublish(appId: string): Promise<PublishCheckResult> {
+  const { data } = await apiClient.get<PublishCheckResult>(`/apps/${appId}/publish/check`);
+  return data;
+}
+
 export async function cloneApp(appId: string, body: AppCloneCreate): Promise<App> {
   const { data } = await apiClient.post<App>(`/apps/${appId}/clone`, body);
   return data;

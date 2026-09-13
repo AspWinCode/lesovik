@@ -102,6 +102,8 @@ export function ImportModal({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [abortOnError, setAbortOnError] = useState(false);
+  const [keyField, setKeyField] = useState("");
 
   const userFields = fields.filter((f) => !f.is_system);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -168,9 +170,12 @@ export function ImportModal({
     setLoading(true);
     setError(null);
     try {
-      const res = await importRecords(appId, entityId, file, colMap);
+      const res = await importRecords(appId, entityId, file, colMap, {
+        onError: abortOnError ? "abort" : "skip",
+        keyField: keyField || undefined,
+      });
       setResult(res);
-      if (res.created > 0) onSuccess();
+      if (res.created > 0 || res.updated > 0) onSuccess();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка импорта");
     } finally {
@@ -296,6 +301,40 @@ export function ImportModal({
                   </div>
                 )}
 
+                {/* Import options */}
+                <div className="flex flex-col gap-3 border-t border-cardbg pt-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[13px] font-medium text-primary">Обновлять существующие записи</p>
+                      <p className="text-[12px] text-primary/50">Строка со значением, уже встречающимся в выбранном поле, обновит запись вместо создания новой</p>
+                    </div>
+                    <select
+                      value={keyField}
+                      onChange={(e) => setKeyField(e.target.value)}
+                      className="h-[34px] px-3 rounded-[8px] border border-cardbg text-[13px] text-primary bg-white outline-none focus:border-cta"
+                    >
+                      <option value="">Не обновлять (только создавать)</option>
+                      {Object.keys(mapping).map((fieldName) => {
+                        const f = userFields.find((uf) => uf.name === fieldName);
+                        return <option key={fieldName} value={fieldName}>{f?.display_name ?? fieldName}</option>;
+                      })}
+                    </select>
+                  </div>
+
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <p className="text-[13px] font-medium text-primary">Отменить весь импорт при ошибке</p>
+                      <p className="text-[12px] text-primary/50">Если хотя бы одна строка не пройдёт проверку, не будет создана ни одна запись</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={abortOnError}
+                      onChange={(e) => setAbortOnError(e.target.checked)}
+                      className="w-[18px] h-[18px] accent-cta cursor-pointer"
+                    />
+                  </label>
+                </div>
+
                 {error && <div className="px-4 py-2 bg-[#FDECEC] text-mistake text-[13px] rounded-[8px]">{error}</div>}
               </div>
 
@@ -312,11 +351,17 @@ export function ImportModal({
           {/* Step 3 — result */}
           {result && (
             <div className="flex flex-col items-center gap-6 py-8">
-              <div className="text-[48px]">{result.errors.length === 0 ? "✅" : "⚠️"}</div>
-              <div className="grid grid-cols-3 gap-4 w-full max-w-[480px]">
+              <div className="text-[48px]">{result.aborted ? "🚫" : result.errors.length === 0 ? "✅" : "⚠️"}</div>
+              {result.aborted && (
+                <div className="px-4 py-2 bg-[#FDECEC] text-mistake text-[13px] rounded-[8px] max-w-[480px] text-center">
+                  Импорт отменён — ни одна запись не создана и не обновлена, т.к. хотя бы одна строка не прошла проверку
+                </div>
+              )}
+              <div className={cn("grid gap-4 w-full max-w-[560px]", result.updated > 0 ? "grid-cols-4" : "grid-cols-3")}>
                 {[
                   { label: "Всего строк", value: result.total, color: "text-primary" },
                   { label: "Создано", value: result.created, color: "text-cta" },
+                  ...(result.updated > 0 ? [{ label: "Обновлено", value: result.updated, color: "text-cta" }] : []),
                   { label: "Пропущено / ошибки", value: result.skipped + result.errors.length, color: "text-mistake" },
                 ].map((s) => (
                   <div key={s.label} className="bg-mainbg rounded-[12px] p-4 text-center">

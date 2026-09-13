@@ -193,3 +193,28 @@ export async function listRuleLogs(
   );
   return data;
 }
+
+export interface RuleConflictLogRead {
+  id: string;
+  entity_id: string;
+  record_id: string;
+  event: string;
+  field_name: string;
+  winning_rule_id: string;
+  winning_value: unknown;
+  losing_writes: { rule_id: string; value: unknown }[];
+  execution_batch_id: string;
+  detected_at: string;
+}
+
+export async function listRuleConflicts(
+  appId: string,
+  entityId?: string,
+  limit = 50,
+): Promise<RuleConflictLogRead[]> {
+  const { data } = await apiClient.get<RuleConflictLogRead[]>(
+    `/apps/${appId}/rules/conflicts`,
+    { params: { limit, ...(entityId ? { entity_id: entityId } : {}) } },
+  );
+  return data;
+}

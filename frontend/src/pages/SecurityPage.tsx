@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
@@ -16,6 +16,9 @@ import {
   fetchPasswordPolicy,
   updatePasswordPolicy,
   type PasswordPolicy,
+  fetchFilePolicy,
+  updateFilePolicy,
+  type FilePolicy,
 } from "@/shared/api/auth";
 import {
   useSessionPolicy,
@@ -33,6 +36,8 @@ import {
 } from "@/shared/hooks/useRbac";
 import type { AbacRuleCreate, AbacCondition, ResourcePermissionUpsert } from "@/shared/api/roles";
 import { useCheckCycles } from "@/shared/hooks/useRules";
+import { useRecycleBin } from "@/shared/hooks/useRecords";
+import { restoreRecord, type TrashedRecordRead } from "@/shared/api/records";
 
 type SecuritySection =
   | "login"
@@ -40,6 +45,8 @@ type SecuritySection =
   | "auth"
   | "password"
   | "sessions"
+  | "files"
+  | "trash"
   | "options"
   | "abac"
   | "rbac"
@@ -68,6 +75,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: "auth",        label: "Аутентификация",     icon: <ClockIcon /> },
   { id: "password",    label: "Политика паролей",  icon: <KeyIcon /> },
   { id: "sessions",    label: "Сессии",            icon: <SessionIcon /> },
+  { id: "files",       label: "Файлы",             icon: <FileIcon /> },
+  { id: "trash",       label: "Корзина",           icon: <TrashIcon /> },
   { id: "options",     label: "Опции",             icon: <OptionsIcon /> },
 ];
 
@@ -163,6 +172,8 @@ export function SecurityPage() {
         {active === "auth"        && <AuthSection />}
         {active === "password"    && <PasswordPolicySection />}
         {active === "sessions"    && <SessionsSection />}
+        {active === "files"       && <FilePolicySection />}
+        {active === "trash"       && <RecycleBinSection appId={app?.id} />}
         {active === "options"     && <OptionsSection sec={sec} patch={patch} />}
       </main>
 
@@ -569,6 +580,218 @@ function PolicyHint({ ok, text }: { ok: boolean; text: string }) {
       <span className={cn("w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px]", ok ? "bg-green-500 text-white" : "bg-gray-300")}>✓</span>
       {text}
     </li>
+  );
+}
+
+/* ── File policy section ── */
+function FilePolicySection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["file-policy"],
+    queryFn: fetchFilePolicy,
+    retry: 1,
+  });
+
+  const [draft, setDraft] = useState<FilePolicy | null>(null);
+  const [extensionsInput, setExtensionsInput] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (data && !draft) {
+      setDraft(data);
+      setExtensionsInput(data.allowed_extensions.join(", "));
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mutation = useMutation({
+    mutationFn: updateFilePolicy,
+    onSuccess: (updated) => {
+      setDraft(updated);
+      setExtensionsInput(updated.allowed_extensions.join(", "));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    },
+  });
+
+  if (isLoading || !draft) {
+    return <div className="px-[40px] py-[25px] text-primary/40">Загрузка…</div>;
+  }
+  const policy: FilePolicy = draft;
+
+  function patchDraft(partial: Partial<FilePolicy>) {
+    setDraft((d) => d ? { ...d, ...partial } : d);
+    setSaved(false);
+  }
+
+  function handleSave() {
+    const allowed_extensions = extensionsInput
+      .split(/[,\s]+/)
+      .map((s) => s.trim().toLowerCase().replace(/^\./, ""))
+      .filter(Boolean);
+    mutation.mutate({
+      max_file_size_mb: policy.max_file_size_mb,
+      max_files_per_record: policy.max_files_per_record,
+      allowed_extensions,
+    });
+  }
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <h2 className="text-[22px] font-bold text-primary mb-2">Файлы</h2>
+      <p className="text-[15px] text-primary/60 mb-6">
+        Общеплатформенные ограничения на загрузку файлов (ТЗ 3.7.1). Отдельный блок формы может задать более строгий лимит количества файлов, но не может превысить эти значения.
+      </p>
+
+      <div className="flex flex-col gap-4 max-w-[680px]">
+
+        {/* Max file size */}
+        <div className="bg-white rounded-[10px] border border-cardbg px-5 py-4 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-[15px] font-semibold text-primary">Максимальный размер файла</p>
+            <p className="text-[13px] text-primary/60 mt-0.5">Диапазон: 1–500 МБ</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => patchDraft({ max_file_size_mb: Math.max(1, draft.max_file_size_mb - 10) })}
+              className="w-8 h-8 rounded-full border border-cardbg flex items-center justify-center text-primary hover:bg-mainbg text-[18px] leading-none"
+            >−</button>
+            <span className="w-16 text-center text-[18px] font-bold text-primary tabular-nums">
+              {draft.max_file_size_mb} МБ
+            </span>
+            <button
+              onClick={() => patchDraft({ max_file_size_mb: Math.min(500, draft.max_file_size_mb + 10) })}
+              className="w-8 h-8 rounded-full border border-cardbg flex items-center justify-center text-primary hover:bg-mainbg text-[18px] leading-none"
+            >+</button>
+          </div>
+        </div>
+
+        {/* Max files per record */}
+        <div className="bg-white rounded-[10px] border border-cardbg px-5 py-4 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-[15px] font-semibold text-primary">Максимум файлов на запись</p>
+            <p className="text-[13px] text-primary/60 mt-0.5">Верхняя граница; блок формы может её только сузить</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => patchDraft({ max_files_per_record: Math.max(1, draft.max_files_per_record - 1) })}
+              className="w-8 h-8 rounded-full border border-cardbg flex items-center justify-center text-primary hover:bg-mainbg text-[18px] leading-none"
+            >−</button>
+            <span className="w-10 text-center text-[18px] font-bold text-primary tabular-nums">
+              {draft.max_files_per_record}
+            </span>
+            <button
+              onClick={() => patchDraft({ max_files_per_record: Math.min(1000, draft.max_files_per_record + 1) })}
+              className="w-8 h-8 rounded-full border border-cardbg flex items-center justify-center text-primary hover:bg-mainbg text-[18px] leading-none"
+            >+</button>
+          </div>
+        </div>
+
+        {/* Allowed extensions */}
+        <div className="bg-white rounded-[10px] border border-cardbg px-5 py-4">
+          <p className="text-[15px] font-semibold text-primary">Разрешённые форматы файлов</p>
+          <p className="text-[13px] text-primary/60 mt-0.5 mb-3">
+            Через запятую, без точки (например: pdf, docx, jpg). Файлы других форматов будут отклонены при загрузке.
+          </p>
+          <textarea
+            value={extensionsInput}
+            onChange={(e) => { setExtensionsInput(e.target.value); setSaved(false); }}
+            rows={3}
+            className="w-full bg-mainbg border border-cardbg rounded-[8px] px-3 py-2 text-[14px] text-primary outline-none focus:border-cta resize-none"
+            placeholder="pdf, docx, xlsx, jpg, png, zip"
+          />
+        </div>
+
+        {/* Save */}
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={handleSave}
+            disabled={mutation.isPending}
+            className="px-6 h-[40px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active disabled:opacity-50 transition-colors"
+          >
+            {mutation.isPending ? "Сохранение…" : "Сохранить"}
+          </button>
+          {saved && <span className="text-[13px] text-green-600">Сохранено</span>}
+          {mutation.isError && <span className="text-[13px] text-mistake">Ошибка сохранения</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Recycle bin section (ТЗ 3.9.1) ── */
+function RecycleBinSection({ appId }: { appId: string | undefined }) {
+  const qc = useQueryClient();
+  const binQuery = useRecycleBin(appId, undefined, true);
+  const items: TrashedRecordRead[] = binQuery.data?.items ?? [];
+
+  const restoreMutation = useMutation({
+    mutationFn: ({ entityId, recordId }: { entityId: string; recordId: string }) =>
+      restoreRecord(appId!, entityId, recordId),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["recycle-bin", appId] }); },
+  });
+
+  function recordLabel(payload: Record<string, unknown>): string {
+    const candidate = payload.name ?? payload.title ?? payload.display_name;
+    if (typeof candidate === "string" && candidate) return candidate;
+    const firstValue = Object.values(payload).find((v) => typeof v === "string" && v);
+    return typeof firstValue === "string" ? firstValue : "—";
+  }
+
+  return (
+    <div className="px-[40px] py-[25px]">
+      <h2 className="text-[22px] font-bold text-primary mb-2">Корзина</h2>
+      <p className="text-[15px] text-primary/60 mb-6">
+        Удалённые записи по всем таблицам приложения. Ничего не удаляется физически — восстановите запись в любой момент.
+      </p>
+
+      {binQuery.isLoading && <p className="text-[14px] text-primary/40">Загрузка…</p>}
+
+      {!binQuery.isLoading && items.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="text-[48px] mb-4">🗑️</div>
+          <p className="text-[18px] font-semibold text-primary mb-2">Корзина пуста</p>
+          <p className="text-[14px] text-primary/50">Удалённые записи появятся здесь.</p>
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <table className="w-full text-[13px] max-w-[900px]">
+          <thead>
+            <tr className="text-primary/50 text-left border-b border-cardbg">
+              <th className="py-2 pr-4 font-medium">Таблица</th>
+              <th className="py-2 pr-4 font-medium">Запись</th>
+              <th className="py-2 pr-4 font-medium">Удалено</th>
+              <th className="py-2 pr-4 font-medium"></th>
+              <th className="py-2 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} className="border-b border-cardbg/50 hover:bg-mainbg">
+                <td className="py-2 pr-4 text-primary">{item.entity_display_name}</td>
+                <td className="py-2 pr-4 text-primary/70 truncate max-w-[220px]">{recordLabel(item.payload)}</td>
+                <td className="py-2 pr-4 text-primary/50 whitespace-nowrap">
+                  {item.deleted_at ? new Date(item.deleted_at).toLocaleString("ru") : "—"}
+                </td>
+                <td className="py-2 pr-4">
+                  {item.is_cascade_deleted && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-mainbg text-primary/50">каскадно</span>
+                  )}
+                </td>
+                <td className="py-2 text-right">
+                  <button
+                    onClick={() => restoreMutation.mutate({ entityId: item.entity_id, recordId: item.id })}
+                    disabled={restoreMutation.isPending}
+                    className="h-[28px] px-3 rounded-[6px] border border-cardbg text-[12px] text-primary hover:bg-mainbg disabled:opacity-50"
+                  >
+                    Восстановить
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
@@ -1679,6 +1902,23 @@ function KeyIcon() {
     <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
       <circle cx="8" cy="9" r="4" stroke={stroke} strokeWidth="1.5" />
       <path d="M12 12l5 5M14.5 14.5l1.5-1.5" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <path d="M6 3h6l3 3v10a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M12 3v3h3" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+      <path d="M4 6h12M8 6V4.5a1 1 0 011-1h2a1 1 0 011 1V6m-7 0 .7 9.1a1 1 0 001 .9h6.6a1 1 0 001-.9L15 6" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

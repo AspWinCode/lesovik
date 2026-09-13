@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
 import { cn } from "@/lib/cn";
-import { useApps, usePublishApp, useAppSnapshots, useCreateSnapshot, useRollbackSnapshot, useAppLock, useAcquireAppLock, useReleaseAppLock } from "@/shared/hooks/useApps";
+import { useApps, usePublishApp, useCheckPublish, useAppSnapshots, useCreateSnapshot, useRollbackSnapshot, useAppLock, useAcquireAppLock, useReleaseAppLock } from "@/shared/hooks/useApps";
+import type { PublishIssue } from "@/shared/api/apps";
 import { useFullHealth } from "@/shared/hooks/useHealth";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { usePages, usePublishPage, useUnpublishPage } from "@/shared/hooks/usePages";
@@ -113,7 +115,14 @@ export function DeployPage() {
           transition: "left 0.2s, width 0.2s",
         }}
       >
-        {active === "publish"    && <PublishSection app={app} onPublish={handlePublish} publishing={publishMutation.isPending} />}
+        {active === "publish"    && (
+          <PublishSection
+            app={app}
+            onPublish={handlePublish}
+            publishing={publishMutation.isPending}
+            publishError={publishMutation.error}
+          />
+        )}
         {active === "versions"   && <VersionsSection appId={app?.id} />}
         {active === "pages"      && <PagesSection appId={app?.id} />}
         {active === "monitoring" && <MonitoringSection />}
@@ -130,10 +139,12 @@ function PublishSection({
   app,
   onPublish,
   publishing,
+  publishError,
 }: {
   app: { id: string; name: string; is_published: boolean; version: number } | undefined;
   onPublish: () => void;
   publishing: boolean;
+  publishError: unknown;
 }) {
   const exportM = useExportFilingCases(app?.id ?? "");
   const [exportFmt, setExportFmt] = useState<ExportFormat>("xlsx");
@@ -141,13 +152,26 @@ function PublishSection({
   const acquireM  = useAcquireAppLock(app?.id ?? "");
   const releaseM  = useReleaseAppLock(app?.id ?? "");
   const lock      = lockQ.data;
+  const checkQ    = useCheckPublish(app?.id);
 
-  const checks = [
-    { label: "Схема данных сущностей настроена",       status: "success" as const },
-    { label: "Хотя бы одна страница создана",          status: app ? "success" as const : "warn" as const },
-    { label: "Права доступа настроены",                status: "success" as const },
-    { label: "Рабочие процессы активированы",          status: "info" as const },
-  ];
+  // The backend enforces this regardless (422 if blocked) — this is only so
+  // the user sees why *before* clicking, and after a stale check via publishError.
+  const fallbackIssues: PublishIssue[] =
+    isAxiosError(publishError) && publishError.response?.status === 422
+      ? ((publishError.response.data as { detail?: { issues?: PublishIssue[] } })?.detail?.issues ?? [])
+      : [];
+  const issues = checkQ.data?.issues ?? fallbackIssues;
+  const canPublish = checkQ.data ? checkQ.data.can_publish : true; // don't block on a still-loading check
+  const hasErrors = issues.some((i) => i.severity === "error");
+
+  const checks = checkQ.isLoading
+    ? [{ label: "Проверка целостности приложения…", status: "info" as const }]
+    : issues.length === 0
+      ? [{ label: "Проверка целостности пройдена", status: "success" as const }]
+      : issues.map((i) => ({
+          label: i.message,
+          status: i.severity === "error" ? "error" as const : "warn" as const,
+        }));
 
   return (
     <div className="px-[40px] py-[30px] max-w-[820px]">
@@ -245,11 +269,18 @@ function PublishSection({
         </div>
       )}
 
+      {hasErrors && (
+        <p className="text-[13px] text-mistake mb-[12px]">
+          Публикация заблокирована — устраните ошибки выше (предупреждения не мешают публикации)
+        </p>
+      )}
+
       {/* Action */}
       <div className="flex items-center gap-[12px]">
         <button
           onClick={onPublish}
-          disabled={publishing || !app}
+          disabled={publishing || !app || !canPublish}
+          title={hasErrors ? "Устраните ошибки в проверке целостности, чтобы опубликовать" : undefined}
           className="flex items-center gap-[8px] h-[40px] px-[20px] bg-cta text-white text-[14px] font-medium rounded-btn hover:bg-active transition-colors disabled:opacity-60"
         >
           <PublishNavIcon />

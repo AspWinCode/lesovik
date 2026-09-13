@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acquireAppLock,
   addAppMember,
+  checkPublish,
   cloneApp,
   createApp,
   createSnapshot,
@@ -88,11 +89,22 @@ export function useDeleteApp() {
   });
 }
 
+export function useCheckPublish(appId: string | undefined) {
+  return useQuery({
+    queryKey: ["publish-check", appId],
+    queryFn: () => checkPublish(appId!),
+    enabled: !!appId,
+  });
+}
+
 export function usePublishApp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (appId: string) => publishApp(appId),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: APPS_KEY }); },
+    onSuccess: (_data, appId) => {
+      void qc.invalidateQueries({ queryKey: APPS_KEY });
+      void qc.invalidateQueries({ queryKey: ["publish-check", appId] });
+    },
   });
 }
 

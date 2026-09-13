@@ -548,11 +548,15 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
 
       for (const [fieldName, files] of Object.entries(pageFileValues)) {
         if (!validFields.has(fieldName)) continue;
+        const fileBlock = blocks.find((b) => b.type === "file_upload" && b.config?.field_name === fieldName);
+        const maxFiles = fileBlock?.config?.multiple ? Number(fileBlock.config.max_files ?? 50) : undefined;
         for (const file of files) {
           const fd = new FormData();
           fd.append("file", file);
+          const params = new URLSearchParams({ field_name: fieldName });
+          if (maxFiles !== undefined) params.set("max_files", String(maxFiles));
           await apiClient.post(
-            `/apps/${appId}/entities/${entity.id}/records/${newRec.id}/files?field_name=${encodeURIComponent(fieldName)}`,
+            `/apps/${appId}/entities/${entity.id}/records/${newRec.id}/files?${params.toString()}`,
             fd,
             { headers: { "Content-Type": "multipart/form-data" } },
           );

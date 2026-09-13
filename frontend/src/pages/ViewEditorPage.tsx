@@ -180,7 +180,7 @@ function defaultBlockConfig(type: PageBlockType): Record<string, unknown> {
   if (type === "dropdown")     return { label: "Список", field_name: "", source: "static", options: "Вариант 1\nВариант 2", multiple: false, entity_id: "", display_field: "" };
   if (type === "toggle")       return { label: "Вкл/Выкл", field_name: "", default_value: false };
   if (type === "checkbox")     return { label: "Чекбокс", field_name: "", default_value: false };
-  if (type === "file_upload")  return { label: "Файл", field_name: "", accept: "*", max_size_mb: 10, multiple: false };
+  if (type === "file_upload")  return { label: "Файл", field_name: "", accept: "*", max_size_mb: 10, multiple: false, max_files: 50 };
   if (type === "lookup")           return { label: "Справочник", field_name: "", entity_id: "", display_field: "", multiple: false };
   if (type === "responsible")      return { label: "Ответственный", field_name: "", entity_id: "", display_field: "", match_field: "" };
   if (type === "positions_picker") return { label: "Позиции заказа", catalog_entity_id: "", catalog_display_field: "nazvanie", catalog_price_field: "cena", catalog_unit_field: "edinica", extras: [], positions_entity_id: "", parent_field: "", item_field: "", qty_field: "kolichestvo", row_total_field: "", total_field: "" };
@@ -2989,6 +2989,13 @@ function BlockInlineSettings({
             options={[{ value: "no", label: "Нет" }, { value: "yes", label: "Да" }]}
             onChange={(v) => onConfigChange({ multiple: v === "yes" })}
           />
+          {Boolean(block.config.multiple) && (
+            <ConfigInput
+              label="Макс. кол-во файлов"
+              value={String(block.config.max_files ?? 50)}
+              onChange={(v) => onConfigChange({ max_files: Number(v) || 50 })}
+            />
+          )}
         </>
       )}
 

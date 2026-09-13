@@ -4,7 +4,7 @@ import type { CurrentUser, TokenPair } from "@/shared/api/auth";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
 import type { Rule } from "@/shared/api/rules";
 import type { User, UserRole } from "@/shared/api/users";
-import type { RecordRead } from "@/shared/api/records";
+import type { RecordRead, TrashedRecordRead } from "@/shared/api/records";
 import type { ViewRead, PageRead } from "@/shared/api/views";
 import type { WorkflowDefRead, StateDefRead, ApprovalChainDefRead, ApprovalChainInstanceRead } from "@/shared/api/workflows";
 import type { WebhookRead } from "@/shared/api/webhooks";
@@ -386,24 +386,44 @@ const rules: Rule[] = [
   },
 ];
 
+const mockRuleConflicts = [
+  {
+    id: "conflict-1",
+    entity_id: ENTITY_ID,
+    record_id: "00000000-0000-0000-0000-000000000001",
+    event: "record.updated",
+    field_name: "status",
+    winning_rule_id: "r1",
+    winning_value: "approved",
+    losing_writes: [{ rule_id: "r2", value: "rejected" }],
+    execution_batch_id: "batch-1",
+    detected_at: new Date().toISOString(),
+  },
+];
+
 /* ── Mock Records ── */
 const mockRecords: RecordRead[] = [
   {
     id: "rec-1", entity_id: ENTITY_ID, payload: { name: "Record 1", status: "active" },
-    version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
+    version: 1, is_deleted: false, deleted_at: null, deleted_by: null,
+    created_by: MOCK_USER.id, updated_by: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   },
   {
     id: "rec-2", entity_id: ENTITY_ID, payload: { name: "Record 2", status: "active" },
-    version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
+    version: 1, is_deleted: false, deleted_at: null, deleted_by: null,
+    created_by: MOCK_USER.id, updated_by: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   },
   {
     id: "rec-3", entity_id: ENTITY_ID, payload: { name: "Record 3", status: "active" },
-    version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
+    version: 1, is_deleted: false, deleted_at: null, deleted_by: null,
+    created_by: MOCK_USER.id, updated_by: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   },
 ];
+
+const mockTrash: TrashedRecordRead[] = [];
 
 /* ── Mock Views (per entity per app) ── */
 const viewsByApp: Record<string, ViewRead[]> = {};
@@ -508,6 +528,18 @@ function buildWebhooks(appId: string): WebhookRead[] {
   ];
 }
 
+/* ── Mock file policy ── */
+const filePolicy = {
+  max_file_size_mb: 100,
+  max_files_per_record: 50,
+  allowed_extensions: [
+    "pdf", "docx", "xlsx", "pptx", "odt", "txt", "rtf",
+    "jpg", "jpeg", "png", "gif", "webp", "svg",
+    "zip", "rar", "7z",
+  ],
+  updated_at: new Date().toISOString(),
+};
+
 function tokenPair(): TokenPair {
   return {
     access_token: `mock-access-${Date.now()}`,
@@ -537,6 +569,14 @@ export const handlers = [
 
   http.post(`${API}/auth/logout`, () => new HttpResponse(null, { status: 204 })),
 
+  http.get(`${API}/auth/file-policy`, () => HttpResponse.json(filePolicy)),
+
+  http.put(`${API}/auth/file-policy`, async ({ request }) => {
+    const body = (await request.json()) as Partial<typeof filePolicy>;
+    Object.assign(filePolicy, body, { updated_at: new Date().toISOString() });
+    return HttpResponse.json(filePolicy);
+  }),
+
   http.get(`${API}/users/me`, () => HttpResponse.json(MOCK_USER)),
 
   http.get(`${API}/apps`, () => {
@@ -547,6 +587,24 @@ export const handlers = [
       total: apps.length,
     };
     return HttpResponse.json(page);
+  }),
+
+  http.get(`${API}/apps/:appId/publish/check`, () => {
+    const issues = [
+      {
+        severity: "warning" as const,
+        category: "block_no_source" as const,
+        message: "Страница «Отчёты» не привязана к источнику данных",
+        location: { page_id: "p1" },
+      },
+      {
+        severity: "error" as const,
+        category: "relation_invalid" as const,
+        message: "Связь «Заказ → Клиент»: поле «client_ref» больше не существует",
+        location: { relation_id: "r1" },
+      },
+    ];
+    return HttpResponse.json({ can_publish: false, issues });
   }),
 
   http.post(`${API}/apps/:appId/publish`, ({ params }) => {
@@ -651,6 +709,8 @@ export const handlers = [
 
   // Rules (bots)
   http.get(`${API}/apps/:appId/rules`, () => HttpResponse.json(rules)),
+
+  http.get(`${API}/apps/:appId/rules/conflicts`, () => HttpResponse.json(mockRuleConflicts)),
 
   http.patch(`${API}/apps/:appId/rules/:ruleId`, async ({ params, request }) => {
     const idx = rules.findIndex((r) => r.id === params.ruleId);
@@ -877,7 +937,8 @@ export const handlers = [
     const now = new Date().toISOString();
     const record: RecordRead = {
       id: crypto.randomUUID(), entity_id: entityId, payload: body.payload,
-      version: 1, is_deleted: false, created_by: MOCK_USER.id, updated_by: null,
+      version: 1, is_deleted: false, deleted_at: null, deleted_by: null,
+      created_by: MOCK_USER.id, updated_by: null,
       created_at: now, updated_at: now,
     };
     mockRecords.push(record);
@@ -894,8 +955,41 @@ export const handlers = [
 
   http.delete(`${API}/apps/:appId/entities/:entityId/records/:recordId`, ({ params }) => {
     const idx = mockRecords.findIndex((r) => r.id === params.recordId);
-    if (idx !== -1) mockRecords.splice(idx, 1);
+    if (idx === -1) return new HttpResponse(null, { status: 204 });
+    const [record] = mockRecords.splice(idx, 1);
+    const entity = buildEntities(params.appId as string).find((e) => e.id === params.entityId);
+    mockTrash.push({
+      id: record.id,
+      entity_id: params.entityId as string,
+      entity_slug: entity?.slug ?? "unknown",
+      entity_display_name: entity?.display_name ?? "Unknown",
+      payload: record.payload,
+      is_cascade_deleted: false,
+      deleted_at: new Date().toISOString(),
+      deleted_by: MOCK_USER.id,
+    });
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API}/apps/:appId/entities/:entityId/records/:recordId/restore`, ({ params }) => {
+    const idx = mockTrash.findIndex((r) => r.id === params.recordId);
+    if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const [trashed] = mockTrash.splice(idx, 1);
+    const now = new Date().toISOString();
+    const restored: RecordRead = {
+      id: trashed.id, entity_id: trashed.entity_id, payload: trashed.payload,
+      version: 1, is_deleted: false, deleted_at: null, deleted_by: null,
+      created_by: MOCK_USER.id, updated_by: null, created_at: now, updated_at: now,
+    };
+    mockRecords.push(restored);
+    return HttpResponse.json(restored);
+  }),
+
+  http.get(`${API}/apps/:appId/recycle-bin`, ({ request }) => {
+    const entityId = new URL(request.url).searchParams.get("entity_id");
+    const items = entityId ? mockTrash.filter((r) => r.entity_id === entityId) : mockTrash;
+    const page: CursorPage<TrashedRecordRead> = { items, next_cursor: null, has_more: false, total: items.length };
+    return HttpResponse.json(page);
   }),
 
   // Views

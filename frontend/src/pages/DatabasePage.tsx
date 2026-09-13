@@ -1208,7 +1208,7 @@ function FileCell({
   const handleFile = useCallback(async (file: File) => {
     setUploading(true);
     try {
-      const result = await uploadRecordFile(appId, entityId, recordId, field.name, file);
+      const result = await uploadRecordFile(appId, entityId, recordId, field.name, file, { replace: true });
       updateRecord.mutate({ recordId, payload: { [field.name]: result.id } });
     } finally {
       setUploading(false);
