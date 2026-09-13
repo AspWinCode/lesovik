@@ -360,11 +360,65 @@ class WorkflowService:
         if enter_result.sla_seconds:
             self._schedule_sla_check(instance, wf.initial_state)
 
+        self._dispatch_side_effects(instance, enter_result.notifications, enter_result.webhooks)
+
         workflow_instances_active.inc()
         logger.info("workflow_instance_started", instance_id=str(instance.id),
                     workflow_id=str(workflow_id), record_id=str(req.record_id),
                     initial_state=wf.initial_state)
         return WorkflowInstanceRead.model_validate(instance)
+
+    @staticmethod
+    def _dispatch_side_effects(
+        instance: WorkflowInstance,
+        notifications: list[dict[str, Any]],
+        webhooks: list[dict[str, Any]],
+    ) -> None:
+        """
+        Fire the email/webhook side effects a workflow's on_enter/on_exit/
+        transition actions computed. Mirrors app.worker.tasks.sandbox's
+        _persist_batch dispatch for rule actions — same queue, same tasks,
+        same SSRF guard on webhook targets — since FSM actions and rule
+        actions share the exact same action AST (notify/call_webhook).
+        """
+        from app.worker.tasks.notifications import deliver_rule_webhook, send_email
+
+        for notif in notifications:
+            if not notif.get("to"):
+                continue
+            template_str = notif.get("template", "")
+            record_ctx = notif.get("context", {})
+            try:
+                from jinja2 import BaseLoader, Environment, select_autoescape
+                env = Environment(loader=BaseLoader(), autoescape=select_autoescape(["html"]))
+                body_html = env.from_string(template_str).render(**record_ctx)
+            except Exception:  # noqa: BLE001
+                body_html = template_str
+            send_email.apply_async(
+                kwargs={
+                    "to": notif["to"],
+                    "subject": notif.get("subject", ""),
+                    "body_html": body_html,
+                },
+                queue="notifications",
+            )
+
+        for webhook in webhooks:
+            url = webhook.get("url")
+            if not url:
+                continue
+            deliver_rule_webhook.apply_async(
+                kwargs={
+                    "app_id": str(instance.app_id),
+                    "entity_id": str(instance.entity_id),
+                    "record_id": str(instance.record_id),
+                    "execution_batch_id": str(uuid.uuid4()),
+                    "url": url,
+                    "method": webhook.get("method", "POST"),
+                    "payload": webhook.get("payload", {}),
+                },
+                queue="notifications",
+            )
 
     async def execute_transition(
         self,
@@ -477,6 +531,8 @@ class WorkflowService:
                     from_state=captured_state,
                     to_state=new_state,
                     duration_ms=duration_ms)
+
+        self._dispatch_side_effects(refreshed, tr_result.notifications, tr_result.webhooks)
 
         return TransitionResponse(
             instance=WorkflowInstanceRead.model_validate(refreshed),

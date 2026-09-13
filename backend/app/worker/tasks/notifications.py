@@ -6,6 +6,72 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(
+    name="app.worker.tasks.notifications.deliver_rule_webhook",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=30,
+)
+def deliver_rule_webhook(
+    self: object,
+    app_id: str,
+    entity_id: str,
+    record_id: str | None,
+    execution_batch_id: str,
+    url: str,
+    method: str,
+    payload: dict[str, object],
+) -> dict[str, str]:
+    """
+    Fire one `call_webhook` rule action and record the outcome.
+
+    Runs on the `notifications` queue — deliberately outside the sandbox
+    worker, which has no business making outbound network calls of its own.
+    The target URL still goes through app.core.http_client's SSRF guard
+    since it is authored by an app builder, not a platform admin.
+    """
+    import asyncio
+    from app.core.database import AsyncSessionLocal
+    from app.core.http_client import send_webhook
+    from app.models.logic import RuleWebhookDelivery
+
+    result = send_webhook(url=url, method=method, payload=payload)
+
+    async def _log() -> None:
+        async with AsyncSessionLocal() as session:
+            session.add(RuleWebhookDelivery(
+                app_id=uuid.UUID(app_id),
+                entity_id=uuid.UUID(entity_id),
+                record_id=uuid.UUID(record_id) if record_id else None,
+                execution_batch_id=uuid.UUID(execution_batch_id),
+                url=url,
+                method=method,
+                payload=payload,
+                status="delivered" if result.success else (
+                    "blocked" if result.error and result.error.startswith("Blocked:") else "failed"
+                ),
+                status_code=result.status_code,
+                error=result.error,
+                attempt_count=self.request.retries + 1,
+            ))
+            await session.commit()
+
+    asyncio.run(_log())
+
+    if result.success:
+        logger.info("rule_webhook_delivered", url=url, code=result.status_code)
+        return {"status": "delivered"}
+
+    if result.error and result.error.startswith("Blocked:"):
+        logger.warning("rule_webhook_blocked", url=url, error=result.error)
+        return {"status": "blocked", "error": result.error}
+
+    logger.warning("rule_webhook_failed", url=url, error=result.error, code=result.status_code)
+    if self.request.retries < self.max_retries:
+        raise self.retry(exc=Exception(result.error or f"HTTP {result.status_code}"))
+    return {"status": "exhausted", "error": result.error}
+
+
+@shared_task(
     name="app.worker.tasks.notifications.send_email",
     bind=True,
     max_retries=3,

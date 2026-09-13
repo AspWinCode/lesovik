@@ -3,7 +3,7 @@ from app.models.identity import RefreshToken, Role, User, UserRole  # noqa: F401
 from app.models.catalog import App, AppMember, AppModule, Module, ModuleDependency, ModuleVersion  # noqa: F401
 from app.models.metamodel import Entity, Field, FieldType, Relation, RelationType  # noqa: F401
 from app.models.data import Record, RecordFile  # noqa: F401
-from app.models.logic import Rule, RuleExecutionLog  # noqa: F401
+from app.models.logic import Rule, RuleExecutionLog, RuleConflictLog, RuleWebhookDelivery  # noqa: F401
 from app.models.workflow import (  # noqa: F401
     StateDef, TransitionDef, TransitionLog, WorkflowDef, WorkflowInstance,
 )

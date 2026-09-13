@@ -401,6 +401,35 @@ const mockRuleConflicts = [
   },
 ];
 
+const mockRuleWebhookDeliveries = [
+  {
+    id: "wh-1",
+    entity_id: ENTITY_ID,
+    record_id: "00000000-0000-0000-0000-000000000001",
+    execution_batch_id: "batch-1",
+    url: "https://hooks.example.com/lesovik",
+    method: "POST",
+    status: "delivered",
+    status_code: 200,
+    error: null,
+    attempt_count: 1,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: "wh-2",
+    entity_id: ENTITY_ID,
+    record_id: "00000000-0000-0000-0000-000000000002",
+    execution_batch_id: "batch-2",
+    url: "http://169.254.169.254/latest/meta-data/",
+    method: "POST",
+    status: "blocked",
+    status_code: null,
+    error: "Blocked: '169.254.169.254' resolves to non-public address 169.254.169.254",
+    attempt_count: 1,
+    created_at: new Date().toISOString(),
+  },
+];
+
 /* ── Mock Records ── */
 const mockRecords: RecordRead[] = [
   {
@@ -711,6 +740,8 @@ export const handlers = [
   http.get(`${API}/apps/:appId/rules`, () => HttpResponse.json(rules)),
 
   http.get(`${API}/apps/:appId/rules/conflicts`, () => HttpResponse.json(mockRuleConflicts)),
+
+  http.get(`${API}/apps/:appId/rules/webhook-deliveries`, () => HttpResponse.json(mockRuleWebhookDeliveries)),
 
   http.patch(`${API}/apps/:appId/rules/:ruleId`, async ({ params, request }) => {
     const idx = rules.findIndex((r) => r.id === params.ruleId);

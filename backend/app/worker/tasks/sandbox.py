@@ -187,6 +187,24 @@ def _persist_batch(batch: BatchResult, ctx: ExecutionContext, execution_batch_id
                     queue="notifications",
                 )
 
+            for webhook in batch.webhooks:
+                url = webhook.get("url")
+                if not url:
+                    continue
+                from app.worker.tasks.notifications import deliver_rule_webhook
+                deliver_rule_webhook.apply_async(
+                    kwargs={
+                        "app_id": str(ctx.app_id),
+                        "entity_id": str(ctx.entity_id),
+                        "record_id": str(ctx.record_id) if ctx.record_id else None,
+                        "execution_batch_id": execution_batch_id,
+                        "url": url,
+                        "method": webhook.get("method", "POST"),
+                        "payload": webhook.get("payload", {}),
+                    },
+                    queue="notifications",
+                )
+
             await session.commit()
 
     asyncio.run(_run())

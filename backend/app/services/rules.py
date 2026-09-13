@@ -14,7 +14,7 @@ from app.engine.graph import (
 )
 from app.engine.interpreter import ExecutionContext, ExecutionResult, run_rule
 from app.models.data import Record
-from app.models.logic import Rule, RuleConflictLog, RuleExecutionLog
+from app.models.logic import Rule, RuleConflictLog, RuleExecutionLog, RuleWebhookDelivery
 from app.schemas.common import CursorPage
 from app.schemas.rules import (
     MAX_STEPS,
@@ -29,6 +29,7 @@ from app.schemas.rules import (
     RuleTestRequest,
     RuleTestResponse,
     RuleUpdate,
+    RuleWebhookDeliveryRead,
     _validate_action_node,
     ensure_step_ids,
     node_to_step,
@@ -371,6 +372,23 @@ class RuleService:
             stmt = stmt.where(RuleConflictLog.entity_id == entity_id)
         result = await self._db.execute(stmt)
         return [RuleConflictLogRead.model_validate(log) for log in result.scalars()]
+
+    async def list_webhook_deliveries(
+        self,
+        app_id: uuid.UUID,
+        entity_id: uuid.UUID | None = None,
+        limit: int = 50,
+    ) -> list[RuleWebhookDeliveryRead]:
+        stmt = (
+            select(RuleWebhookDelivery)
+            .where(RuleWebhookDelivery.app_id == app_id)
+            .order_by(RuleWebhookDelivery.created_at.desc())
+            .limit(limit)
+        )
+        if entity_id:
+            stmt = stmt.where(RuleWebhookDelivery.entity_id == entity_id)
+        result = await self._db.execute(stmt)
+        return [RuleWebhookDeliveryRead.model_validate(log) for log in result.scalars()]
 
     # ------------------------------------------------------------------
     # Internals

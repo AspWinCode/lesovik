@@ -9,6 +9,7 @@ import {
   deleteStep,
   getRule,
   listRuleConflicts,
+  listRuleWebhookDeliveries,
   listRuleLogs,
   listRules,
   listSteps,
@@ -149,6 +150,14 @@ export function useRuleConflicts(appId: string | undefined, entityId: string | u
   return useQuery({
     queryKey: ["rule-conflicts", appId, entityId],
     queryFn: () => listRuleConflicts(appId!, entityId),
+    enabled: !!appId && enabled,
+  });
+}
+
+export function useRuleWebhookDeliveries(appId: string | undefined, entityId: string | undefined, enabled = false) {
+  return useQuery({
+    queryKey: ["rule-webhook-deliveries", appId, entityId],
+    queryFn: () => listRuleWebhookDeliveries(appId!, entityId),
     enabled: !!appId && enabled,
   });
 }

@@ -89,3 +89,32 @@ class RuleConflictLog(Base):
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class RuleWebhookDelivery(Base):
+    """Delivery attempts for `call_webhook` rule actions (ТЗ 3.5 rule actions).
+
+    Separate from integration.webhook_delivery: that table is for
+    admin-configured subscriptions to domain events; this one is for
+    ad-hoc URLs authored directly inside a rule's actions."""
+    __tablename__ = "rule_webhook_delivery"
+    __table_args__ = {"schema": "logic"}
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    app_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    record_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    execution_batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    method: Mapped[str] = mapped_column(String(8), nullable=False, default="POST")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # 'delivered' | 'failed' | 'blocked'
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

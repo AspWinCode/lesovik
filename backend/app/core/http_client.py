@@ -6,18 +6,69 @@ Features:
   - HMAC-SHA256 request signing
   - Standard Lesovik headers injected automatically
   - Configurable timeout per subscription
+  - SSRF guard: resolves the hostname and refuses to call private/loopback/
+    link-local/reserved addresses (blocks the cloud metadata endpoint too).
+    Applied to every outbound call — both admin-configured webhook
+    subscriptions and ad-hoc `call_webhook` rule actions authored by
+    app builders, who are a lower-trust audience than platform admins.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import secrets
+import socket
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
+
+
+class UnsafeUrlError(Exception):
+    """Raised when a target URL resolves to a non-public address."""
+
+
+def assert_url_is_safe(url: str) -> None:
+    """
+    Reject URLs that are not plain http(s) or that resolve to a private,
+    loopback, link-local, reserved, or multicast address — this closes off
+    SSRF against internal infra (postgres/redis/minio/backend containers)
+    and the cloud metadata endpoint (169.254.169.254) via user-authored
+    webhook targets.
+
+    Raises UnsafeUrlError with a human-readable reason on rejection.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise UnsafeUrlError(f"unsupported scheme {parts.scheme!r}")
+    host = parts.hostname
+    if not host:
+        raise UnsafeUrlError("missing host")
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise UnsafeUrlError(f"DNS resolution failed: {exc}") from None
+
+    if not infos:
+        raise UnsafeUrlError("DNS resolution returned no addresses")
+
+    for info in infos:
+        raw_ip = info[4][0]
+        ip = ipaddress.ip_address(raw_ip)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise UnsafeUrlError(f"{host!r} resolves to non-public address {raw_ip}")
 
 
 # ------------------------------------------------------------------
@@ -102,6 +153,11 @@ def deliver(
 
     A 2xx response is considered success.
     """
+    try:
+        assert_url_is_safe(target_url)
+    except UnsafeUrlError as exc:
+        return DeliveryResult(success=False, error=f"Blocked: {exc}")
+
     body = json.dumps(payload, default=str).encode()
     timestamp = str(int(time.time()))
 
@@ -116,11 +172,51 @@ def deliver(
         headers.update(custom_headers)
 
     try:
-        with httpx.Client(timeout=timeout_seconds) as client:
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
             resp = client.post(target_url, content=body, headers=headers)
         success = resp.is_success
         return DeliveryResult(
             success=success,
+            status_code=resp.status_code,
+            response_body=resp.text[:4096],
+        )
+    except httpx.TimeoutException as exc:
+        return DeliveryResult(success=False, error=f"Timeout: {exc}")
+    except httpx.RequestError as exc:
+        return DeliveryResult(success=False, error=f"RequestError: {exc}")
+
+
+def send_webhook(
+    *,
+    url: str,
+    method: str,
+    payload: dict[str, Any],
+    timeout_seconds: int = 15,
+) -> DeliveryResult:
+    """
+    Fire a single ad-hoc webhook call for a rule's `call_webhook` action.
+
+    Unlike `deliver()` there is no subscriber secret to sign with (the URL
+    and payload come straight from the rule definition), but the same SSRF
+    guard and redirect policy apply.
+    """
+    try:
+        assert_url_is_safe(url)
+    except UnsafeUrlError as exc:
+        return DeliveryResult(success=False, error=f"Blocked: {exc}")
+
+    method = method.upper() if method else "POST"
+    if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+        return DeliveryResult(success=False, error=f"Unsupported method {method!r}")
+
+    headers = {"Content-Type": "application/json", "X-Lesovik-Timestamp": str(int(time.time()))}
+    body = None if method == "GET" else json.dumps(payload, default=str).encode()
+
+    try:
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
+            resp = client.request(method, url, content=body, headers=headers)
+        return DeliveryResult(
+            success=resp.is_success,
             status_code=resp.status_code,
             response_body=resp.text[:4096],
         )

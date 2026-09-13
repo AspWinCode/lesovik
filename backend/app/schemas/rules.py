@@ -269,6 +269,21 @@ class RuleConflictLogRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RuleWebhookDeliveryRead(BaseModel):
+    id: uuid.UUID
+    entity_id: uuid.UUID
+    record_id: uuid.UUID | None
+    execution_batch_id: uuid.UUID
+    url: str
+    method: str
+    status: str
+    status_code: int | None
+    error: str | None
+    attempt_count: int
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
 # ------------------------------------------------------------------
 # AST validation helpers (lightweight, not full type-checking)
 # ------------------------------------------------------------------

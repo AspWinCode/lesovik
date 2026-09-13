@@ -44,7 +44,7 @@ Rules Engine исполняет **пользовательскую логику*
 1. **Безопасность важнее гибкости.** Лучше не дать пользователю операцию, чем дать дыру.
 2. **Никакого `eval`, `exec`, динамической компиляции Python.** Только интерпретация декларативного AST.
 3. **Никакого прямого SQL.** Все обращения к данным — через `EntityService`, `RecordService` — то есть через те же сервисы, что и API. PolicyEngine отрабатывает автоматически.
-4. **Никакого ввода-вывода во внешний мир.** Сеть, файлы, процессы — запрещены. Уведомления — через outbox, не напрямую.
+4. **Никакого ввода-вывода во внешний мир из процесса интерпретатора.** Сеть, файлы, процессы — запрещены внутри `run_rule`/`run_rules_batch`. Email и `call_webhook` не выполняются инлайн в sandbox-воркере: интерпретатор только собирает их как данные (`BatchResult.notifications` / `.webhooks`), а фактическая отправка ставится в очередь `notifications` (`send_email.apply_async` / `deliver_rule_webhook.apply_async`) и выполняется отдельным процессом уже после того, как мутации записи закоммичены. Каждый вызов `call_webhook` проходит SSRF-проверку (`app.core.http_client.assert_url_is_safe`): резолвится хост, приватные/loopback/link-local/reserved адреса (включая метадату облака 169.254.169.254) блокируются до отправки запроса. Попытки залогированы в `logic.rule_webhook_delivery`.
 5. **Детерминизм.** На одних и тех же входных данных правило обязано возвращать один и тот же результат. Источник недетерминизма — функции типа `NOW()`, `RANDOM()` — используются ограниченно и при компиляции фиксируются.
 6. **Лимит ресурсов жёсткий.** 113 секунд (ТЗ 3.5.3), 512 МБ памяти, 10 000 узлов AST на исполнение, 1 000 операций LOOKUP.
 7. **Атомарность.** Любая ошибка в правиле = `ROLLBACK` всей транзакции, в которой оно работало.
@@ -52,8 +52,8 @@ Rules Engine исполняет **пользовательскую логику*
 
 ### 1.2 Что НЕ делает Rules Engine
 
-- Не вызывает внешние HTTP-сервисы. (Это — Workflow Action `webhook`, идёт через outbox.)
-- Не отправляет email/Telegram напрямую. (Это — Action `notification`, через outbox.)
+- Не вызывает внешние HTTP-сервисы инлайн. Действие `call_webhook` только собирает `{url, method, payload}` в `BatchResult`; реальный HTTP-запрос делает отдельная celery-задача `deliver_rule_webhook` (очередь `notifications`), после SSRF-проверки цели.
+- Не отправляет email/Telegram напрямую. Действие `send_notification` аналогично ставит задачу `send_email` в очередь `notifications`.
 - Не создаёт долгоживущие задачи. Любое правило — синхронное, в рамках одной транзакции.
 - Не управляет процессом workflow. Переходы запускаются Workflow Engine, а не Rules.
 
@@ -107,7 +107,7 @@ action        ::= action_set_field
                 | action_emit_notification
                 | action_block_save
                 | action_run_rule
-                | action_call_webhook        (* идёт через outbox *)
+                | action_call_webhook        (* фактический kind — "call_webhook"; отправка асинхронная, через queue=notifications, после SSRF-проверки цели *)
 
 action_set_field    ::= { "kind": "set_field",    "target": field_ref, "value": expression }
 action_create_record::= { "kind": "create_record","entity": string, "payload": object_expr }
@@ -255,10 +255,10 @@ def op_lookup(entity_code: str, cond_or_id, extract: str | None):
 |---|---|---|
 | `set_field` | Меняет поле текущей записи | В той же транзакции |
 | `create_record` | Создаёт новую запись (другая сущность) | В той же транзакции |
-| `notify` | Кладёт сообщение в `integration.notification_outbox` | Транзакционно, отправка — асинхронно |
+| `notify` (`send_notification`) | Ставит `send_email` в celery-очередь `notifications` | Асинхронно, после коммита мутаций |
 | `block_save` | Возвращает ошибку валидации с сообщением | Транзакция откатывается |
 | `run_rule` | Запускает другое правило (рекурсия) | В той же транзакции, глубина ≤ 8 |
-| `webhook` | Кладёт событие в outbox для исходящего webhook | Транзакционно, отправка — асинхронно |
+| `webhook` (`call_webhook`) | Ставит `deliver_rule_webhook` в celery-очередь `notifications`; цель проходит SSRF-проверку, попытка логируется в `logic.rule_webhook_delivery` | Асинхронно, после коммита мутаций |
 
 ---
 

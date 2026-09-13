@@ -218,3 +218,29 @@ export async function listRuleConflicts(
   );
   return data;
 }
+
+export interface RuleWebhookDeliveryRead {
+  id: string;
+  entity_id: string;
+  record_id: string | null;
+  execution_batch_id: string;
+  url: string;
+  method: string;
+  status: "delivered" | "failed" | "blocked";
+  status_code: number | null;
+  error: string | null;
+  attempt_count: number;
+  created_at: string;
+}
+
+export async function listRuleWebhookDeliveries(
+  appId: string,
+  entityId?: string,
+  limit = 50,
+): Promise<RuleWebhookDeliveryRead[]> {
+  const { data } = await apiClient.get<RuleWebhookDeliveryRead[]>(
+    `/apps/${appId}/rules/webhook-deliveries`,
+    { params: { limit, ...(entityId ? { entity_id: entityId } : {}) } },
+  );
+  return data;
+}

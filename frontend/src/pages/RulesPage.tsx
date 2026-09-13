@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
-import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs, useRuleConflicts } from "@/shared/hooks/useRules";
+import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs, useRuleConflicts, useRuleWebhookDeliveries } from "@/shared/hooks/useRules";
 import type { FieldRead } from "@/shared/api/entities";
 import type { Rule, RuleTestResponse, RuleExecutionLogRead, RuleConflictLogRead } from "@/shared/api/rules";
 
@@ -794,56 +794,115 @@ function RuleLogsDrawer({ appId, rule, onClose }: { appId: string; rule: Rule; o
    the currently selected entity
    ════════════════════════════════════════════════════════════════ */
 function ConflictsDrawer({ appId, entityId, onClose }: { appId: string; entityId?: string; onClose: () => void }) {
-  const conflictsQuery = useRuleConflicts(appId, entityId, true);
+  const [tab, setTab] = useState<"conflicts" | "webhooks">("conflicts");
+  const conflictsQuery = useRuleConflicts(appId, entityId, tab === "conflicts");
+  const webhooksQuery = useRuleWebhookDeliveries(appId, entityId, tab === "webhooks");
   const conflicts: RuleConflictLogRead[] = conflictsQuery.data ?? [];
+  const deliveries = webhooksQuery.data ?? [];
 
   function fmt(value: unknown): string {
     if (value === null || value === undefined) return "—";
     return typeof value === "string" ? value : JSON.stringify(value);
   }
 
+  const STATUS_LABEL: Record<string, string> = { delivered: "Доставлено", failed: "Ошибка", blocked: "Заблокировано" };
+  const STATUS_CLASS: Record<string, string> = { delivered: "text-green-700", failed: "text-mistake", blocked: "text-amber-600" };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bg-white rounded-t-[16px] shadow-2xl w-full max-w-[900px] max-h-[70vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-7 py-4 border-b border-cardbg shrink-0">
           <div>
-            <h2 className="text-[17px] font-bold text-primary">Журнал конфликтов правил</h2>
-            <p className="text-[12px] text-primary/50 mt-0.5">
-              Когда два правила пишут разные значения в одно поле, побеждает правило с более высоким приоритетом
-            </p>
+            <h2 className="text-[17px] font-bold text-primary">Журнал правил</h2>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => setTab("conflicts")}
+                className={cn("text-[13px] px-3 py-1 rounded-full", tab === "conflicts" ? "bg-cta text-white" : "bg-mainbg text-primary/60")}
+              >
+                Конфликты
+              </button>
+              <button
+                onClick={() => setTab("webhooks")}
+                className={cn("text-[13px] px-3 py-1 rounded-full", tab === "webhooks" ? "bg-cta text-white" : "bg-mainbg text-primary/60")}
+              >
+                Webhook-доставки
+              </button>
+            </div>
           </div>
           <button onClick={onClose} className="text-primary/40 hover:text-primary text-xl leading-none">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto px-7 py-4">
-          {conflictsQuery.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
-          {!conflictsQuery.isLoading && conflicts.length === 0 && (
-            <p className="text-[13px] text-primary/40 text-center py-10">Конфликтов не зафиксировано</p>
+          {tab === "conflicts" && (
+            <>
+              <p className="text-[12px] text-primary/50 mb-3">
+                Когда два правила пишут разные значения в одно поле, побеждает правило с более высоким приоритетом
+              </p>
+              {conflictsQuery.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+              {!conflictsQuery.isLoading && conflicts.length === 0 && (
+                <p className="text-[13px] text-primary/40 text-center py-10">Конфликтов не зафиксировано</p>
+              )}
+              {conflicts.length > 0 && (
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="text-primary/50 text-left border-b border-cardbg">
+                      <th className="py-2 pr-4 font-medium">Время</th>
+                      <th className="py-2 pr-4 font-medium">Поле</th>
+                      <th className="py-2 pr-4 font-medium">Применено</th>
+                      <th className="py-2 font-medium">Проигравшие правила</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conflicts.map((c) => (
+                      <tr key={c.id} className="border-b border-cardbg/50 hover:bg-mainbg align-top">
+                        <td className="py-2 pr-4 text-primary/60 whitespace-nowrap">{new Date(c.detected_at).toLocaleString("ru")}</td>
+                        <td className="py-2 pr-4 text-primary font-medium">{c.field_name}</td>
+                        <td className="py-2 pr-4 text-green-700">{fmt(c.winning_value)}</td>
+                        <td className="py-2 text-mistake text-[12px]">
+                          {c.losing_writes.map((w, i) => (
+                            <div key={i}>{w.rule_id.slice(0, 8)}… → {fmt(w.value)}</div>
+                          ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
           )}
-          {conflicts.length > 0 && (
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="text-primary/50 text-left border-b border-cardbg">
-                  <th className="py-2 pr-4 font-medium">Время</th>
-                  <th className="py-2 pr-4 font-medium">Поле</th>
-                  <th className="py-2 pr-4 font-medium">Применено</th>
-                  <th className="py-2 font-medium">Проигравшие правила</th>
-                </tr>
-              </thead>
-              <tbody>
-                {conflicts.map((c) => (
-                  <tr key={c.id} className="border-b border-cardbg/50 hover:bg-mainbg align-top">
-                    <td className="py-2 pr-4 text-primary/60 whitespace-nowrap">{new Date(c.detected_at).toLocaleString("ru")}</td>
-                    <td className="py-2 pr-4 text-primary font-medium">{c.field_name}</td>
-                    <td className="py-2 pr-4 text-green-700">{fmt(c.winning_value)}</td>
-                    <td className="py-2 text-mistake text-[12px]">
-                      {c.losing_writes.map((w, i) => (
-                        <div key={i}>{w.rule_id.slice(0, 8)}… → {fmt(w.value)}</div>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {tab === "webhooks" && (
+            <>
+              <p className="text-[12px] text-primary/50 mb-3">
+                Попытки доставки действия «Webhook» из правил. Цели во внутренней сети блокируются автоматически.
+              </p>
+              {webhooksQuery.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+              {!webhooksQuery.isLoading && deliveries.length === 0 && (
+                <p className="text-[13px] text-primary/40 text-center py-10">Доставок не зафиксировано</p>
+              )}
+              {deliveries.length > 0 && (
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="text-primary/50 text-left border-b border-cardbg">
+                      <th className="py-2 pr-4 font-medium">Время</th>
+                      <th className="py-2 pr-4 font-medium">URL</th>
+                      <th className="py-2 pr-4 font-medium">Статус</th>
+                      <th className="py-2 font-medium">Детали</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deliveries.map((d) => (
+                      <tr key={d.id} className="border-b border-cardbg/50 hover:bg-mainbg align-top">
+                        <td className="py-2 pr-4 text-primary/60 whitespace-nowrap">{new Date(d.created_at).toLocaleString("ru")}</td>
+                        <td className="py-2 pr-4 text-primary font-medium truncate max-w-[280px]">{d.method} {d.url}</td>
+                        <td className={cn("py-2 pr-4 font-medium", STATUS_CLASS[d.status] ?? "text-primary/60")}>
+                          {STATUS_LABEL[d.status] ?? d.status}{d.status_code ? ` (${d.status_code})` : ""}
+                        </td>
+                        <td className="py-2 text-primary/50 text-[12px]">{d.error ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1023,7 +1082,7 @@ export function RulesPage() {
                   onClick={() => setShowConflicts(true)}
                   className="h-[38px] px-4 rounded-[10px] border border-cardbg text-[14px] text-primary hover:bg-mainbg"
                 >
-                  Конфликты
+                  Журнал
                 </button>
               )}
               {activeEntity && (
