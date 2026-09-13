@@ -68,6 +68,13 @@ services:
       start_period: 30s
 
   # ---- Celery sandbox worker (rules/code execution — isolated) ----
+  # Attached ONLY to sandbox_net (internal: true — no default route to the
+  # internet or to any service besides postgres/redis, which are dual-homed
+  # below). It only ever needs the DB and the celery broker: rule execution
+  # is pure in-process AST interpretation, and any email/webhook side effect
+  # a rule computes is queued for the regular `worker` container to send
+  # (see app/worker/tasks/sandbox.py::_persist_batch) — the sandbox process
+  # itself never makes an outbound HTTP call.
   sandbox-worker:
     <<: *backend-common
     container_name: nocode-sandbox
@@ -76,8 +83,8 @@ services:
       --loglevel=info
       --concurrency=2
       --queues=sandbox
-    # Network isolation for sandbox: no access to internal services
-    # In production this would use a separate network with no_outbound=true
+    networks:
+      - sandbox_net
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
@@ -88,19 +95,6 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       APP_ENV: ${APP_ENV:-development}
       DEBUG: ${DEBUG:-true}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_TLS: ${SMTP_TLS:-false}
-      EMAIL_FROM: ${EMAIL_FROM}
-      CORS_ORIGINS: ${CORS_ORIGINS}
-      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
-      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
-      SANDBOX_MODE: "true"
 
   # ---- Celery beat (scheduled tasks) ----
   beat:
@@ -130,6 +124,9 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: nocode-postgres
+    networks:
+      - default
+      - sandbox_net
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nocode}
       POSTGRES_USER: ${POSTGRES_USER:-app_user}
@@ -156,6 +153,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: nocode-redis
+    networks:
+      - default
+      - sandbox_net
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -237,6 +237,15 @@ services:
       - "3000:3000"
     depends_on:
       - prometheus
+
+networks:
+  default: {}
+  # internal: true — no gateway to the outside world. Only postgres/redis
+  # (dual-homed above) and sandbox-worker sit on it, so a rule authored by
+  # an app builder cannot reach the internet, other containers, or the host
+  # network no matter what the interpreter lets through.
+  sandbox_net:
+    internal: true
 
 volumes:
   postgres_data:

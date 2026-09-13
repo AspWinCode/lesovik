@@ -7,6 +7,9 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: lesovik-postgres
+    networks:
+      - default
+      - sandbox_net
     environment:
       POSTGRES_DB: nocode
       POSTGRES_USER: app_user
@@ -23,6 +26,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: lesovik-redis
+    networks:
+      - default
+      - sandbox_net
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redisdata:/data
@@ -121,17 +127,22 @@ services:
       celery -A app.worker.celery_app worker
         --loglevel=info --concurrency=2
         --queues=sandbox
+    # Attached ONLY to sandbox_net (internal: true, see bottom of file) — no
+    # route to the internet or to any other container. Rule execution is
+    # pure in-process AST interpretation over Postgres; any email/webhook a
+    # rule computes is queued for the regular `worker` container to send
+    # (app/worker/tasks/sandbox.py::_persist_batch), so this process itself
+    # never needs to make an outbound HTTP call.
+    networks:
+      - sandbox_net
     env_file: .env
     environment:
       APP_ENV: production
-      SANDBOX_MODE: "true"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      clamav:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping --timeout=5 | grep -q pong"]
       interval: 30s
@@ -151,6 +162,15 @@ services:
     ports:
       - "8090:80"
     restart: unless-stopped
+
+networks:
+  default: {}
+  # internal: true — Docker sets up no gateway/NAT for this network, so a
+  # container attached only here has no route to the internet, the host,
+  # or any other container network. Only postgres/redis (dual-homed above)
+  # and sandbox-worker sit on it.
+  sandbox_net:
+    internal: true
 
 volumes:
   pgdata:
