@@ -85,6 +85,9 @@ test = [
     "anyio==4.7.0",
     "pytest-postgresql==6.1.1",
 ]
+load = [
+    "locust==2.32.4",
+]
 dev = [
     # Testing
     "pytest==8.3.4",
