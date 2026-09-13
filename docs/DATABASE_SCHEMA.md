@@ -793,6 +793,8 @@ CREATE INDEX ix_timer__due ON logic.process_timer (fires_at) WHERE fired_at IS N
 
 ### 9.1 `data.record` — главная таблица
 
+> Реализовано (миграции `0003_data_records`, `0028_record_cascade_deleted_by`, `0037_record_deleted_audit_fields`) с меньшим набором колонок, чем ниже: без `tenant_id`, `application_id` (сущность и так привязана к приложению через `metamodel.entity.app_id`), `status`, `expires_at` (политика хранения — пробел, см. §5.2 плана MVP) и с 8 партициями вместо 16. `is_deleted`/`deleted_at`/`deleted_by` — как описано; `cascade_deleted_by` добавлен сверх исходного дизайна, чтобы отличать прямое удаление от каскадного (используется в «Корзине», см. §9.6).
+
 ```sql
 CREATE TABLE data.record (
     id              UUID            NOT NULL DEFAULT gen_random_uuid(),
@@ -873,47 +875,55 @@ CREATE INDEX ix_record_ver__record ON data.record_version (record_id, version_no
 
 **Хранение diff, не полной копии**: на 1М записей с активным редактированием полные snapshot'ы раздуют БД в разы. Diff восстанавливается рекурсивно от последней целой версии (snapshot раз в N изменений).
 
-### 9.3 `data.file` и `data.file_version`
+### 9.3 `data.record_file` — файлы, прикреплённые к записям
+
+> Реализовано (миграции `0003_data_records`, `0034_record_file_versioning`) иначе, чем в первой редакции этого раздела: одна таблица с self-reference цепочкой версий вместо `data.file` + `data.file_version`. Ниже — фактическая схема; синхронизировано с кодом в `FileService` ([backend/app/services/files.py](../backend/app/services/files.py)).
 
 ```sql
-CREATE TABLE data.file (
-    id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
-    record_id       UUID,                                      -- может быть прикреплён к записи
-    field_id        UUID            REFERENCES metamodel.field(id),
-    original_name   VARCHAR(512)    NOT NULL,
-    mime_type       VARCHAR(128)    NOT NULL,
-    size_bytes      BIGINT          NOT NULL,
-    storage_key     VARCHAR(512)    NOT NULL UNIQUE,           -- ключ в S3
-    checksum_sha256 CHAR(64)        NOT NULL,
-    av_status       VARCHAR(16)     NOT NULL DEFAULT 'pending' -- ClamAV
-                    CHECK (av_status IN ('pending','clean','infected','error')),
-    av_scanned_at   TIMESTAMPTZ,
-    av_signature    VARCHAR(255),
-    uploaded_by     UUID            NOT NULL,
-    uploaded_at     TIMESTAMPTZ     NOT NULL DEFAULT now(),
-    is_deleted      BOOLEAN         NOT NULL DEFAULT false,
-    deleted_at      TIMESTAMPTZ,
-    deleted_by      UUID,
-    -- частичные индексы по статусу AV
-    CONSTRAINT chk_file__size CHECK (size_bytes > 0)
+CREATE TABLE data.record_file (
+    id                  UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+    record_id           UUID            NOT NULL,
+    entity_id           UUID            NOT NULL,
+    app_id              UUID            NOT NULL,
+    field_name          VARCHAR(128)    NOT NULL,
+    original_filename   VARCHAR(512)    NOT NULL,
+    content_type        VARCHAR(128),
+    size_bytes          BIGINT,
+    s3_key              VARCHAR(1024)   NOT NULL,
+    is_scanned          BOOLEAN         NOT NULL DEFAULT false,  -- ClamAV прошёл (false = SCAN_SKIPPED в dev)
+    is_infected         BOOLEAN,
+    -- версионирование (0034)
+    version             INT             NOT NULL DEFAULT 1,
+    is_latest           BOOLEAN         NOT NULL DEFAULT true,
+    previous_version_id UUID            REFERENCES data.record_file(id) ON DELETE SET NULL,
+    created_by          UUID,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_file__record ON data.file (record_id) WHERE is_deleted = false;
-CREATE INDEX ix_file__av_pending ON data.file (av_status, uploaded_at) WHERE av_status = 'pending';
 
-CREATE TABLE data.file_version (
-    id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id         UUID            NOT NULL REFERENCES data.file(id) ON DELETE CASCADE,
-    version_no      INT             NOT NULL,
-    storage_key     VARCHAR(512)    NOT NULL,
-    size_bytes      BIGINT          NOT NULL,
-    checksum_sha256 CHAR(64)        NOT NULL,
-    created_by      UUID,
-    created_at      TIMESTAMPTZ     NOT NULL DEFAULT now(),
-    UNIQUE (file_id, version_no)
-);
+CREATE INDEX ix_data_record_file_record ON data.record_file (record_id);
+CREATE INDEX ix_data_record_file_entity ON data.record_file (entity_id);
+CREATE INDEX ix_data_record_file_app    ON data.record_file (app_id);
+
+-- ускоряет и list_files(is_latest-only), и replace-lookup в FileService.upload_file
+CREATE INDEX ix_data_record_file_latest
+    ON data.record_file (record_id, field_name)
+    WHERE is_latest;
 ```
 
-**Важно**: файлы в БД **не хранятся** — только метаданные. Бинарь — в S3 (managed) или MinIO. Доступ — только через подписанные URL с TTL 15 мин (ТЗ 3.7.1).
+**Версионирование — не по имени файла, а по режиму загрузки.** `field_name` используется двумя разными UI-паттернами:
+
+- **Одно значение на поле** (ячейка файла в таблице, кнопка «Заменить») — загрузка идёт с `replace=true`: текущий `is_latest`-файл для `(record_id, field_name)` помечается `is_latest=false`, новый получает `version+1` и `previous_version_id`, **независимо от того, совпадает ли имя файла** (замена «scan.pdf» на «scan_v2.pdf» — всё равно новая версия).
+- **Список вложений** (блок формы с `multiple=true`) — загрузка идёт с `replace=false` (по умолчанию): каждый файл независим, версии не создаются, даже если несколько файлов случайно называются одинаково.
+
+Поэтому уникальность «один `is_latest` на группу» **не может быть constraint'ом на уровне БД** (ключ группировки зависит от режима вызова, а не только от данных) — она обеспечивается на уровне приложения через `SELECT ... FOR UPDATE` на текущей `is_latest`-строке внутри транзакции запроса.
+
+История версий восстанавливается обходом цепочки `previous_version_id` (не сравнением имени файла — оно может меняться между версиями), см. `FileService.list_versions`.
+
+**Удаление**: `DELETE /files/{file_id}` физически удаляет строку и объект в S3 (не soft delete — в отличие от `data.record`). Если удаляется текущая (`is_latest`) версия и есть `previous_version_id`, предыдущая версия автоматически становится `is_latest`, чтобы поле не осталось «пустым» при наличии истории.
+
+**Важно**: файлы в БД **не хранятся** — только метаданные. Бинарь — в S3 (managed) или MinIO. Доступ — только через подписанные URL (ТЗ 3.7.1).
+
+**Не реализовано** (в отличие от первой редакции этого раздела): `checksum_sha256` (дедупликация по хэшу), `av_signature`/`av_scanned_at` как отдельные колонки (сейчас — только `is_scanned`/`is_infected` булевы флаги), soft delete для файлов, настраиваемые лимиты размера/количества/форматов (сейчас — константы в `FileService`: 100 МБ, blacklist опасных расширений). Это отдельный пробел этапа 3, не эта миграция.
 
 ### 9.4 `data.document_registration` — встроенный регистратор (ТЗ 3.10)
 
@@ -964,30 +974,13 @@ CREATE TABLE data.filing_nomenclature (
 CREATE INDEX ix_filing__parent ON data.filing_nomenclature (parent_id, status);
 ```
 
-### 9.6 `data.recycle_bin` — индекс корзины
+### 9.6 «Корзина» (ТЗ 3.9.1)
 
-Корзина — это `data.record WHERE is_deleted = true`, но для быстрого UI корзины (один список по всем сущностям) полезен материализованный view.
+> Реализовано без материализованного view. `RecordService.list_deleted_records` ([backend/app/services/records.py](../backend/app/services/records.py)) запрашивает `metamodel.entity WHERE app_id = :app_id` (плюс опциональный фильтр по одной сущности), затем `data.record WHERE entity_id = ANY(...) AND is_deleted` — партиционирование по `entity_id` даёт partition pruning без view. Курсорная пагинация по `(deleted_at DESC, id DESC)`, использует partial index `ix_data_record_deleted` (добавлен в `0037`, тот же приём что и `ix_data_record_not_deleted` из `0003`). Материализованный view имеет смысл добавить только если прямой запрос станет узким местом на очень большом числе сущностей/записей — сейчас это не так.
 
-```sql
-CREATE MATERIALIZED VIEW data.recycle_bin AS
-SELECT
-    r.id AS record_id,
-    r.entity_id,
-    e.application_id,
-    e.code AS entity_code,
-    e.name AS entity_name,
-    r.payload->>'name' AS display_name,
-    r.deleted_at,
-    r.deleted_by,
-    r.expires_at
-FROM data.record r
-JOIN metamodel.entity e ON e.id = r.entity_id
-WHERE r.is_deleted = true;
+API: `GET /apps/{app_id}/recycle-bin` (только `platform_admin`/`app_admin`), опциональный `entity_id` для фильтра на одну сущность. Восстановление — существующий `POST /apps/{app_id}/entities/{entity_id}/records/{record_id}/restore`, каждая строка корзины несёт `entity_id`, так что фронтенду не нужен отдельный lookup.
 
-CREATE INDEX ix_recycle__deleted_at ON data.recycle_bin (deleted_at DESC);
-CREATE INDEX ix_recycle__app ON data.recycle_bin (application_id);
--- REFRESH MATERIALIZED VIEW CONCURRENTLY data.recycle_bin; — раз в 5 мин Celery beat
-```
+`cascade_deleted_by` (не `expires_at` — политика хранения из §9.1 не реализована) отличает запись, удалённую каскадно из-за родителя, от удалённой напрямую — отражено полем `is_cascade_deleted` в ответе API.
 
 ---
 
