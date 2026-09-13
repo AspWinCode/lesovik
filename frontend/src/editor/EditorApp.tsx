@@ -37,6 +37,7 @@ import { DbHistoryPage } from "@/pages/DbHistoryPage";
 import { DataPage } from "@/pages/DataPage";
 import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 import { KnowledgeBasePage } from "@/pages/KnowledgeBasePage";
+import { DocumentRegistrarPage } from "@/pages/DocumentRegistrarPage";
 
 export function EditorApp() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -91,6 +92,7 @@ export function EditorApp() {
         <Route path="/db-history" element={<RequireAuth><ScaleToFit><DbHistoryPage /></ScaleToFit></RequireAuth>} />
         <Route path="/data-page"  element={<RequireAuth><ScaleToFit><DataPage /></ScaleToFit></RequireAuth>} />
         <Route path="/knowledge-base" element={<RequireAuth><ScaleToFit><KnowledgeBasePage /></ScaleToFit></RequireAuth>} />
+        <Route path="/documents" element={<RequireAuth><ScaleToFit><DocumentRegistrarPage /></ScaleToFit></RequireAuth>} />
         <Route path="/notifications" element={<RequireAuth><ScaleToFit><EmailTemplatesPage /></ScaleToFit></RequireAuth>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />

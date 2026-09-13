@@ -146,6 +146,7 @@ function PublishSection({
   publishing: boolean;
   publishError: unknown;
 }) {
+  const navigate = useNavigate();
   const exportM = useExportFilingCases(app?.id ?? "");
   const [exportFmt, setExportFmt] = useState<ExportFormat>("xlsx");
   const lockQ     = useAppLock(app?.id);
@@ -326,6 +327,12 @@ function PublishSection({
             {exportM.isPending ? "Скачивание…" : "Скачать"}
           </button>
         </div>
+        <button
+          onClick={() => navigate("/documents")}
+          className="text-[12px] text-cta hover:underline mt-[10px]"
+        >
+          Открыть регистратор документов и номенклатуру дел →
+        </button>
       </div>
     </div>
   );

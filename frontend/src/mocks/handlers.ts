@@ -1590,4 +1590,119 @@ export const handlers = [
       }, { status: 201 })),
     ];
   })(),
+
+  // ---- Document registrar + номенклатура дел (ТЗ 3.10) ----
+  ...(() => {
+    interface MockDocTypeConfig {
+      doc_type: string; prefix: string; suffix: string;
+      include_department: boolean; seq_padding: number; reset_period: string;
+    }
+    interface MockFilingCase {
+      id: string; parent_id: string | null; index_code: string; title: string;
+      retention_years: number | null; storage_location: string | null;
+      status: string; close_by: string | null; closed_at: string | null;
+      responsible_user_id: string | null; created_at: string;
+    }
+    interface MockRegistration {
+      id: string; entity_id: string; record_id: string; doc_type: string;
+      department_code: string | null; registration_no: string;
+      filing_case_id: string | null; registered_by: string | null; registered_at: string;
+    }
+
+    const docTypeConfigs: Record<string, MockDocTypeConfig> = {
+      incoming: { doc_type: "incoming", prefix: "ВХ-", suffix: "", include_department: false, seq_padding: 4, reset_period: "yearly" },
+      outgoing: { doc_type: "outgoing", prefix: "ИСХ-", suffix: "", include_department: false, seq_padding: 4, reset_period: "yearly" },
+      internal: { doc_type: "internal", prefix: "ВН-", suffix: "", include_department: false, seq_padding: 4, reset_period: "yearly" },
+    };
+    const filingCases: MockFilingCase[] = [
+      {
+        id: "case-1", parent_id: null, index_code: "01", title: "Приказы по основной деятельности",
+        retention_years: 5, storage_location: null, status: "open", close_by: null, closed_at: null,
+        responsible_user_id: null, created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    const registrations: MockRegistration[] = [];
+    const counters: Record<string, number> = {};
+
+    return [
+      http.get(`${API}/apps/:appId/documents/doc-types`, () => HttpResponse.json(Object.values(docTypeConfigs))),
+
+      http.put(`${API}/apps/:appId/documents/doc-types/:docType`, async ({ params, request }) => {
+        const docType = params.docType as string;
+        const body = (await request.json()) as Partial<MockDocTypeConfig>;
+        docTypeConfigs[docType] = { ...docTypeConfigs[docType], ...body };
+        return HttpResponse.json(docTypeConfigs[docType]);
+      }),
+
+      http.post(`${API}/apps/:appId/documents/register`, async ({ request }) => {
+        const body = (await request.json()) as {
+          entity_id: string; record_id: string; doc_type: string;
+          department_code?: string | null; filing_case_id?: string | null;
+        };
+        const config = docTypeConfigs[body.doc_type];
+        const dept = config.include_department ? (body.department_code || "") : "";
+        const key = `${body.doc_type}:${dept}`;
+        const seq = (counters[key] ?? 0) + 1;
+        counters[key] = seq;
+        const year = new Date().getFullYear();
+        const parts = [config.prefix];
+        if (dept) parts.push(`${dept}-`);
+        if (config.reset_period !== "never") parts.push(String(year), "-");
+        parts.push(String(seq).padStart(config.seq_padding, "0"), config.suffix);
+
+        const reg: MockRegistration = {
+          id: crypto.randomUUID(), entity_id: body.entity_id, record_id: body.record_id,
+          doc_type: body.doc_type, department_code: body.department_code ?? null,
+          registration_no: parts.join(""), filing_case_id: body.filing_case_id ?? null,
+          registered_by: MOCK_USER.id, registered_at: new Date().toISOString(),
+        };
+        registrations.unshift(reg);
+        return HttpResponse.json(reg, { status: 201 });
+      }),
+
+      http.get(`${API}/apps/:appId/documents/registrations`, ({ request }) => {
+        const docType = new URL(request.url).searchParams.get("doc_type");
+        const items = docType ? registrations.filter((r) => r.doc_type === docType) : registrations;
+        return HttpResponse.json(items);
+      }),
+
+      http.get(`${API}/apps/:appId/documents/filing-cases`, () => HttpResponse.json(filingCases)),
+
+      http.post(`${API}/apps/:appId/documents/filing-cases`, async ({ request }) => {
+        const body = (await request.json()) as Partial<MockFilingCase>;
+        const now = new Date().toISOString();
+        const created: MockFilingCase = {
+          id: crypto.randomUUID(), parent_id: body.parent_id ?? null,
+          index_code: body.index_code ?? "", title: body.title ?? "",
+          retention_years: body.retention_years ?? null, storage_location: body.storage_location ?? null,
+          status: "open", close_by: body.close_by ?? null, closed_at: null,
+          responsible_user_id: body.responsible_user_id ?? null, created_at: now,
+        };
+        filingCases.push(created);
+        return HttpResponse.json(created, { status: 201 });
+      }),
+
+      http.patch(`${API}/apps/:appId/documents/filing-cases/:caseId`, async ({ params, request }) => {
+        const idx = filingCases.findIndex((c) => c.id === params.caseId);
+        if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+        const body = (await request.json()) as Partial<MockFilingCase>;
+        filingCases[idx] = {
+          ...filingCases[idx], ...body,
+          closed_at: body.status === "closed" && !filingCases[idx].closed_at ? new Date().toISOString() : filingCases[idx].closed_at,
+        };
+        return HttpResponse.json(filingCases[idx]);
+      }),
+
+      http.delete(`${API}/apps/:appId/documents/filing-cases/:caseId`, ({ params }) => {
+        const idx = filingCases.findIndex((c) => c.id === params.caseId);
+        if (idx !== -1) filingCases.splice(idx, 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
+
+      http.get(`${API}/apps/:appId/documents/filing-cases/export`, () => {
+        const csv = "index_code,title,status\n" + filingCases.map((c) => `${c.index_code},${c.title},${c.status}`).join("\n");
+        return new HttpResponse(csv, { headers: { "Content-Type": "text/csv" } });
+      }),
+    ];
+  })(),
 ];

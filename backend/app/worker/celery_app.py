@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Exchange, Queue
 
 from app.core.config import settings
@@ -13,6 +14,7 @@ celery_app = Celery(
         "app.worker.tasks.sandbox",
         "app.worker.tasks.workflow",
         "app.worker.tasks.integration",
+        "app.worker.tasks.documents",
     ],
 )
 
@@ -54,6 +56,11 @@ celery_app.conf.update(
             "task": "app.worker.tasks.integration.poll_outbox",
             "schedule": 10.0,  # seconds
             "options": {"queue": "integration"},
+        },
+        "close-overdue-filing-cases": {
+            "task": "app.worker.tasks.documents.close_overdue_filing_cases",
+            "schedule": crontab(hour=0, minute=15),  # once daily, just after midnight UTC
+            "options": {"queue": "default"},
         },
     },
 )
