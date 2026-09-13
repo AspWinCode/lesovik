@@ -231,6 +231,16 @@ function RuntimeShell() {
 
   return (
     <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily, transition: "background 0.2s, color 0.2s", display: "flex", flexDirection: "column" }}>
+      {/* Hide the native scrollbar chrome — inside the constructor's phone-
+          frame mockup a classic desktop scrollbar reserves layout width and
+          its square ends poke past the frame's rounded corners, making the
+          preview look clipped/squeezed. Scrolling itself still works (wheel,
+          touch, keyboard); real mobile browsers already use an overlay
+          scrollbar here regardless, so this is a no-op there. */}
+      <style>{`
+        html, body { scrollbar-width: none; -ms-overflow-style: none; }
+        html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; width: 0; height: 0; }
+      `}</style>
       {/* App bar */}
       <header style={{ height: 56, background: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", fontWeight: 600, fontSize: 18, flexShrink: 0 }}>
         <span>{app.name}</span>
