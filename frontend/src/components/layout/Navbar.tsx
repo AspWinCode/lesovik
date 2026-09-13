@@ -46,7 +46,7 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
       {/* Left: logo + brand */}
       <div className="flex items-center gap-[35px]">
         <div className="flex items-center gap-[35px]">
-          <span className="text-logo text-primary font-medium leading-none">OI</span>
+          <span className="text-logo text-primary font-medium leading-none">Лесовик</span>
           <span className="text-brand text-primary font-bold">{brandName}</span>
         </div>
       </div>
@@ -85,7 +85,7 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
 
 /* ── Help dropdown ── */
 const HELP_ITEMS = [
-  "Курс OI",
+  "Курс Лесовик",
   "Форум сообщества",
   "Видео обучение",
   "Справочные ресурсы",

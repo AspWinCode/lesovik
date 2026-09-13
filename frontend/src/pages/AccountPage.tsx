@@ -5,6 +5,7 @@ import { useAuthStore } from "@/shared/auth/store";
 import { changePassword, logoutAll, totpSetup, totpEnable, totpDisable } from "@/shared/api/auth";
 import type { TOTPSetupResponse } from "@/shared/api/auth";
 import { getRefreshToken } from "@/shared/auth/tokens";
+import { PasswordInput } from "@/shared/components/PasswordInput";
 
 export function AccountPage() {
   const navigate = useNavigate();
@@ -103,7 +104,7 @@ export function AccountPage() {
       {/* ── Top navbar (same pattern as ProfilePage) ── */}
       <header className="h-[56px] shrink-0 flex items-center px-6 gap-6 bg-white border-b border-cardbg">
         <div className="flex items-center gap-2">
-          <span className="text-[20px] font-bold text-primary">OI</span>
+          <span className="text-[20px] font-bold text-primary">Лесовик</span>
           <span className="text-[18px] text-primary font-medium">Дикая Сибирь</span>
         </div>
         <div className="ml-auto flex items-center gap-6 text-[14px] text-primary">
@@ -222,8 +223,7 @@ export function AccountPage() {
                       return (
                         <div key={label} className="flex flex-col gap-1">
                           <span className="text-[13px] text-primary/60">{label}</span>
-                          <input
-                            type="password"
+                          <PasswordInput
                             value={vals[i]}
                             onChange={(e) => setters[i](e.target.value)}
                             className="h-[38px] px-3 rounded-[8px] border border-cardbg bg-white text-[14px] text-primary outline-none focus:border-cta"

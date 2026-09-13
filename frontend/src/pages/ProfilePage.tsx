@@ -35,7 +35,7 @@ export function ProfilePage() {
       {/* ── Top navbar ── */}
       <header className="h-[56px] shrink-0 flex items-center px-6 gap-6 bg-white border-b border-cardbg">
         <div className="flex items-center gap-2">
-          <span className="text-[20px] font-bold text-primary">OI</span>
+          <span className="text-[20px] font-bold text-primary">Лесовик</span>
           <span className="text-[18px] text-primary font-medium">Дикая Сибирь</span>
         </div>
         <div className="ml-auto flex items-center gap-6 text-[14px] text-primary">
@@ -177,7 +177,7 @@ function SettingsTab() {
           <div>
             <p className="text-[15px] text-primary">Разрешить доступ сотрудникам</p>
             <p className="text-[13px] text-primary/60 mt-0.5 leading-snug">
-              Разрешить сотрудникам поддержки OI доступ ко всем моим приложениям и связанным с ними данным
+              Разрешить сотрудникам поддержки Лесовик доступ ко всем моим приложениям и связанным с ними данным
               в любое время для оказания поддержки и технического обслуживания?
             </p>
           </div>
@@ -198,7 +198,7 @@ function SettingsTab() {
         Используйте этот раздел для настройки корпоративной учётной записи. Эти параметры доступны только корпоративным клиентам.
       </p>
       <button disabled title="В разработке" className="flex items-center gap-1.5 border border-cta/40 text-cta/40 rounded-[20px] px-4 py-1.5 text-[14px] cursor-not-allowed">
-        Узнать больше о планах OI
+        Узнать больше о планах Лесовик
       </button>
     </div>
   );

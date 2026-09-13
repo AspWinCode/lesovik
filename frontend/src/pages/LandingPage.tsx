@@ -45,7 +45,7 @@ export function LandingPage() {
       {/* ── Header ── */}
       <header className="sticky top-0 z-20 bg-mainbg border-b-[5px] border-white">
         <div className="max-w-[1760px] mx-auto px-6 h-[110px] flex items-center justify-between gap-10">
-          <span className="text-[56px] font-medium text-primary leading-none">OI</span>
+          <span className="text-[40px] font-medium text-primary leading-none">Лесовик</span>
           <nav className="flex items-center gap-[60px]">
             <a href="#how" className="text-[24px] font-medium text-primary hover:text-cta transition-colors">Как создать приложение</a>
             <a href="#pricing" className="text-[24px] font-medium text-primary hover:text-cta transition-colors">Тарифные планы</a>
@@ -178,7 +178,7 @@ export function LandingPage() {
       <footer className="bg-mainbg border-t-[5px] border-white">
         <div className="max-w-[1760px] mx-auto px-6 py-[30px] flex flex-wrap justify-between items-end gap-10">
           <div className="flex flex-col">
-            <span className="text-[80px] font-medium text-primary leading-[120%]">OI</span>
+            <span className="text-[56px] font-medium text-primary leading-[120%]">Лесовик</span>
             <span className="text-[16px] text-primary">© 2026 Российская No-Code платформа</span>
           </div>
           <div className="flex flex-col gap-[5px] text-[16px] text-primary">

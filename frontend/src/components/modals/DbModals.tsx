@@ -2397,9 +2397,9 @@ export function TableUsageModal({
               className="flex items-center justify-between px-4 py-4 rounded-[10px] bg-cardbg"
             >
               <div className="flex items-center gap-3">
-                {/* OI logo placeholder */}
+                {/* Лесовик logo placeholder */}
                 <div className="w-10 h-10 rounded-[8px] bg-primary flex items-center justify-center shrink-0">
-                  <span className="text-white text-[14px] font-bold">OI</span>
+                  <span className="text-white text-[14px] font-bold">ЛВ</span>
                 </div>
                 <span className="text-[15px] font-semibold text-primary">{app.name}</span>
               </div>

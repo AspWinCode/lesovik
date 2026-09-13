@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { isAxiosError } from "axios";
 import { apiClient } from "@/shared/api/client";
+import { PasswordInput } from "@/shared/components/PasswordInput";
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -43,7 +44,7 @@ export function ResetPasswordPage() {
   if (!token) {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
-        <span className="text-[96px] font-medium text-primary leading-[150%] select-none">OI</span>
+        <span className="text-[56px] font-medium text-primary leading-[150%] select-none">Лесовик</span>
         <div
           className="relative bg-mainbg rounded-card border-2 border-primary flex flex-col items-center text-center"
           style={{ width: 500, padding: "40px 75px" }}
@@ -59,7 +60,7 @@ export function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
-      <span className="text-[96px] font-medium text-primary leading-[150%] select-none">OI</span>
+      <span className="text-[56px] font-medium text-primary leading-[150%] select-none">Лесовик</span>
 
       <div
         className="relative bg-mainbg rounded-card border-2 border-primary flex flex-col items-center"
@@ -80,8 +81,7 @@ export function ResetPasswordPage() {
               <label className="text-[22px] font-medium text-primary leading-[150%]">
                 Новый пароль
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 required
                 autoComplete="new-password"
                 value={password}
@@ -95,8 +95,7 @@ export function ResetPasswordPage() {
               <label className="text-[22px] font-medium text-primary leading-[150%]">
                 Повторите пароль
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 required
                 autoComplete="new-password"
                 value={confirm}

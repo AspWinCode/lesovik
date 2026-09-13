@@ -4,11 +4,24 @@ import { isAxiosError } from "axios";
 import { useAuthStore } from "@/shared/auth/store";
 import { ldapLogin as apiLdapLogin, getYandexAuthUrl, getVkAuthUrl, type TokenPair } from "@/shared/api/auth";
 import { setTokens } from "@/shared/auth/tokens";
+import { PasswordInput } from "@/shared/components/PasswordInput";
+
+// Backend error strings we translate rather than showing raw to the user.
+const KNOWN_ERROR_TRANSLATIONS: Record<string, string> = {
+  "Invalid credentials": "Неверная почта или пароль",
+  "Account is blocked": "Аккаунт заблокирован",
+  "Account is deactivated": "Аккаунт отключён",
+  "User not found or inactive": "Пользователь не найден или отключён",
+  "TOTP code required": "Введите код двухфакторной аутентификации",
+  "Invalid TOTP code": "Неверный код двухфакторной аутентификации",
+  "LDAP authentication failed": "Не удалось выполнить корпоративную авторизацию",
+  "LDAP authentication is not enabled": "Корпоративная авторизация не подключена",
+};
 
 function extractError(err: unknown, isLdap = false): string {
   if (isAxiosError(err)) {
     const detail = err.response?.data?.detail;
-    if (typeof detail === "string") return detail;
+    if (typeof detail === "string") return KNOWN_ERROR_TRANSLATIONS[detail] ?? detail;
     if (err.response?.status === 401) return isLdap ? "Неверные корпоративные данные" : "Неверная почта или пароль";
     if (err.response?.status === 403) return "Доступ заблокирован";
     if (!err.response) return "Сервер недоступен";
@@ -79,8 +92,8 @@ export function SignInPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
       {/* Logo */}
-      <span className="text-[96px] font-medium text-primary leading-[150%] select-none">
-        OI
+      <span className="text-[56px] font-medium text-primary leading-[150%] select-none">
+        Лесовик
       </span>
 
       {/* Card — with border per design */}
@@ -153,8 +166,7 @@ export function SignInPage() {
           <label className="text-[22px] font-medium text-primary leading-[150%]">
             Пароль
           </label>
-          <input
-            type="password"
+          <PasswordInput
             required
             autoComplete="current-password"
             value={password}

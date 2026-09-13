@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { PasswordInput } from "@/shared/components/PasswordInput";
 
 /**
  * Self-service registration is intentionally NOT available on this platform —
@@ -37,8 +38,8 @@ export function SignUpPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
       {/* Logo */}
-      <span className="text-[96px] font-medium text-primary leading-[150%] select-none">
-        OI
+      <span className="text-[56px] font-medium text-primary leading-[150%] select-none">
+        Лесовик
       </span>
 
       {/* Card */}
@@ -82,8 +83,7 @@ export function SignUpPage() {
           <label className="text-[22px] font-medium text-primary leading-[150%]">
             Пароль
           </label>
-          <input
-            type="password"
+          <PasswordInput
             required
             autoComplete="new-password"
             value={password}
@@ -101,8 +101,7 @@ export function SignUpPage() {
           <label className="text-[22px] font-medium text-primary leading-[150%]">
             Повторите пароль
           </label>
-          <input
-            type="password"
+          <PasswordInput
             required
             autoComplete="new-password"
             value={confirm}

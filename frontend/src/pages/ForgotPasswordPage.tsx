@@ -30,8 +30,8 @@ export function ForgotPasswordPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
-      <span className="text-[96px] font-medium text-primary leading-[150%] select-none">
-        OI
+      <span className="text-[56px] font-medium text-primary leading-[150%] select-none">
+        Лесовик
       </span>
 
       <div

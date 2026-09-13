@@ -39,7 +39,7 @@ export function ThemesPage() {
       {/* Header */}
       <header className="h-[56px] shrink-0 flex items-center px-8 gap-6 bg-white border-b border-cardbg">
         <div className="flex items-center gap-2">
-          <span className="text-[20px] font-bold text-primary">OI</span>
+          <span className="text-[20px] font-bold text-primary">Лесовик</span>
         </div>
         <button
           onClick={() => navigate(-1)}

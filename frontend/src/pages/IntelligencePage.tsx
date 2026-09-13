@@ -186,7 +186,7 @@ function TextSection() {
 function AssistantSection() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string }[]>([
-    { role: "ai", text: "Привет! Я умный помощник OI. Как я могу помочь вам с вашим приложением?" },
+    { role: "ai", text: "Привет! Я умный помощник Лесовик. Как я могу помочь вам с вашим приложением?" },
   ]);
 
   function send() {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
+import { PasswordInput } from "@/shared/components/PasswordInput";
 import { useUsers, useDeactivateUser, useUpdateUser, useHardDeleteUser, useInviteUser, useSetUserPassword, useRoles } from "@/shared/hooks/useUsers";
 import { useGroups, useCreateGroup, useUpdateGroup, useDeleteGroup, useGroup, useAddGroupMember, useRemoveGroupMember, useApplyGroupRoles } from "@/shared/hooks/useGroups";
 import { useAuditLogs } from "@/shared/hooks/useAuditLogs";
@@ -1109,8 +1110,7 @@ function SetPasswordDialog({ userId, userName, onClose }: { userId: string; user
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[16px] px-[30px] pb-[28px]">
           <p className="text-[14px] text-primary/60">Новый пароль для <strong className="text-primary">{userName}</strong></p>
-          <input
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => { setPassword(e.target.value); setError(""); }}
             placeholder="Введите новый пароль"

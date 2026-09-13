@@ -39,7 +39,7 @@ export function OAuthCallbackPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-4">
-      <span className="text-[96px] font-medium text-primary leading-[150%] select-none">OI</span>
+      <span className="text-[56px] font-medium text-primary leading-[150%] select-none">Лесовик</span>
       <p className="text-[18px] text-primary/60">Выполняем вход…</p>
       <svg className="animate-spin w-8 h-8 text-cta" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" />
