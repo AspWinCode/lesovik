@@ -2507,6 +2507,12 @@ function IframePreview({
               width: cfg.iframeW,
               height: iframeH,
               border: 0,
+              // A scaled (transform) iframe is its own compositing layer —
+              // Chrome/Firefox won't clip it to the parent's overflow:hidden
+              // + border-radius alone, so the radius has to be repeated here
+              // (scaled up by 1/scale so the rendered/visible radius matches
+              // the parent's after the CSS transform shrinks everything).
+              borderRadius: cfg.borderR / scale,
               transformOrigin: "top left",
               transform: `scale(${scale})`,
             }}

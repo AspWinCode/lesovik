@@ -89,6 +89,10 @@ export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: Pre
                 height: "100%",
                 border: "none",
                 display: "block",
+                // An iframe is always its own compositing layer — the parent's
+                // overflow:hidden + border-radius alone doesn't reliably clip
+                // it in Chrome/Firefox, so repeat the radius here too.
+                borderRadius: outerR,
               }}
               sandbox="allow-scripts allow-same-origin allow-forms"
             />

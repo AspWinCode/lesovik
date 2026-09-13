@@ -45,7 +45,7 @@ export function Sidebar({ active, onChange, isPlatformAdmin }: SidebarProps) {
               className="nav-item w-full"
             >
               <span className="w-[25px] h-[25px] shrink-0"><AdminIcon /></span>
-              <span>Администрирование</span>
+              <span className="min-w-0 text-left break-words">Администрирование</span>
             </button>
           </>
         )}

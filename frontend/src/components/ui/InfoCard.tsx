@@ -24,8 +24,8 @@ export function InfoCard({ card }: InfoCardProps) {
 
       {/* Label badge */}
       <div className="absolute left-[55px] bottom-[53px] flex items-center justify-between
-                      bg-mainbg rounded-badge px-[15px] py-[10px] gap-[91px] w-[220px] h-[50px]">
-        <span className="text-card-h font-semibold text-primary whitespace-nowrap">{card.label}</span>
+                      bg-mainbg rounded-badge px-[15px] py-[10px] gap-2 w-[220px] h-[50px]">
+        <span className="text-card-h font-semibold text-primary truncate min-w-0">{card.label}</span>
         {card.icon ? (
           <span className="w-5 h-5 shrink-0">{card.icon}</span>
         ) : (
