@@ -1763,7 +1763,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         {!rec ? (
           <p style={{ padding: 14, color: colors.textMuted, fontSize: 14 }}>Запись не найдена.</p>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: colors.border }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1px", background: colors.border }}>
             {visibleCols.map((f) => (
               <div key={f.id} style={{ background: colors.surface, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.display_name}</div>
@@ -3591,7 +3591,7 @@ function DetailView({ title, cols, records, accent, initialRecordId, appId, enti
       {!rec ? (
         <div style={{ padding: 20, color: "#8898AA", fontSize: 14 }}>Нет записей</div>
       ) : (
-        <div style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 20px" }}>
+        <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px 20px" }}>
           {cols.map((f) => {
             const relTargetId = f.field_type === "relation"
               ? resolveRelationTargetEntityId(f, entityId, relations)
