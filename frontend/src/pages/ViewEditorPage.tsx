@@ -2436,13 +2436,19 @@ function IframePreview({
   iframeRef: React.RefObject<HTMLIFrameElement>;
   accent: string;
 }) {
-  const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
+  const [device, setDevice] = useState<"mobile" | "tablet" | "desktop">("mobile");
 
   const tabs = [
     { id: "mobile", label: "Смартфон", icon: (
       <svg viewBox="0 0 23 23" fill="none" className="w-full h-full">
         <rect x="4" y="1" width="15" height="21" rx="3" stroke="#00205F" strokeWidth="2"/>
         <circle cx="11.5" cy="18.5" r="1" fill="#00205F"/>
+      </svg>
+    )},
+    { id: "tablet", label: "Планшет", icon: (
+      <svg viewBox="0 0 23 23" fill="none" className="w-full h-full">
+        <rect x="3" y="1" width="17" height="21" rx="2" stroke="#00205F" strokeWidth="2"/>
+        <circle cx="11.5" cy="18" r="0.8" fill="#00205F"/>
       </svg>
     )},
     { id: "desktop", label: "Десктоп", icon: (
@@ -2454,10 +2460,14 @@ function IframePreview({
     )},
   ];
 
-  // Mobile: 380×800 phone frame. Desktop: 540×500 widescreen frame, 1280px content scaled down.
-  const cfg = device === "mobile"
-    ? { frameW: 380, frameH: 800, iframeW: 390,  borderR: 40 }
-    : { frameW: 540, frameH: 500, iframeW: 1280, borderR: 14 };
+  // Mobile: 380×800 phone frame. Tablet: 460×620, 768px content scaled down.
+  // Desktop: 540×500 widescreen frame, 1280px content scaled down.
+  const DEVICE_CFG = {
+    mobile:  { frameW: 380, frameH: 800, iframeW: 390,  borderR: 40 },
+    tablet:  { frameW: 460, frameH: 620, iframeW: 768,  borderR: 24 },
+    desktop: { frameW: 540, frameH: 500, iframeW: 1280, borderR: 14 },
+  } as const;
+  const cfg = DEVICE_CFG[device];
   const scale = cfg.frameW / cfg.iframeW;
   const iframeH = Math.ceil(cfg.frameH / scale);
 
@@ -2473,8 +2483,7 @@ function IframePreview({
       <TabSwitcher
         tabs={tabs}
         activeId={device}
-        onChange={(id) => setDevice(id as "mobile" | "desktop")}
-        className="w-[348px]"
+        onChange={(id) => setDevice(id as "mobile" | "tablet" | "desktop")}
       />
 
       {/* Device frame */}

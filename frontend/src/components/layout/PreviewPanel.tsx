@@ -9,7 +9,7 @@ interface PreviewPanelProps {
 }
 
 export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: PreviewPanelProps) {
-  const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
+  const [device, setDevice] = useState<"mobile" | "tablet" | "desktop">("mobile");
 
   const tabs = [
     {
@@ -19,6 +19,16 @@ export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: Pre
         <svg viewBox="0 0 23 23" fill="none" className="w-full h-full">
           <rect x="4" y="1" width="15" height="21" rx="3" stroke="#00205F" strokeWidth="2"/>
           <circle cx="11.5" cy="18.5" r="1" fill="#00205F"/>
+        </svg>
+      ),
+    },
+    {
+      id: "tablet",
+      label: "Планшет",
+      icon: (
+        <svg viewBox="0 0 23 23" fill="none" className="w-full h-full">
+          <rect x="3" y="1" width="17" height="21" rx="2" stroke="#00205F" strokeWidth="2"/>
+          <circle cx="11.5" cy="18" r="0.8" fill="#00205F"/>
         </svg>
       ),
     },
@@ -35,9 +45,10 @@ export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: Pre
     },
   ];
 
-  const isMobile = device === "mobile";
-  const frameW = isMobile ? 380 : 560;
-  const outerR = isMobile ? 60 : 20;
+  const FRAME_W: Record<typeof device, number> = { mobile: 380, tablet: 480, desktop: 560 };
+  const OUTER_R: Record<typeof device, number> = { mobile: 60, tablet: 32, desktop: 20 };
+  const frameW = FRAME_W[device];
+  const outerR = OUTER_R[device];
 
   const runtimeUrl = appId ? buildRuntimeUrl(appId, window.location.origin) : null;
 
@@ -54,8 +65,8 @@ export function PreviewPanel({ projectName = "Fitness App", appId, onOpen }: Pre
       <TabSwitcher
         tabs={tabs}
         activeId={device}
-        onChange={(id) => setDevice(id as "mobile" | "desktop")}
-        className="w-[348px] shrink-0"
+        onChange={(id) => setDevice(id as "mobile" | "tablet" | "desktop")}
+        className="shrink-0"
       />
 
       {/* Preview frame — grows to fill available space */}

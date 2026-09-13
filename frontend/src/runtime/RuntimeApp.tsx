@@ -591,6 +591,22 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
     return evalVisibilityCond(cond, contextPayload);
   });
 
+  // Consecutive blocks whose "Ширина" is set to less than full (half/third/
+  // auto) sit side by side in a shared flex-wrap row instead of each
+  // getting its own full-width row — otherwise the width setting only ever
+  // shrinks a block within a row it still has entirely to itself.
+  const blockRows: PageBlock[][] = [];
+  for (const b of visibleBlocks) {
+    const isRowItem = ((b.config?.width as string) ?? "full") !== "full";
+    const lastRow = blockRows[blockRows.length - 1];
+    const lastRowIsOpen = lastRow?.every((rb) => ((rb.config?.width as string) ?? "full") !== "full");
+    if (isRowItem && lastRow && lastRowIsOpen) {
+      lastRow.push(b);
+    } else {
+      blockRows.push([b]);
+    }
+  }
+
   return (
     <div style={{ fontSize: textSizePx }}>
       {(design.show_header ?? true) && (
@@ -649,33 +665,41 @@ function PageView({ page, appId, entities, relations, allPages, accent, colors, 
       )}
       {visibleBlocks.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: blockGap, marginTop: hasDataView ? blockGap : 0 }}>
-          {visibleBlocks.map((b) => (
-            <Block
-              key={b.id}
-              block={b}
-              entity={entity}
-              cols={cols}
-              records={filteredRecords}
-              accent={accent}
-              colors={colors}
-              inputStyle={inputStyle}
-              labelPosition={labelPosition}
-              appId={appId}
-              entities={entities}
-              relations={relations}
-              onNavigate={onNavigate}
-              onRecordCreated={() => recordsQuery.refetch()}
-              formValues={pageFormValues}
-              onFormChange={setFormField}
-              fileValues={pageFileValues}
-              onFileChange={setFormFile}
-              filterValues={pageFilters}
-              onFilterChange={(field, val) => setPageFilters((prev) => ({ ...prev, [field]: val }))}
-              onFormSave={handlePageFormSave}
-              formStatus={pageSaveStatus}
-              onRowClick={onRowClick}
-            />
-          ))}
+          {blockRows.map((row) => {
+            const items = row.map((b) => (
+              <Block
+                key={b.id}
+                block={b}
+                entity={entity}
+                cols={cols}
+                records={filteredRecords}
+                accent={accent}
+                colors={colors}
+                inputStyle={inputStyle}
+                labelPosition={labelPosition}
+                appId={appId}
+                entities={entities}
+                relations={relations}
+                onNavigate={onNavigate}
+                onRecordCreated={() => recordsQuery.refetch()}
+                formValues={pageFormValues}
+                onFormChange={setFormField}
+                fileValues={pageFileValues}
+                onFileChange={setFormFile}
+                filterValues={pageFilters}
+                onFilterChange={(field, val) => setPageFilters((prev) => ({ ...prev, [field]: val }))}
+                onFormSave={handlePageFormSave}
+                formStatus={pageSaveStatus}
+                onRowClick={onRowClick}
+              />
+            ));
+            if (row.length === 1) return items[0];
+            return (
+              <div key={row.map((b) => b.id).join("-")} style={{ display: "flex", flexWrap: "wrap", gap: blockGap }}>
+                {items}
+              </div>
+            );
+          })}
           {pageSaveStatus === "error" && (
             <p style={{ color: "#B91C1C", fontSize: 14, padding: "8px 0" }}>Ошибка при сохранении. Попробуйте ещё раз.</p>
           )}
@@ -1225,6 +1249,18 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
   );
 }
 
+const BLOCK_WIDTH_MAP: Record<string, string> = { full: "100%", half: "50%", third: "33.333%", auto: "auto" };
+
+/** Resolved CSS width for a block's "Ширина" setting ("full" if unset). */
+function resolveBlockWidth(block: PageBlock): string {
+  const widthVal = (block.config?.width as string) ?? "full";
+  return BLOCK_WIDTH_MAP[widthVal] ?? "100%";
+}
+
+function blockWidthStyle(block: PageBlock): React.CSSProperties {
+  return { width: resolveBlockWidth(block), boxSizing: "border-box" };
+}
+
 function Block({ block, entity, cols, records, accent, colors, inputStyle, labelPosition, appId, entities, relations, onNavigate, onRecordCreated, formValues, onFormChange, fileValues, onFileChange, filterValues, onFilterChange, onFormSave, formStatus, onRowClick }: {
   block: PageBlock;
   entity: EntityRead | null;
@@ -1268,7 +1304,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
       ? String(formValues[dynamicField])
       : (block.config?.value as string) ?? "—";
     return (
-      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, ...blockWidthStyle(block) }}>
         <span style={{ fontSize: 13, color: colors.textMuted }}>{block.title ?? "Метрика"}</span>
         <span style={{ fontSize: 40, fontWeight: 700, color: accent }}>{displayValue}</span>
       </section>
@@ -1280,7 +1316,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     const trend = (block.config?.trend as string) ?? "+0%";
     const positive = !trend.trim().startsWith("-");
     return (
-      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+      <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, ...blockWidthStyle(block) }}>
         <div style={{ display: "flex", flexDirection: "column" }}>
           <span style={{ fontSize: 13, color: colors.textMuted }}>{block.title ?? "KPI"}</span>
           <span style={{ fontSize: 32, fontWeight: 700, color: colors.text }}>{value}</span>
@@ -1506,17 +1542,15 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
     const targetBlockId = (cfg.targetBlockId as string) ?? "";
     const fontSize = Number((cfg.fontSize as string) ?? 15);
     const radiusVal = (cfg.radius as string) ?? "rounded";
-    const widthVal = (cfg.width as string) ?? "full";
     const radiusMap: Record<string, number> = { sharp: 4, rounded: 8, pill: 9999 };
-    const widthMap: Record<string, string> = { full: "100%", half: "50%", third: "33.333%", auto: "auto" };
 
     const style: React.CSSProperties = {
       background: accent, color: "#fff", border: "none",
       borderRadius: radiusMap[radiusVal] ?? 8,
       padding: "10px 20px", fontSize, fontWeight: 500,
       cursor: "pointer", textDecoration: "none", display: "inline-block",
-      width: widthMap[widthVal] ?? "100%", textAlign: "center",
-      boxSizing: "border-box",
+      textAlign: "center",
+      ...blockWidthStyle(block),
     };
 
     function handleClick() {
