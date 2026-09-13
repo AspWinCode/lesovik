@@ -14,7 +14,7 @@ from app.engine.graph import (
 )
 from app.engine.interpreter import ExecutionContext, ExecutionResult, run_rule
 from app.models.data import Record
-from app.models.logic import Rule, RuleExecutionLog
+from app.models.logic import Rule, RuleConflictLog, RuleExecutionLog
 from app.schemas.common import CursorPage
 from app.schemas.rules import (
     MAX_STEPS,
@@ -22,6 +22,7 @@ from app.schemas.rules import (
     ProcessStepCreate,
     ProcessStepRead,
     ProcessStepUpdate,
+    RuleConflictLogRead,
     RuleCreate,
     RuleExecutionLogRead,
     RuleRead,
@@ -283,42 +284,55 @@ class RuleService:
         event: str,
         changed_fields: list[str] | None = None,
         actor_id: uuid.UUID | None = None,
-    ) -> list[str]:
+    ) -> str | None:
         """
-        Evaluate all active rules for this entity + event.
-        Returns list of Celery task IDs dispatched to sandbox queue.
-        Actual DB mutations happen inside the sandbox task.
+        Evaluate all active rules for this entity + event as ONE batch.
+
+        All matching rules must be evaluated together (not as independent
+        Celery tasks) for priority-based conflict resolution to be
+        deterministic (ТЗ 3.5.4): with N separate tasks, Celery gives no
+        guarantee about execution order, so "higher priority wins" could not
+        actually be enforced — whichever task happened to finish last would
+        win instead.
+
+        Returns the dispatched task's id (or None if no active rules match),
+        so it stays awaitable/observable the same way the old list did for a
+        single-rule caller, while giving conflict detection visibility into
+        every rule's proposed mutations before any of them is persisted.
         """
         rules_raw = await self._get_rules_raw(app_id, active_only=True, entity_id=entity_id)
         if not rules_raw:
-            return []
+            return None
 
-        from app.worker.tasks.sandbox import execute_rule
+        from app.worker.tasks.sandbox import execute_rules_batch
 
-        task_ids: list[str] = []
-        for rule_dict in sorted(rules_raw, key=lambda r: r.get("priority", 100)):
-            task = execute_rule.apply_async(
-                kwargs={
-                    "rule_id": str(rule_dict["id"]),
-                    "rule_trigger": rule_dict["trigger"],
-                    "rule_conditions": rule_dict["conditions"],
-                    "rule_actions": rule_dict["actions"],
-                    "context": {
-                        "record": record_payload,
-                        "record_id": str(record_id),
-                        "entity_id": str(entity_id),
-                        "app_id": str(app_id),
-                        "event": event,
-                        "changed_fields": changed_fields or [],
-                        "actor_id": str(actor_id) if actor_id else None,
-                    },
-                    "execution_id": str(uuid.uuid4()),
+        sorted_rules = sorted(rules_raw, key=lambda r: r.get("priority", 100))
+        task = execute_rules_batch.apply_async(
+            kwargs={
+                "rules": [
+                    {
+                        "id": str(r["id"]),
+                        "trigger": r["trigger"],
+                        "conditions": r["conditions"],
+                        "actions": r["actions"],
+                        "priority": r.get("priority", 100),
+                    }
+                    for r in sorted_rules
+                ],
+                "context": {
+                    "record": record_payload,
+                    "record_id": str(record_id),
+                    "entity_id": str(entity_id),
+                    "app_id": str(app_id),
+                    "event": event,
+                    "changed_fields": changed_fields or [],
+                    "actor_id": str(actor_id) if actor_id else None,
                 },
-                queue="sandbox",
-            )
-            task_ids.append(task.id)
-
-        return task_ids
+                "execution_batch_id": str(uuid.uuid4()),
+            },
+            queue="sandbox",
+        )
+        return task.id
 
     # ------------------------------------------------------------------
     # Execution log
@@ -340,6 +354,23 @@ class RuleService:
             stmt = stmt.where(RuleExecutionLog.rule_id == rule_id)
         result = await self._db.execute(stmt)
         return [RuleExecutionLogRead.model_validate(log) for log in result.scalars()]
+
+    async def list_conflicts(
+        self,
+        app_id: uuid.UUID,
+        entity_id: uuid.UUID | None = None,
+        limit: int = 50,
+    ) -> list[RuleConflictLogRead]:
+        stmt = (
+            select(RuleConflictLog)
+            .where(RuleConflictLog.app_id == app_id)
+            .order_by(RuleConflictLog.detected_at.desc())
+            .limit(limit)
+        )
+        if entity_id:
+            stmt = stmt.where(RuleConflictLog.entity_id == entity_id)
+        result = await self._db.execute(stmt)
+        return [RuleConflictLogRead.model_validate(log) for log in result.scalars()]
 
     # ------------------------------------------------------------------
     # Internals

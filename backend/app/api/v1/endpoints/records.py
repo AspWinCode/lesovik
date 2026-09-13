@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
@@ -286,7 +286,7 @@ async def delete_record(
     if hard and not current_user.has_role("platform_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Hard delete requires platform_admin")
     try:
-        await RecordService(db).delete_record(entity_id, record_id, hard=hard)
+        await RecordService(db).delete_record(entity_id, record_id, hard=hard, actor_id=current_user.user_id)
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
 
@@ -329,12 +329,21 @@ async def upload_file(
     request: Request,
     current_user: AuthDep,
     db: DbDep,
+    replace: bool = Query(
+        default=False,
+        description="Version the field's current file instead of adding an independent one",
+    ),
+    max_files: int | None = Query(
+        default=None, ge=1,
+        description="Block-level cap on files per record; can only tighten the platform ceiling, never raise it",
+    ),
 ) -> RecordFileRead:
     await _resolve_entity(app_id, entity_id, current_user, db)
     svc = FileService(db, get_storage(), get_antivirus())
     try:
         return await svc.upload_file(
-            app_id, entity_id, record_id, field_name, file, actor_id=current_user.user_id
+            app_id, entity_id, record_id, field_name, file,
+            actor_id=current_user.user_id, replace=replace, max_files=max_files,
         )
     except FileError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -348,10 +357,29 @@ async def list_files(
     current_user: AuthDep,
     db: DbDep,
     field_name: str | None = Query(default=None),
+    all_versions: bool = Query(default=False, description="Include superseded file versions"),
 ) -> list[RecordFileRead]:
     await _resolve_entity(app_id, entity_id, current_user, db)
     svc = FileService(db, get_storage(), get_antivirus())
-    return await svc.list_files(record_id, field_name=field_name)
+    return await svc.list_files(record_id, field_name=field_name, include_all_versions=all_versions)
+
+
+@router.get("/{record_id}/files/{file_id}/versions", response_model=list[RecordFileRead], tags=["files"])
+async def list_file_versions(
+    app_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    record_id: uuid.UUID,
+    file_id: uuid.UUID,
+    current_user: AuthDep,
+    db: DbDep,
+) -> list[RecordFileRead]:
+    """Version history (newest first) for the file identified by `file_id` (any version)."""
+    await _resolve_entity(app_id, entity_id, current_user, db)
+    svc = FileService(db, get_storage(), get_antivirus())
+    try:
+        return await svc.list_versions(file_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found") from exc
 
 
 @router.get("/{record_id}/files/{file_id}/download", response_model=RecordFileRead, tags=["files"])
@@ -403,10 +431,17 @@ async def import_records(
     current_user: AuthDep,
     db: DbDep,
     column_map: str | None = Query(default=None, description="JSON map of CSV header → field name"),
+    on_error: Literal["skip", "abort"] = Query(
+        default="skip",
+        description="'skip': import valid rows, report the rest as errors. 'abort': roll back the whole import if any row fails.",
+    ),
+    key_field: str | None = Query(
+        default=None, description="Field to match existing records by — matches are updated instead of duplicated",
+    ),
 ) -> dict[str, Any]:
     """
     Bulk-import records from a CSV or XLSX file.
-    Returns a report: {total, created, skipped, errors:[{row, error, data}]}.
+    Returns a report: {total, created, updated, skipped, aborted, errors:[{row, error, data}]}.
     """
     await _resolve_entity(app_id, entity_id, current_user, db)
 
@@ -427,6 +462,7 @@ async def import_records(
         result = await ImportService(db).import_records(
             app_id, entity_id, data, filename,
             column_map=parsed_map, actor_id=current_user.user_id,
+            on_error=on_error, key_field=key_field,
         )
     except ImportFileError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -434,7 +470,9 @@ async def import_records(
     return {
         "total": result.total,
         "created": result.created,
+        "updated": result.updated,
         "skipped": result.skipped,
+        "aborted": result.aborted,
         "errors": result.errors,
     }
 

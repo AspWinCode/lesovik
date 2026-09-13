@@ -69,10 +69,27 @@ class RecordRead(BaseModel):
     payload: dict[str, Any]
     version: int
     is_deleted: bool = False
+    deleted_at: datetime | None = None
+    deleted_by: uuid.UUID | None = None
     created_by: uuid.UUID | None
     updated_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class TrashedRecordRead(BaseModel):
+    """One row in the app-wide «Корзина» (ТЗ 3.9.1) — a soft-deleted record
+    plus enough entity context to display and restore it without a second
+    lookup."""
+    id: uuid.UUID
+    entity_id: uuid.UUID
+    entity_slug: str
+    entity_display_name: str
+    payload: dict[str, Any]
+    is_cascade_deleted: bool  # deleted as a side effect of a parent's deletion, not directly
+    deleted_at: datetime | None
+    deleted_by: uuid.UUID | None
     model_config = {"from_attributes": True}
 
 
@@ -109,5 +126,8 @@ class RecordFileRead(BaseModel):
     download_url: str | None = None  # presigned URL, populated on demand
     is_scanned: bool
     is_infected: bool | None
+    version: int
+    is_latest: bool
+    previous_version_id: uuid.UUID | None
     created_at: datetime
     model_config = {"from_attributes": True}

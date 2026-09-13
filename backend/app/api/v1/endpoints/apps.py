@@ -18,9 +18,17 @@ from app.schemas.apps import (
     AppSnapshotRead,
     AppUpdate,
     LockInfo,
+    PublishCheckResult,
 )
 from app.schemas.common import CursorPage
-from app.services.apps import AppConflictError, AppNotFoundError, AppPermissionError, AppService
+from app.schemas.records import TrashedRecordRead
+from app.services.apps import (
+    AppConflictError,
+    AppNotFoundError,
+    AppPermissionError,
+    AppPublishBlockedError,
+    AppService,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/apps", tags=["apps"])
@@ -119,6 +127,16 @@ async def delete_app(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> Non
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
+@router.get("/{app_id}/publish/check", response_model=PublishCheckResult)
+async def check_publish(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> PublishCheckResult:
+    """Dry-run the pre-publish integrity check (ТЗ 3.11.1) — lets the editor
+    show issues before the user commits to publishing."""
+    try:
+        return await AppService(db).check_publish(app_id)
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+
+
 @router.post("/{app_id}/publish", response_model=AppRead)
 async def publish_app(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> AppRead:
     try:
@@ -130,6 +148,14 @@ async def publish_app(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> Ap
         raise _not_found() from exc
     except AppPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except AppPublishBlockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Публикация заблокирована — устраните критические ошибки",
+                "issues": [i.model_dump() for i in exc.issues],
+            },
+        ) from exc
 
 
 # ---- Clone ----
@@ -253,6 +279,36 @@ async def remove_member(
         raise _not_found() from exc
     except AppPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+# ---- Recycle bin (ТЗ 3.9.1) ----
+
+@router.get("/{app_id}/recycle-bin", response_model=CursorPage[TrashedRecordRead])
+async def list_recycle_bin(
+    app_id: uuid.UUID,
+    current_user: AuthDep,
+    db: DbDep,
+    entity_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+) -> CursorPage[TrashedRecordRead]:
+    """Admin-only, app-wide view of soft-deleted records across every entity —
+    the DELETE endpoint's include_deleted=true mixes deleted rows into one
+    entity's normal listing; this is a dedicated «Корзина» view."""
+    if not current_user.has_role("platform_admin", "app_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Recycle bin access requires an admin role")
+    try:
+        await _svc(db).get_app(
+            app_id, actor_id=current_user.user_id,
+            is_admin=current_user.has_role("platform_admin"),
+        )
+    except AppNotFoundError as exc:
+        raise _not_found() from exc
+
+    from app.services.records import RecordService
+    return await RecordService(db).list_deleted_records(
+        app_id, entity_id=entity_id, limit=limit, cursor=cursor,
+    )
 
 
 # ---- Edit lock (heartbeat / status) ----

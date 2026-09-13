@@ -19,6 +19,7 @@ from app.schemas.apps import (
     AppSnapshotCreate,
     AppSnapshotRead,
     AppUpdate,
+    PublishCheckResult,
 )
 from app.schemas.common import CursorPage
 
@@ -35,6 +36,15 @@ class AppConflictError(Exception):
 
 class AppPermissionError(Exception):
     pass
+
+
+class AppPublishBlockedError(Exception):
+    """Raised when the pre-publish integrity check (ТЗ 3.11.1) finds
+    error-severity issues. Carries the full check result so the caller can
+    show every issue, not just the fact that publishing was blocked."""
+    def __init__(self, issues: list) -> None:
+        self.issues = issues
+        super().__init__(f"Publication blocked by {len(issues)} integrity issue(s)")
 
 
 def _encode_cursor(app_id: uuid.UUID, created_at: datetime) -> str:
@@ -183,12 +193,25 @@ class AppService:
         await self._db.flush()
         logger.info("app_archived", app_id=str(app_id))
 
+    async def check_publish(self, app_id: uuid.UUID) -> PublishCheckResult:
+        """Dry-run the pre-publish integrity check (ТЗ 3.11.1) without
+        publishing — lets the UI show issues before the user commits."""
+        await self._fetch_app(app_id)
+        from app.services.publish_validation import PublishValidationService
+        return await PublishValidationService(self._db).check(app_id)
+
     async def publish_app(
         self, app_id: uuid.UUID, actor_id: uuid.UUID, is_admin: bool
     ) -> AppRead:
         app = await self._fetch_app(app_id)
         if not is_admin:
             await self._require_role(app_id, actor_id, {"owner", "admin"})
+
+        from app.services.publish_validation import PublishValidationService
+        check = await PublishValidationService(self._db).check(app_id)
+        if not check.can_publish:
+            raise AppPublishBlockedError(check.issues)
+
         app.is_published = True
         await self._db.flush()
         await self._db.refresh(app, attribute_names=["updated_at"])

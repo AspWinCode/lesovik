@@ -85,7 +85,7 @@ def _rule_payload(entity_id: str, trigger_event: str = "record.created") -> dict
 
 @pytest.mark.asyncio
 async def test_evaluate_rules_dispatches_to_sandbox(db_session: AsyncSession) -> None:
-    """Active rules cause apply_async to be called once per rule."""
+    """No active rules — nothing is dispatched."""
     app_id = uuid.uuid4()
     entity_id = uuid.uuid4()
     record_id = uuid.uuid4()
@@ -95,15 +95,14 @@ async def test_evaluate_rules_dispatches_to_sandbox(db_session: AsyncSession) ->
     mock_task.id = "mock-task-id"
 
     with patch(
-        "app.worker.tasks.sandbox.execute_rule.apply_async",
+        "app.worker.tasks.sandbox.execute_rules_batch.apply_async",
         return_value=mock_task,
     ) as mock_apply:
-        # No active rules — should return empty list
         svc = RuleService(db_session)
-        task_ids = await svc.evaluate_rules_for_event(
+        task_id = await svc.evaluate_rules_for_event(
             app_id, entity_id, record_id, payload, "record.created"
         )
-        assert task_ids == []
+        assert task_id is None
         mock_apply.assert_not_called()
 
 
@@ -135,20 +134,57 @@ async def test_evaluate_rules_context_includes_record_id(db_session: AsyncSessio
     mock_task.id = "mock-task-id"
 
     with patch(
-        "app.worker.tasks.sandbox.execute_rule.apply_async",
+        "app.worker.tasks.sandbox.execute_rules_batch.apply_async",
         return_value=mock_task,
     ) as mock_apply:
         svc = RuleService(db_session)
-        task_ids = await svc.evaluate_rules_for_event(
+        task_id = await svc.evaluate_rules_for_event(
             app_id, entity_id, record_id, payload, "record.created"
         )
-        assert len(task_ids) == 1
+        assert task_id == "mock-task-id"
         called_kwargs = mock_apply.call_args.kwargs["kwargs"]
         assert called_kwargs["context"]["record_id"] == str(record_id)
         assert called_kwargs["context"]["entity_id"] == str(entity_id)
         assert called_kwargs["context"]["app_id"] == str(app_id)
         assert called_kwargs["context"]["event"] == "record.created"
         assert called_kwargs["context"]["record"] == payload
+        assert len(called_kwargs["rules"]) == 1
+        assert called_kwargs["rules"][0]["id"] == str(rule.id)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_rules_sorts_by_priority(db_session: AsyncSession) -> None:
+    """Multiple active rules are dispatched as ONE batch task, sorted ascending
+    by priority — not as one task per rule (that couldn't guarantee order)."""
+    from app.models.logic import Rule
+
+    app_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    record_id = uuid.uuid4()
+
+    for priority, name in [(50, "low"), (1, "high"), (10, "mid")]:
+        db_session.add(Rule(
+            app_id=app_id, entity_id=entity_id, name=name,
+            trigger={"event": "record.created", "watch_fields": []},
+            conditions={}, actions=[], priority=priority, is_active=True,
+        ))
+    await db_session.flush()
+
+    mock_task = MagicMock()
+    mock_task.id = "mock-task-id"
+
+    with patch(
+        "app.worker.tasks.sandbox.execute_rules_batch.apply_async",
+        return_value=mock_task,
+    ) as mock_apply:
+        svc = RuleService(db_session)
+        task_id = await svc.evaluate_rules_for_event(
+            app_id, entity_id, record_id, {}, "record.created"
+        )
+        assert task_id == "mock-task-id"
+        assert mock_apply.call_count == 1  # one batch, not one task per rule
+        rules_kwarg = mock_apply.call_args.kwargs["kwargs"]["rules"]
+        assert [r["priority"] for r in rules_kwarg] == [1, 10, 50]
 
 
 # ------------------------------------------------------------------
@@ -186,7 +222,7 @@ async def test_create_record_triggers_rule_evaluation(
     mock_task.id = "mock-task-123"
 
     with patch(
-        "app.worker.tasks.sandbox.execute_rule.apply_async",
+        "app.worker.tasks.sandbox.execute_rules_batch.apply_async",
         return_value=mock_task,
     ) as mock_apply:
         resp = await client.post(
@@ -238,7 +274,7 @@ async def test_update_record_triggers_rule_evaluation(
     mock_task.id = "mock-task-456"
 
     with patch(
-        "app.worker.tasks.sandbox.execute_rule.apply_async",
+        "app.worker.tasks.sandbox.execute_rules_batch.apply_async",
         return_value=mock_task,
     ) as mock_apply:
         patch_resp = await client.patch(

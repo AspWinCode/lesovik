@@ -8,6 +8,8 @@ from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.schemas.auth import (
     ChangePasswordRequest,
+    FilePolicyRead,
+    FilePolicyUpdate,
     ForgotPasswordRequest,
     LdapLoginRequest,
     LoginRequest,
@@ -234,6 +236,24 @@ async def update_session_policy(body: SessionPolicyUpdate, current_user: AuthDep
     from app.services.session_policy import SessionPolicyService
     policy = await SessionPolicyService(db).update(body)
     return SessionPolicyRead.model_validate(policy)
+
+
+# ---- File policy ----
+
+@router.get("/file-policy", response_model=FilePolicyRead, summary="Get current file upload policy")
+async def get_file_policy(db: DbDep) -> FilePolicyRead:
+    from app.services.file_policy import FilePolicyService
+    policy = await FilePolicyService(db).get()
+    return FilePolicyRead.model_validate(policy)
+
+
+@router.put("/file-policy", response_model=FilePolicyRead, summary="Update file upload policy (admin only)")
+async def update_file_policy(body: FilePolicyUpdate, current_user: AuthDep, db: DbDep) -> FilePolicyRead:
+    if not current_user.has_role("platform_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    from app.services.file_policy import FilePolicyService
+    policy = await FilePolicyService(db).update(body)
+    return FilePolicyRead.model_validate(policy)
 
 
 # ---- Яндекс ID ----

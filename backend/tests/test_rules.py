@@ -26,6 +26,7 @@ from app.engine.interpreter import (
     evaluate_conditions,
     execute_actions,
     run_rule,
+    run_rules_batch,
 )
 from app.models.identity import Role, User, UserRole
 
@@ -608,6 +609,158 @@ class TestRunRule:
         ctx = _ctx(event="record.created")
         result = run_rule({}, {}, [self._action_set("x", 1)], ctx)
         assert result.matched is True
+
+
+# ==================================================================
+# Unit: run_rules_batch — priority-based conflict resolution (ТЗ 3.5.4)
+# ==================================================================
+
+
+class TestRunRulesBatch:
+    def _rule(
+        self, rule_id: str, priority: int, field: str, value: Any,
+        condition: dict | None = None,
+    ) -> dict:
+        return {
+            "id": rule_id,
+            "trigger": {"event": "record.updated", "watch_fields": []},
+            "conditions": condition or {},
+            "actions": [
+                {"type": "set_field", "field": field, "value": {"type": "literal", "value": value}},
+            ],
+            "priority": priority,
+        }
+
+    def test_no_conflict_different_fields(self) -> None:
+        ctx = _ctx({})
+        rules = [
+            self._rule("r1", 1, "a", "x"),
+            self._rule("r2", 2, "b", "y"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert batch.applied_mutations == {"a": "x", "b": "y"}
+        assert batch.conflicts == []
+
+    def test_higher_priority_wins_on_conflict(self) -> None:
+        """Lower priority number = runs first = wins (ТЗ 3.5.4)."""
+        ctx = _ctx({})
+        rules = [
+            self._rule("high", 1, "status", "approved"),
+            self._rule("low", 50, "status", "rejected"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert batch.applied_mutations == {"status": "approved"}
+        assert ctx.record["status"] == "approved"  # not left as the loser's value
+
+    def test_conflict_is_recorded_with_winner_and_loser(self) -> None:
+        ctx = _ctx({})
+        rules = [
+            self._rule("high", 1, "status", "approved"),
+            self._rule("low", 50, "status", "rejected"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert len(batch.conflicts) == 1
+        conflict = batch.conflicts[0]
+        assert conflict.field_name == "status"
+        assert conflict.winning_rule_id == "high"
+        assert conflict.winning_value == "approved"
+        assert conflict.losing_writes == [{"rule_id": "low", "value": "rejected"}]
+
+    def test_identical_values_are_not_a_conflict(self) -> None:
+        ctx = _ctx({})
+        rules = [
+            self._rule("r1", 1, "status", "approved"),
+            self._rule("r2", 50, "status", "approved"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert batch.conflicts == []
+        assert batch.applied_mutations == {"status": "approved"}
+
+    def test_order_in_input_list_determines_winner_not_numeric_priority_value(self) -> None:
+        """run_rules_batch trusts caller-provided order (RuleService sorts by
+        priority before calling) — it does not re-sort by the priority field
+        itself, so a caller bug in sorting would surface here, not be masked."""
+        ctx = _ctx({})
+        rules = [
+            self._rule("first", 999, "status", "A"),   # listed first despite high priority number
+            self._rule("second", 1, "status", "B"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert batch.applied_mutations == {"status": "A"}
+        assert batch.conflicts[0].winning_rule_id == "first"
+
+    def test_three_way_conflict_lists_every_loser(self) -> None:
+        ctx = _ctx({})
+        rules = [
+            self._rule("r1", 1, "status", "A"),
+            self._rule("r2", 2, "status", "B"),
+            self._rule("r3", 3, "status", "C"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert len(batch.conflicts) == 1
+        conflict = batch.conflicts[0]
+        assert conflict.winning_rule_id == "r1"
+        assert conflict.losing_writes == [
+            {"rule_id": "r2", "value": "B"},
+            {"rule_id": "r3", "value": "C"},
+        ]
+
+    def test_downstream_rule_condition_sees_winning_value(self) -> None:
+        """A later rule's condition must evaluate against the WINNING value of
+        an earlier conflict, not whatever the losing rule tried to write."""
+        ctx = _ctx({})
+        rules = [
+            self._rule("setter_high", 1, "status", "approved"),
+            self._rule("setter_low", 50, "status", "rejected"),
+            self._rule(
+                "watcher", 60, "notified", True,
+                condition={"type": "compare", "field": "status", "op": "eq", "value": "approved"},
+            ),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert batch.applied_mutations["notified"] is True
+
+    def test_unmatched_rule_contributes_nothing(self) -> None:
+        ctx = _ctx({"status": "draft"})
+        rules = [
+            self._rule(
+                "r1", 1, "x", 1,
+                condition={"type": "compare", "field": "status", "op": "eq", "value": "active"},
+            ),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert batch.applied_mutations == {}
+        assert batch.outcomes[0].result.matched is False
+
+    def test_outcome_tracks_overridden_fields_for_the_losing_rule(self) -> None:
+        ctx = _ctx({})
+        rules = [
+            self._rule("high", 1, "status", "approved"),
+            self._rule("low", 50, "status", "rejected"),
+        ]
+        batch = run_rules_batch(rules, ctx)
+        outcomes_by_id = {o.rule_id: o for o in batch.outcomes}
+        assert outcomes_by_id["high"].overridden_fields == []
+        assert outcomes_by_id["low"].overridden_fields == ["status"]
+
+    def test_non_field_actions_accumulate_across_all_matched_rules(self) -> None:
+        ctx = _ctx({})
+        rules = [
+            {
+                "id": "r1", "priority": 1,
+                "trigger": {"event": "record.updated", "watch_fields": []},
+                "conditions": {},
+                "actions": [{"type": "create_record", "entity_id": "e1", "payload": {}}],
+            },
+            {
+                "id": "r2", "priority": 2,
+                "trigger": {"event": "record.updated", "watch_fields": []},
+                "conditions": {},
+                "actions": [{"type": "create_record", "entity_id": "e2", "payload": {}}],
+            },
+        ]
+        batch = run_rules_batch(rules, ctx)
+        assert len(batch.records_to_create) == 2
 
 
 # ==================================================================

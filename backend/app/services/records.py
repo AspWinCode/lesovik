@@ -17,7 +17,15 @@ from app.models.data import Record
 from app.models.identity import AbacRule
 from app.models.metamodel import Entity, Field, Relation
 from app.schemas.common import CursorPage
-from app.schemas.records import FilterOp, ParsedFilter, RecordCreate, RecordListParams, RecordRead, RecordUpdate
+from app.schemas.records import (
+    FilterOp,
+    ParsedFilter,
+    RecordCreate,
+    RecordListParams,
+    RecordRead,
+    RecordUpdate,
+    TrashedRecordRead,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -557,6 +565,7 @@ class RecordService:
 
     async def delete_record(
         self, entity_id: uuid.UUID, record_id: uuid.UUID, hard: bool = False,
+        actor_id: uuid.UUID | None = None,
         _seen: set[tuple[uuid.UUID, uuid.UUID]] | None = None,
     ) -> None:
         seen = _seen if _seen is not None else set()
@@ -568,12 +577,14 @@ class RecordService:
         record = await self._fetch(entity_id, record_id)
 
         if not hard:
-            await self._cascade_soft_delete(entity_id, record_id, seen)
+            await self._cascade_soft_delete(entity_id, record_id, actor_id, seen)
 
         if hard:
             await self._db.delete(record)
         else:
             record.is_deleted = True
+            record.deleted_at = datetime.now(UTC)
+            record.deleted_by = actor_id
         await self._db.flush()
         record_operations.labels(operation="delete").inc()
         logger.info("record_deleted", record_id=str(record_id), hard=hard)
@@ -589,6 +600,8 @@ class RecordService:
         if record is None:
             raise RecordNotFoundError(str(record_id))
         record.is_deleted = False
+        record.deleted_at = None
+        record.deleted_by = None
         await self._db.flush()
 
         await self._cascade_restore(entity_id, record_id)
@@ -596,11 +609,68 @@ class RecordService:
         await self._db.refresh(record, attribute_names=["updated_at"])
         return RecordRead.model_validate(record)
 
+    async def list_deleted_records(
+        self,
+        app_id: uuid.UUID,
+        entity_id: uuid.UUID | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> CursorPage[TrashedRecordRead]:
+        """App-wide «Корзина» (ТЗ 3.9.1): every soft-deleted record across the
+        app's entities (or just one, if `entity_id` is given), most recently
+        deleted first."""
+        entities_stmt = select(Entity).where(Entity.app_id == app_id)
+        if entity_id:
+            entities_stmt = entities_stmt.where(Entity.id == entity_id)
+        entities_by_id = {e.id: e for e in (await self._db.execute(entities_stmt)).scalars().all()}
+        if not entities_by_id:
+            return CursorPage(items=[], next_cursor=None, has_more=False, total=0)
+
+        stmt = (
+            select(Record)
+            .where(Record.entity_id.in_(entities_by_id.keys()), Record.is_deleted.is_(True))
+            .order_by(Record.deleted_at.desc().nulls_last(), Record.id.desc())
+        )
+        if cursor:
+            cur_ts, cur_id = _cursor_decode(cursor)
+            stmt = stmt.where(
+                or_(
+                    Record.deleted_at < cur_ts,
+                    and_(Record.deleted_at == cur_ts, Record.id < cur_id),
+                )
+            )
+        stmt = stmt.limit(limit + 1)
+        rows = (await self._db.execute(stmt)).scalars().all()
+
+        has_more = len(rows) > limit
+        items = rows[:limit]
+        next_cursor = (
+            _cursor_encode(items[-1].deleted_at, items[-1].id)
+            if has_more and items[-1].deleted_at is not None
+            else None
+        )
+
+        trashed = [
+            TrashedRecordRead(
+                id=r.id,
+                entity_id=r.entity_id,
+                entity_slug=entities_by_id[r.entity_id].slug,
+                entity_display_name=entities_by_id[r.entity_id].display_name,
+                payload=r.payload,
+                is_cascade_deleted=r.cascade_deleted_by is not None,
+                deleted_at=r.deleted_at,
+                deleted_by=r.deleted_by,
+            )
+            for r in items
+        ]
+        return CursorPage(items=trashed, next_cursor=next_cursor, has_more=has_more)
+
     # ------------------------------------------------------------------
     # Cascade helpers
 
     async def _cascade_soft_delete(
-        self, entity_id: uuid.UUID, record_id: uuid.UUID, seen: set[tuple[uuid.UUID, uuid.UUID]]
+        self, entity_id: uuid.UUID, record_id: uuid.UUID, actor_id: uuid.UUID | None,
+        seen: set[tuple[uuid.UUID, uuid.UUID]],
     ) -> None:
         """Soft-delete dependents: records in other entities whose relation field
         points at this record (excluding MANY_TO_MANY).
@@ -635,13 +705,14 @@ class RecordService:
             )).scalars().all()
 
             for child in children:
-                await self._soft_delete_child(rel.from_entity_id, child.id, record_id, seen)
+                await self._soft_delete_child(rel.from_entity_id, child.id, record_id, actor_id, seen)
 
     async def _soft_delete_child(
         self,
         entity_id: uuid.UUID,
         record_id: uuid.UUID,
         parent_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
         seen: set[tuple[uuid.UUID, uuid.UUID]],
     ) -> None:
         key = (entity_id, record_id)
@@ -650,7 +721,7 @@ class RecordService:
         seen.add(key)
 
         # Recurse first so grandchildren are deleted before the child
-        await self._cascade_soft_delete(entity_id, record_id, seen)
+        await self._cascade_soft_delete(entity_id, record_id, actor_id, seen)
 
         await self._db.execute(
             update(Record)
@@ -659,7 +730,10 @@ class RecordService:
                 Record.id == record_id,
                 Record.is_deleted.is_(False),
             )
-            .values(is_deleted=True, cascade_deleted_by=parent_id)
+            .values(
+                is_deleted=True, cascade_deleted_by=parent_id,
+                deleted_at=datetime.now(UTC), deleted_by=actor_id,
+            )
         )
 
     async def _cascade_restore(self, entity_id: uuid.UUID, record_id: uuid.UUID) -> None:
@@ -680,7 +754,7 @@ class RecordService:
                     Record.entity_id == child.entity_id,
                     Record.id == child.id,
                 )
-                .values(is_deleted=False, cascade_deleted_by=None)
+                .values(is_deleted=False, cascade_deleted_by=None, deleted_at=None, deleted_by=None)
             )
 
     # ------------------------------------------------------------------

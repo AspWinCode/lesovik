@@ -82,3 +82,18 @@ class AppSnapshotRead(BaseModel):
 
 class AppSnapshotCreate(BaseModel):
     comment: str | None = Field(default=None, max_length=512)
+
+
+class PublishIssue(BaseModel):
+    """One integrity-check finding (ТЗ 3.11.1). `severity="error"` blocks
+    publication; `"warning"` is informational only. `location` carries enough
+    ids for the UI to link straight to the problem element."""
+    severity: str = Field(pattern=r"^(error|warning)$")
+    category: str  # "block_no_source" | "rule_empty" | "workflow_transition" | "relation_invalid"
+    message: str
+    location: dict[str, str] = Field(default_factory=dict)
+
+
+class PublishCheckResult(BaseModel):
+    can_publish: bool
+    issues: list[PublishIssue] = Field(default_factory=list)

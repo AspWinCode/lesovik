@@ -255,6 +255,20 @@ class CycleCheckResponse(BaseModel):
     cycles: list[list[str]]  # list of rule_id lists that form cycles
 
 
+class RuleConflictLogRead(BaseModel):
+    id: uuid.UUID
+    entity_id: uuid.UUID
+    record_id: uuid.UUID
+    event: str
+    field_name: str
+    winning_rule_id: uuid.UUID
+    winning_value: Any
+    losing_writes: list[dict[str, Any]]
+    execution_batch_id: uuid.UUID
+    detected_at: datetime
+    model_config = {"from_attributes": True}
+
+
 # ------------------------------------------------------------------
 # AST validation helpers (lightweight, not full type-checking)
 # ------------------------------------------------------------------

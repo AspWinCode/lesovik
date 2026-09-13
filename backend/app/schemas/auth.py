@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -92,6 +92,32 @@ class SessionPolicyRead(BaseModel):
 class SessionPolicyUpdate(BaseModel):
     timeout_minutes: int | None = Field(default=None, ge=1, le=10080)   # max 7 days
     max_concurrent_sessions: int | None = Field(default=None, ge=0, le=100)  # 0 = unlimited
+
+
+class FilePolicyRead(BaseModel):
+    max_file_size_mb: int
+    max_files_per_record: int
+    allowed_extensions: list[str]
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class FilePolicyUpdate(BaseModel):
+    max_file_size_mb: int | None = Field(default=None, ge=1, le=500)
+    max_files_per_record: int | None = Field(default=None, ge=1, le=1000)
+    allowed_extensions: list[str] | None = Field(default=None, min_length=1)
+
+    @field_validator("allowed_extensions")
+    @classmethod
+    def _normalize_extensions(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = {ext.strip().lower().lstrip(".") for ext in value}
+        normalized.discard("")
+        if not normalized:
+            raise ValueError("allowed_extensions must contain at least one extension")
+        return sorted(normalized)
 
 
 import uuid as _uuid  # noqa: E402

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -60,5 +61,31 @@ class RuleExecutionLog(Base):
     input_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     output_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     executed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class RuleConflictLog(Base):
+    """Append-only log of field-level rule conflicts (ТЗ 3.5.4): two rules in
+    the same batch tried to set the same field to different values. One row
+    per (record, field, batch) — `losing_writes` lists every rule that lost,
+    not just the first."""
+    __tablename__ = "rule_conflict_log"
+    __table_args__ = {"schema": "logic"}
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    app_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    record_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    event: Mapped[str] = mapped_column(String(64), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    winning_rule_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    winning_value: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    # [{"rule_id": "...", "value": ...}, ...]
+    losing_writes: Mapped[list] = mapped_column(JSONB, nullable=False)
+    execution_batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -289,3 +289,214 @@ async def test_import_returns_row_errors_for_invalid_rows(
     assert data["created"] >= 1
     # At least one row should be reported as error or skipped (empty string → skipped by import)
     assert data["created"] + data["skipped"] + len(data["errors"]) == data["total"]
+
+
+# ------------------------------------------------------------------
+# Unit: file size / row count limits (ТЗ Приложение A)
+# ------------------------------------------------------------------
+
+
+class TestImportLimits:
+    @pytest.mark.asyncio
+    async def test_oversized_file_rejected(self, monkeypatch) -> None:
+        # Both checks below raise before any DB access, so — like TestCsvParser
+        # — a real session isn't needed.
+        import app.services.imports as imports_module
+        monkeypatch.setattr(imports_module, "MAX_IMPORT_FILE_SIZE", 10)  # 10 bytes, avoids allocating 50MB in a test
+
+        svc = ImportService(None)  # type: ignore[arg-type]
+        with pytest.raises(ImportError, match="exceeds the maximum import size"):
+            await svc.import_records(uuid.uuid4(), uuid.uuid4(), b"name,email\nAlice,a@b.com\n", "data.csv")
+
+    @pytest.mark.asyncio
+    async def test_row_count_over_limit_rejected(self, monkeypatch) -> None:
+        import app.services.imports as imports_module
+        monkeypatch.setattr(imports_module, "MAX_IMPORT_ROWS", 2)
+
+        csv_content = b"name\nA\nB\nC\n"  # 3 rows > limit of 2
+        svc = ImportService(None)  # type: ignore[arg-type]
+        with pytest.raises(ImportError, match="exceeding the limit of 2"):
+            await svc.import_records(uuid.uuid4(), uuid.uuid4(), csv_content, "data.csv")
+
+    @pytest.mark.asyncio
+    async def test_row_count_at_limit_is_allowed(self, db_session: AsyncSession, monkeypatch) -> None:
+        import app.services.imports as imports_module
+        monkeypatch.setattr(imports_module, "MAX_IMPORT_ROWS", 2)
+
+        csv_content = b"name\nA\nB\n"  # exactly 2 rows == limit
+        svc = ImportService(db_session)
+        # Entity doesn't exist, so rows will error out individually — the
+        # point here is only that the *limit* itself doesn't reject it.
+        result = await svc.import_records(uuid.uuid4(), uuid.uuid4(), csv_content, "data.csv")
+        assert result.total == 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_import_file_size_limit_returns_400(client: AsyncClient, builder: User, monkeypatch) -> None:
+    import app.services.imports as imports_module
+    monkeypatch.setattr(imports_module, "MAX_IMPORT_FILE_SIZE", 10)
+
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_entity(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
+        headers=headers,
+        files={"file": ("data.csv", io.BytesIO(b"name,score\nAlice,90\n"), "text/csv")},
+    )
+    assert resp.status_code == 400
+    assert "maximum import size" in resp.json()["detail"]
+
+
+# ------------------------------------------------------------------
+# Integration: on_error="abort" (ТЗ 3.8 — "отменить весь импорт")
+# ------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_abort_mode_rolls_back_valid_rows_when_one_fails(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_entity(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+    await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/fields",
+        json={"name": "email", "display_name": "Email", "field_type": "email", "is_required": True},
+        headers=headers,
+    )
+
+    # Alice is valid; Bob is missing the required email → should fail the whole import.
+    csv_content = b"name,email\nAlice,alice@example.com\nBob,\n"
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
+        headers=headers,
+        files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
+        params={"on_error": "abort"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["aborted"] is True
+    assert data["created"] == 0
+    assert len(data["errors"]) >= 1
+
+    # Nothing was actually persisted — not even Alice, who was individually valid.
+    list_resp = await client.get(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records", headers=headers,
+    )
+    assert list_resp.json()["items"] == []
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_abort_mode_succeeds_when_all_rows_are_valid(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_entity(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    csv_content = b"name,score\nAlice,90\nBob,85\n"
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
+        headers=headers,
+        files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
+        params={"on_error": "abort"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["aborted"] is False
+    assert data["created"] == 2
+
+
+# ------------------------------------------------------------------
+# Integration: key_field upsert (ТЗ 3.8 — обновление по ключевому полю)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_upsert_updates_existing_record_by_key(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_entity(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    create = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records",
+        json={"payload": {"name": "Alice", "score": "10"}},
+        headers=headers,
+    )
+    rec_id = create.json()["id"]
+
+    csv_content = b"name,score\nAlice,99\n"
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
+        headers=headers,
+        files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
+        params={"key_field": "name"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["created"] == 0
+    assert data["updated"] == 1
+
+    get_resp = await client.get(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/{rec_id}", headers=headers,
+    )
+    assert get_resp.json()["payload"]["score"] == "99"
+
+    # No duplicate was created alongside the update.
+    list_resp = await client.get(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records", headers=headers,
+    )
+    assert len(list_resp.json()["items"]) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_upsert_creates_when_no_existing_match(client: AsyncClient, builder: User) -> None:
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_entity(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    csv_content = b"name,score\nCarol,77\n"
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
+        headers=headers,
+        files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
+        params={"key_field": "name"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["created"] == 1
+    assert data["updated"] == 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_upsert_does_not_match_soft_deleted_records(client: AsyncClient, builder: User) -> None:
+    """A key match against a soft-deleted record should create a new record,
+    not resurrect/overwrite the deleted one."""
+    token = await _login(client, builder.email, "Build1234!")
+    app_id, entity_id = await _setup_entity(client, token)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    create = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records",
+        json={"payload": {"name": "Dave", "score": "10"}},
+        headers=headers,
+    )
+    rec_id = create.json()["id"]
+    await client.delete(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/{rec_id}", headers=headers,
+    )
+
+    csv_content = b"name,score\nDave,50\n"
+    resp = await client.post(
+        f"/api/v1/apps/{app_id}/entities/{entity_id}/records/import",
+        headers=headers,
+        files={"file": ("data.csv", io.BytesIO(csv_content), "text/csv")},
+        params={"key_field": "name"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["created"] == 1
+    assert resp.json()["updated"] == 0

@@ -272,6 +272,29 @@ class PasswordHistory(Base):
     )
 
 
+class FilePolicy(Base):
+    """Platform-wide upload limits (ТЗ 3.7.1 / Приложение A). Per-block limits
+    (e.g. max files on one multi-file block) may only tighten these, never
+    loosen them — enforced in FileService."""
+    __tablename__ = "file_policy"
+    __table_args__ = {"schema": "identity"}
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    max_file_size_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    max_files_per_record: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    allowed_extensions: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False,
+        default=lambda: [
+            "pdf", "docx", "xlsx", "pptx", "odt", "txt", "rtf",
+            "jpg", "jpeg", "png", "gif", "webp", "svg",
+            "zip", "rar", "7z",
+        ],
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class ResourcePermission(Base):
     """Role → resource access matrix (app / page / block / field / record level)."""
     __tablename__ = "resource_permission"

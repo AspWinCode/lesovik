@@ -1,7 +1,12 @@
 """
 Sandbox Celery worker — executes Rules Engine tasks.
 This worker runs in an isolated queue (no external network access in prod).
-Hard time limit: 120s / soft: 113s (Celery enforced).
+Hard time limit: 120s / soft: 113s (Celery enforced) — applies to the WHOLE
+batch of rules matching one record event, not per rule. All active rules for
+one event are evaluated together (not as independent tasks) so that
+priority-based conflict resolution (ТЗ 3.5.4) is actually deterministic —
+see app.engine.interpreter.run_rules_batch and app.services.rules.RuleService
+.evaluate_rules_for_event for why per-rule tasks couldn't guarantee that.
 """
 import time
 import uuid
@@ -10,39 +15,35 @@ import structlog
 from celery import shared_task
 
 from app.core.metrics import rule_executions
-from app.engine.interpreter import ExecutionContext, run_rule
+from app.engine.interpreter import BatchResult, ExecutionContext, RuleOutcome, run_rules_batch
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(
-    name="app.worker.tasks.sandbox.execute_rule",
+    name="app.worker.tasks.sandbox.execute_rules_batch",
     bind=True,
     max_retries=0,          # Rules must not auto-retry — side effects may have occurred
     time_limit=120,
     soft_time_limit=113,
     acks_late=True,
 )
-def execute_rule(
+def execute_rules_batch(
     self: object,
-    rule_id: str,
-    rule_trigger: dict,
-    rule_conditions: dict,
-    rule_actions: list,
+    rules: list[dict],
     context: dict,
-    execution_id: str,
+    execution_batch_id: str,
 ) -> dict:
     """
-    Evaluate a rule against the given record context and persist mutations.
-
-    The actual DB writes (field mutations, record creates) happen here
-    so that they are atomic with the execution log entry.
+    Evaluate every active rule matching one record event together, in
+    priority order (`rules` must already be sorted ascending by priority —
+    RuleService does this before dispatch), and persist the outcome:
+      - one merged set of field mutations, conflicts resolved by priority
+      - every matched rule's create/update/delete/notification/webhook actions
+      - one RuleExecutionLog row per rule (always written, best-effort)
+      - one RuleConflictLog row per field that had a priority conflict
     """
     start = time.monotonic()
-    status = "failed"
-    error_msg: str | None = None
-    output: dict = {}
-
     ctx = ExecutionContext(
         record=dict(context.get("record", {})),
         entity_id=uuid.UUID(context["entity_id"]),
@@ -53,55 +54,61 @@ def execute_rule(
         changed_fields=context.get("changed_fields", []),
     )
 
+    batch = run_rules_batch(rules, ctx)
+
+    persist_error: str | None = None
     try:
-        result = run_rule(rule_trigger, rule_conditions, rule_actions, ctx)
-
-        if result.matched:
-            output = {
-                "field_mutations": result.field_mutations,
-                "records_to_create": result.records_to_create,
-                "records_to_update": result.records_to_update,
-                "records_to_delete": result.records_to_delete,
-                "notifications": result.notifications,
-                "webhooks": result.webhooks,
-                "errors": result.errors,
-            }
-            # Persist mutations to DB (requires its own DB session in worker)
-            _persist_mutations(result, ctx, rule_id)
-            status = "success" if not result.errors else "failed"
-        else:
-            status = "skipped"
-
+        _persist_batch(batch, ctx, execution_batch_id)
     except Exception as exc:  # noqa: BLE001
-        error_msg = str(exc)
-        logger.exception("rule_execution_error", rule_id=rule_id, execution_id=execution_id, error=error_msg)
+        persist_error = str(exc)
+        logger.exception(
+            "rule_batch_persist_error", execution_batch_id=execution_batch_id, error=persist_error
+        )
 
     duration_ms = int((time.monotonic() - start) * 1000)
-    rule_executions.labels(status=status).inc()
-    _write_log(rule_id, ctx, status, duration_ms, error_msg, output, execution_id)
+    _write_execution_logs(batch, ctx, persist_error, duration_ms, execution_batch_id)
+
+    for outcome in batch.outcomes:
+        status = _rule_status(outcome, persist_error)
+        rule_executions.labels(status=status).inc()
 
     logger.info(
-        "rule_executed",
-        rule_id=rule_id,
-        execution_id=execution_id,
-        status=status,
+        "rule_batch_executed",
+        execution_batch_id=execution_batch_id,
+        rule_count=len(rules),
+        conflict_count=len(batch.conflicts),
         duration_ms=duration_ms,
-        matched=status != "skipped",
+        failed=bool(persist_error),
     )
-    return {"status": status, "execution_id": execution_id, "duration_ms": duration_ms}
+    return {
+        "status": "failed" if persist_error else "success",
+        "execution_batch_id": execution_batch_id,
+        "duration_ms": duration_ms,
+        "conflicts": len(batch.conflicts),
+        "error": persist_error,
+    }
 
 
-def _persist_mutations(result: object, ctx: ExecutionContext, rule_id: str) -> None:  # type: ignore[type-arg]
-    """Apply field mutations and record operations to the database."""
+def _rule_status(outcome: RuleOutcome, persist_error: str | None) -> str:
+    if persist_error:
+        return "failed"
+    if not outcome.result.matched:
+        return "skipped"
+    return "failed" if outcome.result.errors else "success"
+
+
+def _persist_batch(batch: BatchResult, ctx: ExecutionContext, execution_batch_id: str) -> None:
+    """Apply the batch's merged mutations, record operations, and conflict
+    log entries in one atomic transaction."""
     import asyncio
     from app.core.database import AsyncSessionLocal
     from app.models.data import Record
+    from app.models.logic import RuleConflictLog
     from sqlalchemy import select
 
     async def _run() -> None:
         async with AsyncSessionLocal() as session:
-            # Field mutations — update the triggering record identified by record_id
-            if result.field_mutations and ctx.record_id:  # type: ignore[attr-defined]
+            if batch.applied_mutations and ctx.record_id:
                 stmt = select(Record).where(
                     Record.entity_id == ctx.entity_id,
                     Record.id == ctx.record_id,
@@ -110,24 +117,20 @@ def _persist_mutations(result: object, ctx: ExecutionContext, rule_id: str) -> N
                 res = await session.execute(stmt)
                 record = res.scalar_one_or_none()
                 if record:
-                    merged = {**record.payload, **result.field_mutations}  # type: ignore[attr-defined]
-                    record.payload = merged
+                    record.payload = {**record.payload, **batch.applied_mutations}
                     record.version += 1
 
-            # Create records from actions
-            for rec_create in result.records_to_create:  # type: ignore[attr-defined]
+            for rec_create in batch.records_to_create:
                 entity_id_str = rec_create.get("entity_id")
                 target_entity = uuid.UUID(entity_id_str) if entity_id_str else ctx.entity_id
-                new_record = Record(
+                session.add(Record(
                     entity_id=target_entity,
                     payload=rec_create.get("payload", {}),
                     created_by=ctx.actor_id,
                     updated_by=ctx.actor_id,
-                )
-                session.add(new_record)
+                ))
 
-            # Update records from actions
-            for rec_update in result.records_to_update:  # type: ignore[attr-defined]
+            for rec_update in batch.records_to_update:
                 try:
                     target_id = uuid.UUID(rec_update["record_id"])
                 except (KeyError, ValueError):
@@ -136,12 +139,10 @@ def _persist_mutations(result: object, ctx: ExecutionContext, rule_id: str) -> N
                 res = await session.execute(stmt)
                 record = res.scalar_one_or_none()
                 if record:
-                    merged = {**record.payload, **rec_update.get("payload", {})}
-                    record.payload = merged
+                    record.payload = {**record.payload, **rec_update.get("payload", {})}
                     record.version += 1
 
-            # Soft-delete records from actions
-            for record_id_str in result.records_to_delete:  # type: ignore[attr-defined]
+            for record_id_str in batch.records_to_delete:
                 try:
                     target_id = uuid.UUID(record_id_str)
                 except ValueError:
@@ -152,8 +153,20 @@ def _persist_mutations(result: object, ctx: ExecutionContext, rule_id: str) -> N
                 if record:
                     record.is_deleted = True
 
-            # Dispatch notifications with Jinja2-rendered templates
-            for notif in result.notifications:  # type: ignore[attr-defined]
+            for conflict in batch.conflicts:
+                session.add(RuleConflictLog(
+                    app_id=ctx.app_id,
+                    entity_id=ctx.entity_id,
+                    record_id=ctx.record_id,
+                    event=ctx.event,
+                    field_name=conflict.field_name,
+                    winning_rule_id=uuid.UUID(conflict.winning_rule_id),
+                    winning_value=conflict.winning_value,
+                    losing_writes=conflict.losing_writes,
+                    execution_batch_id=uuid.UUID(execution_batch_id),
+                ))
+
+            for notif in batch.notifications:
                 if not notif.get("to"):
                     continue
                 from app.worker.tasks.notifications import send_email
@@ -164,7 +177,7 @@ def _persist_mutations(result: object, ctx: ExecutionContext, rule_id: str) -> N
                     env = Environment(loader=BaseLoader(), autoescape=select_autoescape(["html"]))
                     body_html = env.from_string(template_str).render(**record_ctx)
                 except Exception:  # noqa: BLE001
-                    body_html = template_str  # fallback to raw template
+                    body_html = template_str
                 send_email.apply_async(
                     kwargs={
                         "to": notif["to"],
@@ -179,38 +192,51 @@ def _persist_mutations(result: object, ctx: ExecutionContext, rule_id: str) -> N
     asyncio.run(_run())
 
 
-def _write_log(
-    rule_id: str,
+def _write_execution_logs(
+    batch: BatchResult,
     ctx: ExecutionContext,
-    status: str,
+    persist_error: str | None,
     duration_ms: int,
-    error: str | None,
-    output: dict,
-    execution_id: str,
+    execution_batch_id: str,
 ) -> None:
-    """Write execution log entry (best-effort, non-blocking)."""
+    """Write one RuleExecutionLog row per rule (best-effort, non-blocking —
+    mirrors the old per-rule task's behavior of always leaving an audit
+    trail even when persistence itself failed)."""
     import asyncio
     from app.core.database import AsyncSessionLocal
     from app.models.logic import RuleExecutionLog
 
     async def _run() -> None:
         async with AsyncSessionLocal() as session:
-            log = RuleExecutionLog(
-                id=uuid.UUID(execution_id),
-                rule_id=uuid.UUID(rule_id),
-                entity_id=ctx.entity_id,
-                app_id=ctx.app_id,
-                event=ctx.event,
-                status=status,
-                duration_ms=duration_ms,
-                error=error,
-                input_snapshot=ctx.record,
-                output_snapshot=output or None,
-            )
-            session.add(log)
+            for outcome in batch.outcomes:
+                status = _rule_status(outcome, persist_error)
+                output = None
+                if outcome.result.matched:
+                    output = {
+                        "field_mutations": outcome.result.field_mutations,
+                        "overridden_fields": outcome.overridden_fields,
+                        "records_to_create": outcome.result.records_to_create,
+                        "records_to_update": outcome.result.records_to_update,
+                        "records_to_delete": outcome.result.records_to_delete,
+                        "notifications": outcome.result.notifications,
+                        "webhooks": outcome.result.webhooks,
+                        "errors": outcome.result.errors,
+                    }
+                session.add(RuleExecutionLog(
+                    rule_id=uuid.UUID(outcome.rule_id),
+                    record_id=ctx.record_id,
+                    entity_id=ctx.entity_id,
+                    app_id=ctx.app_id,
+                    event=ctx.event,
+                    status=status,
+                    duration_ms=duration_ms,
+                    error=persist_error or ("; ".join(outcome.result.errors) or None),
+                    input_snapshot=ctx.record,
+                    output_snapshot=output,
+                ))
             await session.commit()
 
     try:
         asyncio.run(_run())
     except Exception as exc:  # noqa: BLE001
-        logger.warning("rule_log_write_failed", rule_id=rule_id, error=str(exc))
+        logger.warning("rule_batch_log_write_failed", execution_batch_id=execution_batch_id, error=str(exc))

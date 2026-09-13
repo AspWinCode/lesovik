@@ -270,3 +270,93 @@ def run_rule(
 
     # Execute actions
     return execute_actions(rule_actions, ctx)
+
+
+# ------------------------------------------------------------------
+# Batch evaluation — all rules matching one event, evaluated together so
+# priority-based conflict resolution (ТЗ 3.5.4) is actually possible.
+# ------------------------------------------------------------------
+
+@dataclass
+class RuleOutcome:
+    rule_id: str
+    result: ExecutionResult
+    overridden_fields: list[str] = field(default_factory=list)  # this rule's writes that lost
+
+
+@dataclass
+class FieldConflict:
+    field_name: str
+    winning_rule_id: str
+    winning_value: Any
+    losing_writes: list[dict[str, Any]]  # [{"rule_id": ..., "value": ...}, ...]
+
+
+@dataclass
+class BatchResult:
+    outcomes: list[RuleOutcome] = field(default_factory=list)
+    applied_mutations: dict[str, Any] = field(default_factory=dict)
+    conflicts: list[FieldConflict] = field(default_factory=list)
+    records_to_create: list[dict[str, Any]] = field(default_factory=list)
+    records_to_update: list[dict[str, Any]] = field(default_factory=list)
+    records_to_delete: list[str] = field(default_factory=list)
+    notifications: list[dict[str, Any]] = field(default_factory=list)
+    webhooks: list[dict[str, Any]] = field(default_factory=list)
+
+
+def run_rules_batch(
+    rules: list[dict[str, Any]],
+    ctx: ExecutionContext,
+) -> BatchResult:
+    """
+    Evaluate all `rules` against one shared context, in the order given
+    (callers must sort by priority ascending — lower number runs first).
+
+    Field-level conflicts (two rules setting the same field to different
+    values) resolve in favor of whichever rule ran first in `rules` — i.e.
+    whichever has the higher priority. `execute_actions` unconditionally
+    folds a rule's own mutations into `ctx.record`, so a losing write is
+    reverted immediately after being detected, keeping later rules'
+    conditions evaluated against the correct (winning) field values.
+    """
+    batch = BatchResult()
+    applied_by: dict[str, str] = {}  # field -> rule_id that won it
+    conflicts_by_field: dict[str, FieldConflict] = {}
+
+    for rule in rules:
+        rule_id = str(rule["id"])
+        result = run_rule(rule["trigger"], rule["conditions"], rule["actions"], ctx)
+        overridden: list[str] = []
+
+        if result.matched:
+            for field_name, value in result.field_mutations.items():
+                if field_name not in applied_by:
+                    batch.applied_mutations[field_name] = value
+                    applied_by[field_name] = rule_id
+                elif batch.applied_mutations[field_name] != value:
+                    overridden.append(field_name)
+                    conflict = conflicts_by_field.get(field_name)
+                    if conflict is None:
+                        conflict = FieldConflict(
+                            field_name=field_name,
+                            winning_rule_id=applied_by[field_name],
+                            winning_value=batch.applied_mutations[field_name],
+                            losing_writes=[],
+                        )
+                        conflicts_by_field[field_name] = conflict
+                    conflict.losing_writes.append({"rule_id": rule_id, "value": value})
+                    # execute_actions() already wrote `value` into ctx.record —
+                    # put the winning value back so downstream rules see it.
+                    ctx.record[field_name] = batch.applied_mutations[field_name]
+                # else: identical value proposed twice — not a real conflict.
+
+            batch.records_to_create.extend(result.records_to_create)
+            batch.records_to_update.extend(result.records_to_update)
+            batch.records_to_delete.extend(result.records_to_delete)
+            batch.notifications.extend(result.notifications)
+            batch.webhooks.extend(result.webhooks)
+
+        batch.outcomes.append(RuleOutcome(rule_id=rule_id, result=result, overridden_fields=overridden))
+
+    batch.conflicts = list(conflicts_by_field.values())
+    return batch

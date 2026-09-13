@@ -11,6 +11,7 @@ from app.schemas.rules import (
     ProcessStepRead,
     ProcessStepsReorder,
     ProcessStepUpdate,
+    RuleConflictLogRead,
     RuleCreate,
     RuleExecutionLogRead,
     RuleRead,
@@ -69,6 +70,18 @@ async def create_rule(
 async def check_cycles(app_id: uuid.UUID, current_user: AuthDep, db: DbDep) -> CycleCheckResponse:
     await _check_app(app_id, current_user, db)
     return await RuleService(db).check_cycles(app_id)
+
+
+@router.get("/conflicts", response_model=list[RuleConflictLogRead], summary="Rule priority conflict log (ТЗ 3.5.4)")
+async def get_rule_conflicts(
+    app_id: uuid.UUID,
+    current_user: AuthDep,
+    db: DbDep,
+    entity_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[RuleConflictLogRead]:
+    await _check_app(app_id, current_user, db)
+    return await RuleService(db).list_conflicts(app_id, entity_id=entity_id, limit=limit)
 
 
 @router.get("/{rule_id}", response_model=RuleRead)
