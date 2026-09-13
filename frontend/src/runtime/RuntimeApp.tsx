@@ -5,7 +5,7 @@ import { isAuthenticated } from "@/shared/auth/tokens";
 import { listApps, type App } from "@/shared/api/apps";
 import { listPages, listViews, type PageRead, type ViewRead } from "@/shared/api/views";
 import { listEntities, listRelations, type EntityRead, type FieldRead, type RelationRead } from "@/shared/api/entities";
-import { listRecords, getRecord, createRecord, updateRecord, type RecordRead } from "@/shared/api/records";
+import { listRecords, getRecord, createRecord, updateRecord, deleteRecord, type RecordRead } from "@/shared/api/records";
 import { apiClient } from "@/shared/api/client";
 import { fetchMe } from "@/shared/api/auth";
 import { parseStaticOptions, groupRecordsByField, buildRecordTree } from "./blockHelpers";
@@ -1162,10 +1162,11 @@ function ChartBlock({ title, chartType, records, labelField, valueField, colors,
   );
 }
 
-function TableBlock({ appId, entities, relations, title, entityId, visibleSystemColumns, colors, onRowClick }: {
+function TableBlock({ appId, entities, relations, title, entityId, visibleSystemColumns, colors, accent, onRowClick }: {
   appId: string; entities?: EntityRead[]; relations?: RelationRead[]; title?: string | null;
-  entityId: string; visibleSystemColumns?: string[]; colors: AppColors; onRowClick?: (entityId: string, recordId: string) => void;
+  entityId: string; visibleSystemColumns?: string[]; colors: AppColors; accent?: string; onRowClick?: (entityId: string, recordId: string) => void;
 }) {
+  const qc = useQueryClient();
   const recordsQuery = useInfiniteQuery({
     queryKey: ["rt-records-page", appId, entityId, "table-block"],
     queryFn: ({ pageParam }: { pageParam?: string }) => listRecords(appId, entityId, { limit: 200, cursor: pageParam }),
@@ -1176,6 +1177,56 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
   const tableEntity = entities?.find((e) => e.id === entityId) ?? null;
   const records = recordsQuery.data?.pages.flatMap((p) => p.items) ?? [];
   const cols = (tableEntity?.fields ?? []).filter((f) => !f.is_system || (visibleSystemColumns ?? []).includes(f.name));
+
+  const [editRowId, setEditRowId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  function startEdit(rec: RecordRead) {
+    const vals: Record<string, string> = {};
+    cols.forEach((f) => {
+      if (f.is_system) return;
+      vals[f.name] = rec.payload[f.name] != null ? String(rec.payload[f.name]) : "";
+    });
+    setEditValues(vals);
+    setEditRowId(rec.id);
+  }
+  function cancelEdit() { setEditRowId(null); setEditValues({}); }
+
+  async function saveEdit() {
+    if (!editRowId) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      cols.forEach((f) => {
+        if (f.is_system) return;
+        const v = editValues[f.name];
+        if (v !== undefined) {
+          if (f.field_type === "number" || f.field_type === "decimal") payload[f.name] = v === "" ? null : Number(v);
+          else if (f.field_type === "boolean") payload[f.name] = v === "true";
+          else payload[f.name] = v === "" ? null : v;
+        }
+      });
+      await updateRecord(appId, entityId, editRowId, { payload });
+      qc.invalidateQueries({ queryKey: ["rt-records-page", appId, entityId] });
+    } finally {
+      setSaving(false);
+      setEditRowId(null);
+      setEditValues({});
+    }
+  }
+
+  async function handleDelete(rec: RecordRead) {
+    if (!window.confirm("Удалить запись без возможности восстановления?")) return;
+    setDeletingId(rec.id);
+    try {
+      await deleteRecord(appId, entityId, rec.id);
+      qc.invalidateQueries({ queryKey: ["rt-records-page", appId, entityId] });
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (!tableEntity) {
     return (
@@ -1201,16 +1252,61 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
                 {cols.map((f) => (
                   <th key={f.id} style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: colors.textMuted, whiteSpace: "nowrap" }}>{f.display_name}</th>
                 ))}
+                <th style={{ padding: "8px 12px", width: 64 }} />
               </tr>
             </thead>
             <tbody>
-              {records.map((rec) => (
+              {records.map((rec) => {
+                const isEditing = editRowId === rec.id;
+                return (
                 <tr
                   key={rec.id}
-                  style={{ borderBottom: `1px solid ${colors.border}`, cursor: onRowClick ? "pointer" : "default" }}
-                  onClick={onRowClick ? () => onRowClick(tableEntity.id, rec.id) : undefined}
+                  style={{ borderBottom: `1px solid ${colors.border}`, cursor: !isEditing && onRowClick ? "pointer" : "default" }}
+                  onClick={!isEditing && onRowClick ? () => onRowClick(tableEntity.id, rec.id) : undefined}
                 >
                   {cols.map((f) => {
+                    if (isEditing && !f.is_system) {
+                      if (f.field_type === "select" || f.field_type === "multi_select") {
+                        return (
+                          <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={editValues[f.name] ?? ""}
+                              onChange={(e) => setEditValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                              style={{ height: 26, padding: "0 4px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
+                            >
+                              <option value="">—</option>
+                              {normalizeChoices(f.field_options?.choices).map((c) => (
+                                <option key={c.value} value={c.value}>{c.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
+                      if (f.field_type === "relation") {
+                        const relTargetId = resolveRelationTargetEntityId(f, tableEntity.id, relations ?? []);
+                        return (
+                          <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                            <RelationSelect
+                              appId={appId}
+                              targetEntityId={relTargetId}
+                              entities={entities ?? []}
+                              value={editValues[f.name] ?? ""}
+                              style={{ height: 26, padding: "0 6px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 140 }}
+                              onChange={(v) => setEditValues((val) => ({ ...val, [f.name]: v }))}
+                            />
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={f.id} style={{ padding: "8px 12px", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            value={editValues[f.name] ?? ""}
+                            onChange={(e) => setEditValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                            style={{ height: 26, padding: "0 6px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 80 }}
+                          />
+                        </td>
+                      );
+                    }
                     if (f.field_type === "relation") {
                       const relTargetId = resolveRelationTargetEntityId(f, tableEntity.id, relations ?? []);
                       return (
@@ -1225,10 +1321,48 @@ function TableBlock({ appId, entities, relations, title, entityId, visibleSystem
                       </td>
                     );
                   })}
+                  <td style={{ padding: "8px 12px", width: 64 }} onClick={(e) => e.stopPropagation()}>
+                    {isEditing ? (
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          disabled={saving}
+                          onClick={() => void saveEdit()}
+                          style={{ height: 22, padding: "0 6px", fontSize: 11, background: accent ?? "#00205F", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                        >
+                          {saving ? "…" : "✓"}
+                        </button>
+                        <button
+                          onClick={cancelEdit}
+                          style={{ height: 22, padding: "0 6px", fontSize: 11, background: colors.border, color: colors.text, border: "none", borderRadius: 4, cursor: "pointer" }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          onClick={() => startEdit(rec)}
+                          title="Редактировать"
+                          style={{ height: 22, padding: "0 6px", fontSize: 11, background: "transparent", color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: 4, cursor: "pointer", opacity: 0.6 }}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          disabled={deletingId === rec.id}
+                          onClick={() => void handleDelete(rec)}
+                          title="Удалить"
+                          style={{ height: 22, padding: "0 6px", fontSize: 11, background: "transparent", color: "#B91C1C", border: `1px solid ${colors.border}`, borderRadius: 4, cursor: "pointer", opacity: deletingId === rec.id ? 0.4 : 0.7 }}
+                        >
+                          {deletingId === rec.id ? "…" : "🗑"}
+                        </button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
               {records.length === 0 && (
-                <tr><td colSpan={cols.length || 1} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
+                <tr><td colSpan={(cols.length || 1) + 1} style={{ padding: 14, color: colors.textMuted }}>Нет записей</td></tr>
               )}
             </tbody>
           </table>
@@ -1945,6 +2079,7 @@ function Block({ block, entity, cols, records, accent, colors, inputStyle, label
         entityId={tableEntityId}
         visibleSystemColumns={block.config?.visible_system_columns as string[] | undefined}
         colors={colors}
+        accent={accent}
         onRowClick={onRowClick}
       />
     );
@@ -2970,6 +3105,22 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
 
   function cancelEdit() { setEditRowId(null); setEditValues({}); }
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function handleDelete(rec: RecordRead) {
+    if (!entity) return;
+    if (!window.confirm("Удалить запись без возможности восстановления?")) return;
+    setDeletingId(rec.id);
+    try {
+      await deleteRecord(appId, entity.id, rec.id);
+      qc.invalidateQueries({ queryKey: ["rt-records", appId, entity.id] });
+      qc.invalidateQueries({ queryKey: ["rt-records-page", appId, entity.id] });
+      onRecordUpdated?.();
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   const colPadding = columnWidth === "Узкая" ? "5px 8px" : columnWidth === "Широкая" ? "10px 20px" : "8px 12px";
   const colMinWidth = columnWidth === "Узкая" ? 60 : columnWidth === "Широкая" ? 160 : 100;
   const canDrill = !!onRowClick && !!entity;
@@ -3050,7 +3201,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                     </span>
                   </th>
                 ))}
-                <th style={{ padding: colPadding, width: 40 }} />
+                <th style={{ padding: colPadding, width: 64 }} />
               </tr>
             </thead>
             <tbody>
@@ -3083,6 +3234,17 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                                 <option key={c.value} value={c.value}>{c.label}</option>
                               ))}
                             </select>
+                          ) : f.field_type === "relation" ? (
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <RelationSelect
+                                appId={appId}
+                                targetEntityId={getRelatedEntityId(f)}
+                                entities={entities}
+                                value={editValues[f.name] ?? ""}
+                                style={{ height: 26, padding: "0 6px", fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 4, background: colors.bg, color: colors.text, outline: "none", minWidth: 140 }}
+                                onChange={(v) => setEditValues((val) => ({ ...val, [f.name]: v }))}
+                              />
+                            </div>
                           ) : (
                           <input
                             value={editValues[f.name] ?? ""}
@@ -3105,7 +3267,7 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                         )}
                       </td>
                     ))}
-                    <td style={{ padding: colPadding, width: 40 }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ padding: colPadding, width: 64 }} onClick={(e) => e.stopPropagation()}>
                       {isEditing ? (
                         <div style={{ display: "flex", gap: 4 }}>
                           <button
@@ -3123,13 +3285,23 @@ function DataView({ viewType, entity, cols, records, accent, colors, columnWidth
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => startEdit(rec)}
-                          title="Редактировать"
-                          style={{ height: 22, padding: "0 6px", fontSize: 11, background: "transparent", color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: 4, cursor: "pointer", opacity: 0.6 }}
-                        >
-                          ✎
-                        </button>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            onClick={() => startEdit(rec)}
+                            title="Редактировать"
+                            style={{ height: 22, padding: "0 6px", fontSize: 11, background: "transparent", color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: 4, cursor: "pointer", opacity: 0.6 }}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            disabled={deletingId === rec.id}
+                            onClick={() => void handleDelete(rec)}
+                            title="Удалить"
+                            style={{ height: 22, padding: "0 6px", fontSize: 11, background: "transparent", color: "#B91C1C", border: `1px solid ${colors.border}`, borderRadius: 4, cursor: "pointer", opacity: deletingId === rec.id ? 0.4 : 0.7 }}
+                          >
+                            {deletingId === rec.id ? "…" : "🗑"}
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
