@@ -1553,6 +1553,13 @@ export const handlers = [
         is_published: true, created_by: MOCK_USER.id,
         created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
       },
+      {
+        id: "kb-3", slug: "s-chego-nachat", title: "С чего начать работу с приложением",
+        category: "Обучение",
+        content: "<p>Создайте таблицы в разделе <b>Данные</b>, соберите страницы в <b>Конструкторе</b> и опубликуйте приложение.</p>",
+        is_published: true, created_by: MOCK_USER.id,
+        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      },
     ];
     const excerpt = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
 

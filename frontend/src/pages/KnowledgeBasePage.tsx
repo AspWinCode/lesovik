@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/shared/auth/store";
@@ -12,9 +13,10 @@ export function KnowledgeBasePage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.roles.some((r) => r.id === "platform_admin") ?? false;
 
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string | null>(null);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(searchParams.get("article"));
   const [mode, setMode] = useState<"view" | "create" | "edit">("view");
 
   const articlesQ = useArticles({ category: category ?? undefined, q: search || undefined });

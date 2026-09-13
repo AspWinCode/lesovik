@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { IconRail, type RailModule } from "@/components/layout/IconRail";
 import { PreviewPanel } from "@/components/layout/PreviewPanel";
+import { useAuthStore } from "@/shared/auth/store";
+import { useArticles } from "@/shared/hooks/useKnowledge";
 
 interface NextStep {
   id: string;
@@ -11,25 +14,16 @@ interface NextStep {
   done: boolean;
 }
 
-interface VideoCard {
-  id: string;
-  title: string;
-  desc: string;
-}
-
-const VIDEO_CARDS: VideoCard[] = [
-  { id: "1", title: "Подготовка электронной таблицы Google", desc: "SheetBest для подготовки электронной таблицы Google Sheets для использования с OI." },
-  { id: "2", title: "Создание интерфейса", desc: "Узнайте, как создавать интерфейсы в OI, создавая представления, используя условное форматирование и фирменный стиль." },
-  { id: "3", title: "Совместное использование и развёртывание вашего приложения", desc: "Узнайте, как добавить соавторов для работы и развёртывания вашего приложения." },
-  { id: "4", title: "Автоматизация рабочих процессов", desc: "Создавайте автоматические уведомления, задачи и процессы без написания кода." },
-  { id: "5", title: "Подключение источников данных", desc: "Интегрируйте Google Sheets, Excel, базы данных и другие источники данных." },
-  { id: "6", title: "Настройка безопасности", desc: "Управляйте доступом пользователей с помощью ролей и фильтров безопасности." },
-];
+const LEARNING_CATEGORY = "Обучение";
 
 export function LearningPage() {
+  const isPlatformAdmin = useAuthStore((s) => s.user?.roles.some((r) => r.id === "platform_admin") ?? false);
+  const articlesQ = useArticles({ category: LEARNING_CATEGORY });
+  const articles = articlesQ.data ?? [];
+
   const [railModule, setRailModule] = useState<RailModule>("docs");
   const [steps, setSteps] = useState<NextStep[]>([
-    { id: "explore",  label: "Изучите приложение",     desc: "Выберите столбец, который вы хотите предсказать.",          icon: <ExploreIcon />,  done: false },
+    { id: "explore",  label: "Изучите приложение",     desc: "Посмотрите, из каких таблиц и страниц состоит ваше приложение.", icon: <ExploreIcon />,  done: false },
     { id: "theme",    label: "Выберете тему",            desc: "Настройте фирменные цвета и логотипы",                      icon: <ThemeIcon />,    done: false },
     { id: "data",     label: "Просмотр данных",          desc: "Проверьте подключённые данные вашего приложения",           icon: <DataIcon />,     done: false },
     { id: "views",    label: "Настройте представление",  desc: "Управляйте отображением данных",                            icon: <ViewsIcon />,    done: false },
@@ -119,25 +113,56 @@ export function LearningPage() {
             </div>
           </section>
 
-          {/* Video tutorials */}
+          {/* Learning articles — pulled from the knowledge base (category "Обучение"),
+              editable by a platform admin from the Knowledge Base page. */}
           <section>
-            <h2 className="text-[18px] font-semibold text-primary mb-4">Видеообучение</h2>
-            <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-              {VIDEO_CARDS.map((card) => (
-                <div key={card.id} className="bg-white border border-cardbg rounded-[10px] overflow-hidden hover:shadow-md transition-shadow cursor-pointer">
-                  {/* Thumbnail placeholder */}
-                  <div className="h-[140px] bg-mainbg flex items-center justify-center">
-                    <svg viewBox="0 0 60 60" className="w-12 h-12 text-cta/30" fill="currentColor">
-                      <path d="M30 5C16.2 5 5 16.2 5 30s11.2 25 25 25 25-11.2 25-25S43.8 5 30 5zm-4 35V20l14 10-14 10z" />
-                    </svg>
-                  </div>
-                  <div className="p-4">
-                    <p className="text-[14px] font-semibold text-cta mb-1">{card.title}</p>
-                    <p className="text-[12px] text-primary/60 line-clamp-2">{card.desc}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[18px] font-semibold text-primary">Обучающие материалы</h2>
+              {isPlatformAdmin && (
+                <Link
+                  to="/knowledge-base"
+                  className="text-[13px] font-medium text-cta hover:underline"
+                >
+                  + Добавить материал
+                </Link>
+              )}
             </div>
+
+            {articlesQ.isLoading && <p className="text-[13px] text-primary/40">Загрузка…</p>}
+
+            {!articlesQ.isLoading && articles.length === 0 && (
+              <div className="border border-dashed border-cardbg rounded-[10px] p-8 text-center">
+                <p className="text-[14px] text-primary/60 mb-1">Обучающих материалов пока нет</p>
+                <p className="text-[13px] text-primary/40">
+                  {isPlatformAdmin
+                    ? "Добавьте статьи в базе знаний с категорией «Обучение» — они появятся здесь."
+                    : "Обратитесь к администратору платформы, чтобы их добавили."}
+                </p>
+              </div>
+            )}
+
+            {articles.length > 0 && (
+              <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+                {articles.map((article) => (
+                  <Link
+                    key={article.id}
+                    to={`/knowledge-base?article=${article.slug}`}
+                    className="bg-white border border-cardbg rounded-[10px] overflow-hidden hover:shadow-md transition-shadow"
+                  >
+                    <div className="h-[100px] bg-mainbg flex items-center justify-center">
+                      <svg viewBox="0 0 24 24" className="w-8 h-8 text-cta/30" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M4 4h16v16H4z" strokeLinejoin="round" />
+                        <path d="M8 9h8M8 13h8M8 17h4" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <div className="p-4">
+                      <p className="text-[14px] font-semibold text-cta mb-1">{article.title}</p>
+                      <p className="text-[12px] text-primary/60 line-clamp-2">{article.excerpt}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </main>
