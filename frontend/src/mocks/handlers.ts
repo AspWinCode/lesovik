@@ -1499,4 +1499,95 @@ export const handlers = [
       }),
     ];
   })(),
+
+  // ---- Knowledge base (ТЗ 3.12) ----
+  ...(() => {
+    interface MockArticle {
+      id: string; slug: string; title: string; category: string | null;
+      content: string; is_published: boolean; created_by: string | null;
+      created_at: string; updated_at: string;
+    }
+    const articles: MockArticle[] = [
+      {
+        id: "kb-1", slug: "kak-sozdat-pravilo", title: "Как создать правило",
+        category: "Правила",
+        content: "<p>Откройте раздел <b>Автоматизация</b> и нажмите «Добавить правило».</p>",
+        is_published: true, created_by: MOCK_USER.id,
+        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "kb-2", slug: "import-dannyh", title: "Импорт данных из Excel",
+        category: "Импорт",
+        content: "<p>Загрузите файл CSV или XLSX и сопоставьте колонки с полями таблицы.</p>",
+        is_published: true, created_by: MOCK_USER.id,
+        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    const excerpt = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+
+    return [
+      http.get(`${API}/kb/articles`, ({ request }) => {
+        const url = new URL(request.url);
+        const category = url.searchParams.get("category");
+        const q = url.searchParams.get("q")?.toLowerCase();
+        let items = articles.filter((a) => a.is_published);
+        if (category) items = items.filter((a) => a.category === category);
+        if (q) items = items.filter((a) => a.title.toLowerCase().includes(q) || a.content.toLowerCase().includes(q));
+        return HttpResponse.json(items.map((a) => ({
+          id: a.id, slug: a.slug, title: a.title, category: a.category,
+          excerpt: excerpt(a.content), is_published: a.is_published, updated_at: a.updated_at,
+        })));
+      }),
+
+      http.get(`${API}/kb/categories`, () => {
+        const cats = [...new Set(articles.filter((a) => a.is_published && a.category).map((a) => a.category!))].sort();
+        return HttpResponse.json(cats);
+      }),
+
+      http.get(`${API}/kb/articles/:idOrSlug`, ({ params }) => {
+        const key = params.idOrSlug as string;
+        const article = articles.find((a) => a.id === key || a.slug === key);
+        if (!article) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+        return HttpResponse.json(article);
+      }),
+
+      http.post(`${API}/kb/articles`, async ({ request }) => {
+        const body = (await request.json()) as Partial<MockArticle>;
+        const now = new Date().toISOString();
+        const article: MockArticle = {
+          id: crypto.randomUUID(),
+          slug: body.slug || `article-${Math.random().toString(36).slice(2, 8)}`,
+          title: body.title ?? "",
+          category: body.category ?? null,
+          content: body.content ?? "",
+          is_published: body.is_published ?? true,
+          created_by: MOCK_USER.id,
+          created_at: now, updated_at: now,
+        };
+        articles.push(article);
+        return HttpResponse.json(article, { status: 201 });
+      }),
+
+      http.patch(`${API}/kb/articles/:idOrSlug`, async ({ params, request }) => {
+        const key = params.idOrSlug as string;
+        const idx = articles.findIndex((a) => a.id === key || a.slug === key);
+        if (idx === -1) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+        const body = (await request.json()) as Partial<MockArticle>;
+        articles[idx] = { ...articles[idx], ...body, updated_at: new Date().toISOString() };
+        return HttpResponse.json(articles[idx]);
+      }),
+
+      http.delete(`${API}/kb/articles/:idOrSlug`, ({ params }) => {
+        const key = params.idOrSlug as string;
+        const idx = articles.findIndex((a) => a.id === key || a.slug === key);
+        if (idx !== -1) articles.splice(idx, 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
+
+      http.post(`${API}/kb/images`, () => HttpResponse.json({
+        id: crypto.randomUUID(),
+        url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='120'%3E%3Crect width='200' height='120' fill='%23EBF4FF'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' fill='%230066FF'%3E(mock image)%3C/text%3E%3C/svg%3E",
+      }, { status: 201 })),
+    ];
+  })(),
 ];

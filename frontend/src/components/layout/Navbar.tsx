@@ -85,7 +85,6 @@ export function Navbar({ brandName = "Дикая Сибирь", className, onGro
 
 /* ── Help dropdown ── */
 const HELP_ITEMS = [
-  "Документация",
   "Курс OI",
   "Форум сообщества",
   "Видео обучение",
@@ -95,6 +94,7 @@ const HELP_ITEMS = [
 function HelpDropdown() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -116,6 +116,16 @@ function HelpDropdown() {
       </button>
       {open && (
         <div className="absolute right-0 top-10 z-50 min-w-[220px] bg-white rounded-[10px] shadow-[0_4px_16px_rgba(0,32,95,0.18)] overflow-hidden py-1">
+          <button
+            onClick={() => { setOpen(false); navigate("/knowledge-base"); }}
+            className="flex items-center justify-between w-full px-4 py-2.5 text-[15px] text-primary hover:text-cta hover:bg-mainbg transition-colors"
+          >
+            <span>База знаний</span>
+            <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3 shrink-0 ml-2">
+              <path d="M3 6h6M6 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <div className="h-px bg-cardbg my-1" />
           {HELP_ITEMS.map((item) => (
             <a
               key={item}
