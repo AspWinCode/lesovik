@@ -931,7 +931,11 @@ export const handlers = [
   // Rules create
   http.post(`${API}/apps/:appId/rules`, async ({ params, request }) => {
     const appId = params.appId as string;
-    const body = (await request.json()) as { name: string; entity_id: string; rule_type?: "automation" | "autofill"; trigger: { event: string; watch_fields?: string[] }; description?: string | null; priority?: number };
+    const body = (await request.json()) as {
+      name: string; entity_id: string; rule_type?: "automation" | "autofill" | "validation";
+      trigger: { event: string; watch_fields?: string[] }; description?: string | null; priority?: number;
+      conditions?: Record<string, unknown>; actions?: Record<string, unknown>[];
+    };
     const now = new Date().toISOString();
     const rule: Rule = {
       id: crypto.randomUUID(),
@@ -942,8 +946,8 @@ export const handlers = [
       is_active: false,
       rule_type: body.rule_type ?? "automation",
       trigger: { event: body.trigger.event, watch_fields: body.trigger.watch_fields ?? [] },
-      conditions: {},
-      actions: [],
+      conditions: body.conditions ?? {},
+      actions: body.actions ?? [],
       priority: body.priority ?? 100,
       version: 1,
       created_by: MOCK_USER.id,

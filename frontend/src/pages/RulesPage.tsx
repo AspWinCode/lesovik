@@ -7,14 +7,46 @@ import { useApps } from "@/shared/hooks/useApps";
 import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs, useRuleConflicts, useRuleWebhookDeliveries } from "@/shared/hooks/useRules";
-import type { FieldRead } from "@/shared/api/entities";
+import type { EntityRead, FieldRead } from "@/shared/api/entities";
 import type { Rule, RuleTestResponse, RuleExecutionLogRead, RuleConflictLogRead } from "@/shared/api/rules";
 
 function uid() { return Math.random().toString(36).slice(2); }
 
-/* ── Condition / Action row types (UI only) ── */
-interface CondRow { id: string; field: string; op: string; value: string; }
-interface ActionRow { id: string; type: string; field: string; value: string; message: string; url: string; }
+/* ── Condition / Action row types (UI only) ──
+   A condition's compare value can be a plain literal or a "lookup" — reads
+   a value from a DIFFERENT entity's records (ТЗ: "проверка достаточности
+   материалов по рецепту"). A lookup's filter values are always evaluated
+   against the record the rule is validating — even a filter nested inside
+   another lookup (chaining) — so `currentEntityFields` is threaded through
+   unchanged at every nesting depth; only the lookup's OWN target entity
+   changes per level. See backend/app/engine/lookup.py for the executed
+   semantics this UI is building. */
+interface LookupFilterRow {
+  id: string;
+  targetFieldName: string;              // field on the lookup's target entity ("id" is the record's own id)
+  matchType: "literal" | "field_ref" | "lookup";
+  literalValue: string;
+  fieldRefField: string;                // field on the CURRENT (validated) entity
+  nestedLookup: LookupConfig | null;     // chaining: this filter's value is another lookup's result
+}
+interface LookupConfig {
+  entityId: string;
+  filters: LookupFilterRow[];
+  resultField: string;                  // field to read/aggregate; unused when agg === "count"
+  agg: "value" | "sum" | "count" | "avg" | "min" | "max";
+}
+function blankLookup(): LookupConfig {
+  return { entityId: "", filters: [], resultField: "", agg: "value" };
+}
+function blankFilterRow(): LookupFilterRow {
+  return { id: uid(), targetFieldName: "", matchType: "field_ref", literalValue: "", fieldRefField: "", nestedLookup: null };
+}
+
+interface CondRow { id: string; field: string; op: string; valueType: "literal" | "lookup"; value: string; lookup: LookupConfig | null; }
+interface ActionRow {
+  id: string; type: string; field: string; value: string; message: string; url: string;
+  notifyToType: "literal" | "field_ref"; notifyTo: string; notifySubject: string; notifyTemplate: string;
+}
 
 const TRIGGER_EVENTS = [
   { value: "record.created",  label: "При создании записи" },
@@ -36,41 +68,107 @@ const COMPARE_OPS = [
   { value: "is_not_null", label: "не пустое" },
 ];
 
-const ACTION_TYPES = [
+const AUTOMATION_ACTION_TYPES = [
   { value: "set_field",          label: "Установить значение поля" },
   { value: "send_notification",  label: "Отправить уведомление" },
-  { value: "stop",               label: "Запретить сохранение" },
   { value: "call_webhook",       label: "Вызвать Webhook" },
+  { value: "stop",               label: "Остановить выполнение правил" },
+];
+const VALIDATION_ACTION_TYPES = [
+  { value: "block_save", label: "Отклонить сохранение" },
 ];
 
-/* ── Serialize conditions rows → API dict ── */
-function buildConditions(rows: CondRow[]): Record<string, unknown> {
-  if (!rows.length) return {};
-  const items = rows.map((r) => ({ type: "compare", field: r.field, op: r.op, value: r.value || null }));
-  return items.length === 1 ? items[0] : { type: "logical", op: "and", conditions: items };
+/* ── Lookup expression ↔ API dict ── */
+function buildLookupNode(cfg: LookupConfig): Record<string, unknown> {
+  const filter: Record<string, unknown> = {};
+  for (const f of cfg.filters) {
+    if (!f.targetFieldName) continue;
+    if (f.matchType === "field_ref") filter[f.targetFieldName] = { type: "field_ref", field: f.fieldRefField };
+    else if (f.matchType === "lookup" && f.nestedLookup) filter[f.targetFieldName] = buildLookupNode(f.nestedLookup);
+    else filter[f.targetFieldName] = f.literalValue;
+  }
+  return {
+    type: "lookup",
+    entity_id: cfg.entityId,
+    filter,
+    ...(cfg.agg === "count" ? {} : { field: cfg.resultField }),
+    agg: cfg.agg,
+  };
+}
+function parseLookupNode(node: Record<string, unknown>): LookupConfig {
+  const filterObj = (node.filter as Record<string, unknown>) ?? {};
+  const filters: LookupFilterRow[] = Object.entries(filterObj).map(([key, v]) => {
+    const vv = v as Record<string, unknown> | string | number | null;
+    if (vv && typeof vv === "object" && vv.type === "field_ref") {
+      return { id: uid(), targetFieldName: key, matchType: "field_ref", literalValue: "", fieldRefField: String(vv.field ?? ""), nestedLookup: null };
+    }
+    if (vv && typeof vv === "object" && vv.type === "lookup") {
+      return { id: uid(), targetFieldName: key, matchType: "lookup", literalValue: "", fieldRefField: "", nestedLookup: parseLookupNode(vv as Record<string, unknown>) };
+    }
+    return { id: uid(), targetFieldName: key, matchType: "literal", literalValue: String(vv ?? ""), fieldRefField: "", nestedLookup: null };
+  });
+  return {
+    entityId: String(node.entity_id ?? ""),
+    filters,
+    resultField: String(node.field ?? ""),
+    agg: (String(node.agg ?? "value") as LookupConfig["agg"]),
+  };
 }
 
-/* ── Parse API conditions dict → rows ── */
+/* ── Serialize conditions rows → API dict.
+   Rules with 2+ conditions used to serialize as {type:"logical", op:"and",
+   conditions:[...]} — a shape the backend has never recognized (it only
+   ever accepted {type:"and", children:[...]}), so multi-condition rules
+   have been silently failing to save/evaluate correctly. Fixed here. ── */
+function buildConditions(rows: CondRow[]): Record<string, unknown> {
+  if (!rows.length) return {};
+  const items = rows.map((r) => ({
+    type: "compare", field: r.field, op: r.op,
+    value: r.valueType === "lookup" && r.lookup ? buildLookupNode(r.lookup) : (r.value || null),
+  }));
+  return items.length === 1 ? items[0] : { type: "and", children: items };
+}
+
+/* ── Parse API conditions dict → rows (accepts the legacy "logical" shape
+   too, so a rule saved by the old broken code doesn't just disappear when
+   reopened for editing). ── */
 function parseConditions(raw: Record<string, unknown>): CondRow[] {
   if (!raw || !Object.keys(raw).length) return [];
-  if (raw.type === "logical") {
-    return ((raw.conditions as unknown[]) ?? []).map((c: unknown) => {
-      const cc = c as Record<string, unknown>;
-      return { id: uid(), field: String(cc.field ?? ""), op: String(cc.op ?? "eq"), value: String(cc.value ?? "") };
-    });
+  function toRow(c: Record<string, unknown>): CondRow {
+    const val = c.value as Record<string, unknown> | string | number | null;
+    if (val && typeof val === "object" && val.type === "lookup") {
+      return { id: uid(), field: String(c.field ?? ""), op: String(c.op ?? "eq"), valueType: "lookup", value: "", lookup: parseLookupNode(val as Record<string, unknown>) };
+    }
+    return { id: uid(), field: String(c.field ?? ""), op: String(c.op ?? "eq"), valueType: "literal", value: String(val ?? ""), lookup: null };
   }
-  if (raw.type === "compare") {
-    return [{ id: uid(), field: String(raw.field ?? ""), op: String(raw.op ?? "eq"), value: String(raw.value ?? "") }];
+  if (raw.type === "and" || raw.type === "logical") {
+    const list = ((raw.children ?? raw.conditions) as unknown[]) ?? [];
+    return list.map((c) => toRow(c as Record<string, unknown>));
   }
+  if (raw.type === "compare") return [toRow(raw)];
   return [];
 }
 
-/* ── Serialize action rows → API list ── */
+/* ── Serialize action rows → API list.
+   set_field used to send {field_name: ...} — the backend action schema
+   (and the interpreter) only ever read `field`, so every set_field action
+   created through this UI has been a silent no-op. send_notification sent
+   just {message} — the backend expects to/to_field + subject + template,
+   none of which existed here, so notification rules never actually sent
+   anything either. Both fixed here. ── */
 function buildActions(rows: ActionRow[]): Record<string, unknown>[] {
   return rows.map((r) => {
-    if (r.type === "set_field")         return { type: "set_field", field_name: r.field, value: r.value };
-    if (r.type === "send_notification") return { type: "send_notification", message: r.message };
-    if (r.type === "call_webhook")      return { type: "call_webhook", url: r.url, method: "POST" };
+    if (r.type === "set_field") return { type: "set_field", field: r.field, value: r.value };
+    if (r.type === "send_notification") {
+      return {
+        type: "send_notification",
+        ...(r.notifyToType === "field_ref" ? { to_field: r.notifyTo } : { to: r.notifyTo }),
+        subject: r.notifySubject,
+        template: r.notifyTemplate,
+      };
+    }
+    if (r.type === "call_webhook") return { type: "call_webhook", url: r.url, method: "POST" };
+    if (r.type === "block_save")   return { type: "block_save", message: r.message || "Сохранение отклонено правилом проверки" };
     return { type: r.type };
   });
 }
@@ -80,10 +178,14 @@ function parseActions(acts: Record<string, unknown>[]): ActionRow[] {
   return (acts ?? []).map((a) => ({
     id:      uid(),
     type:    String(a.type ?? "set_field"),
-    field:   String((a.field_name as string) ?? ""),
+    field:   String((a.field as string) ?? (a.field_name as string) ?? ""),
     value:   String(a.value ?? ""),
     message: String(a.message ?? ""),
     url:     String(a.url ?? ""),
+    notifyToType: a.to_field ? "field_ref" : "literal",
+    notifyTo:      String((a.to_field as string) ?? (a.to as string) ?? ""),
+    notifySubject: String(a.subject ?? ""),
+    notifyTemplate: String(a.template ?? ""),
   }));
 }
 
@@ -101,6 +203,140 @@ function blankForm(entityId: string) {
   };
 }
 
+const LOOKUP_AGG_OPTIONS = [
+  { value: "value", label: "значение поля" },
+  { value: "sum",    label: "сумма" },
+  { value: "count",  label: "количество записей" },
+  { value: "avg",    label: "среднее" },
+  { value: "min",    label: "минимум" },
+  { value: "max",    label: "максимум" },
+];
+
+/* ════════════════════════════════════════════════════════════════
+   Lookup editor — reads a value from a DIFFERENT entity's records.
+   Recursive: a filter row can itself be "another lookup" (chaining), which
+   renders a nested LookupEditor. Every level's "field_ref" filter option
+   is always a field on the CURRENT (validated) entity — chaining a filter
+   through an intermediate table's own fields isn't expressible via
+   field_ref, only by nesting a lookup as that filter's value, so
+   `currentEntityFields` never changes across nesting depth.
+   ════════════════════════════════════════════════════════════════ */
+function LookupEditor({ value, onChange, entities, currentEntityFields, depth = 0 }: {
+  value: LookupConfig;
+  onChange: (v: LookupConfig) => void;
+  entities: EntityRead[];
+  currentEntityFields: FieldRead[];
+  depth?: number;
+}) {
+  const targetEntity = entities.find((e) => e.id === value.entityId) ?? null;
+  const targetFields = (targetEntity?.fields ?? []).filter((f) => !f.is_system);
+
+  function patch(p: Partial<LookupConfig>) { onChange({ ...value, ...p }); }
+  function addFilter() { patch({ filters: [...value.filters, blankFilterRow()] }); }
+  function patchFilter(id: string, p: Partial<LookupFilterRow>) {
+    patch({ filters: value.filters.map((f) => f.id === id ? { ...f, ...p } : f) });
+  }
+  function removeFilter(id: string) { patch({ filters: value.filters.filter((f) => f.id !== id) }); }
+
+  if (depth > 3) {
+    return <p className="text-[12px] text-mistake">Слишком глубокая вложенность (максимум 4 уровня)</p>;
+  }
+
+  return (
+    <div className={cn("flex flex-col gap-2 border-l-2 border-cta/20 pl-3 py-2", depth > 0 && "bg-white/50 rounded-r-[8px]")}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[12px] text-primary/50 shrink-0">Найти в</span>
+        <select
+          value={value.entityId}
+          onChange={(e) => patch({ entityId: e.target.value, filters: [], resultField: "" })}
+          className="h-[30px] w-[160px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white focus:outline-none focus:border-cta"
+        >
+          <option value="">— таблица —</option>
+          {entities.map((e) => <option key={e.id} value={e.id}>{e.display_name}</option>)}
+        </select>
+        <select
+          value={value.agg}
+          onChange={(e) => patch({ agg: e.target.value as LookupConfig["agg"] })}
+          className="h-[30px] w-[150px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white focus:outline-none focus:border-cta"
+        >
+          {LOOKUP_AGG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {value.agg !== "count" && (
+          <>
+            <span className="text-[12px] text-primary/50 shrink-0">поля</span>
+            <select
+              value={value.resultField}
+              onChange={(e) => patch({ resultField: e.target.value })}
+              className="h-[30px] w-[150px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white focus:outline-none focus:border-cta"
+            >
+              <option value="">— поле —</option>
+              {targetFields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+            </select>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {value.filters.map((f) => (
+          <div key={f.id} className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[12px] text-primary/50 shrink-0">где</span>
+              <select
+                value={f.targetFieldName}
+                onChange={(e) => patchFilter(f.id, { targetFieldName: e.target.value })}
+                className="h-[30px] w-[150px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white focus:outline-none focus:border-cta"
+              >
+                <option value="">— поле таблицы —</option>
+                <option value="id">ID записи</option>
+                {targetFields.map((tf) => <option key={tf.id} value={tf.name}>{tf.display_name}</option>)}
+              </select>
+              <span className="text-[12px] text-primary/50 shrink-0">=</span>
+              <select
+                value={f.matchType}
+                onChange={(e) => patchFilter(f.id, { matchType: e.target.value as LookupFilterRow["matchType"], nestedLookup: e.target.value === "lookup" ? (f.nestedLookup ?? blankLookup()) : f.nestedLookup })}
+                className="h-[30px] w-[150px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white focus:outline-none focus:border-cta"
+              >
+                <option value="field_ref">поле текущей записи</option>
+                <option value="literal">конкретное значение</option>
+                <option value="lookup">результат другого поиска</option>
+              </select>
+              {f.matchType === "field_ref" && (
+                <select
+                  value={f.fieldRefField}
+                  onChange={(e) => patchFilter(f.id, { fieldRefField: e.target.value })}
+                  className="h-[30px] flex-1 min-w-[140px] border border-cardbg rounded-[6px] px-2 text-[12px] bg-white focus:outline-none focus:border-cta"
+                >
+                  <option value="">— поле —</option>
+                  {currentEntityFields.map((cf) => <option key={cf.id} value={cf.name}>{cf.display_name}</option>)}
+                </select>
+              )}
+              {f.matchType === "literal" && (
+                <input
+                  value={f.literalValue}
+                  onChange={(e) => patchFilter(f.id, { literalValue: e.target.value })}
+                  placeholder="значение"
+                  className="h-[30px] flex-1 min-w-[100px] border border-cardbg rounded-[6px] px-2 text-[12px] focus:outline-none focus:border-cta"
+                />
+              )}
+              <button onClick={() => removeFilter(f.id)} className="text-primary/30 hover:text-mistake text-[15px] leading-none shrink-0">✕</button>
+            </div>
+            {f.matchType === "lookup" && f.nestedLookup && (
+              <LookupEditor
+                value={f.nestedLookup}
+                onChange={(lk) => patchFilter(f.id, { nestedLookup: lk })}
+                entities={entities}
+                currentEntityFields={currentEntityFields}
+                depth={depth + 1}
+              />
+            )}
+          </div>
+        ))}
+        <button onClick={addFilter} className="self-start text-[12px] text-cta hover:underline">+ Добавить условие поиска</button>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════
    Rule editor modal
    ════════════════════════════════════════════════════════════════ */
@@ -108,18 +344,24 @@ function RuleModal({
   rule,
   entityId,
   fields,
+  entities,
   appId,
+  ruleType = "automation",
   onClose,
 }: {
   rule: Rule | null;
   entityId: string;
   fields: FieldRead[];
+  entities: EntityRead[];
   appId: string;
+  ruleType?: "automation" | "validation";
   onClose: () => void;
 }) {
   const isEdit = !!rule;
   const createMut = useCreateRule(appId);
   const updateMut = useUpdateRule(appId);
+  const isValidation = ruleType === "validation";
+  const actionTypes = isValidation ? VALIDATION_ACTION_TYPES : AUTOMATION_ACTION_TYPES;
 
   const [form, setForm] = useState(() => {
     if (rule) {
@@ -134,7 +376,9 @@ function RuleModal({
         entityId,
       };
     }
-    return blankForm(entityId);
+    const blank = blankForm(entityId);
+    if (isValidation) blank.actions = [{ id: uid(), type: "block_save", field: "", value: "", message: "", url: "", notifyToType: "literal", notifyTo: "", notifySubject: "", notifyTemplate: "" }];
+    return blank;
   });
 
   const [saving, setSaving] = useState(false);
@@ -148,7 +392,7 @@ function RuleModal({
 
   /* ── Condition helpers ── */
   function addCond() {
-    setForm((p) => ({ ...p, conditions: [...p.conditions, { id: uid(), field: userFields[0]?.name ?? "", op: "eq", value: "" }] }));
+    setForm((p) => ({ ...p, conditions: [...p.conditions, { id: uid(), field: userFields[0]?.name ?? "", op: "eq", valueType: "literal" as const, value: "", lookup: null }] }));
   }
   function patchCond(id: string, patch: Partial<CondRow>) {
     setForm((p) => ({ ...p, conditions: p.conditions.map((c) => c.id === id ? { ...c, ...patch } : c) }));
@@ -159,7 +403,11 @@ function RuleModal({
 
   /* ── Action helpers ── */
   function addAction() {
-    setForm((p) => ({ ...p, actions: [...p.actions, { id: uid(), type: "set_field", field: userFields[0]?.name ?? "", value: "", message: "", url: "" }] }));
+    const defaultType = isValidation ? "block_save" : "set_field";
+    setForm((p) => ({ ...p, actions: [...p.actions, {
+      id: uid(), type: defaultType, field: userFields[0]?.name ?? "", value: "", message: "", url: "",
+      notifyToType: "literal", notifyTo: "", notifySubject: "", notifyTemplate: "",
+    }] }));
   }
   function patchAction(id: string, patch: Partial<ActionRow>) {
     setForm((p) => ({ ...p, actions: p.actions.map((a) => a.id === id ? { ...a, ...patch } : a) }));
@@ -176,6 +424,7 @@ function RuleModal({
       name:        form.name.trim(),
       description: form.description.trim() || null,
       priority:    form.priority,
+      rule_type:   ruleType,
       trigger:     { event: form.triggerEvent, watch_fields: form.triggerEvent === "field.changed" ? form.watchFields : undefined },
       conditions:  buildConditions(form.conditions),
       actions:     buildActions(form.actions),
@@ -274,7 +523,8 @@ function RuleModal({
             )}
             <div className="flex flex-col gap-2">
               {form.conditions.map((c, i) => (
-                <div key={c.id} className="flex items-center gap-2">
+                <div key={c.id} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
                   {i > 0 && <span className="text-[11px] font-semibold text-primary/40 w-8 text-right shrink-0">И</span>}
                   {i === 0 && <span className="w-8 shrink-0" />}
                   <select
@@ -292,6 +542,19 @@ function RuleModal({
                     {COMPARE_OPS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   {!opsWithoutValue.includes(c.op) && (
+                    <select
+                      value={c.valueType}
+                      onChange={(e) => {
+                        const vt = e.target.value as "literal" | "lookup";
+                        patchCond(c.id, { valueType: vt, lookup: vt === "lookup" ? (c.lookup ?? blankLookup()) : c.lookup });
+                      }}
+                      className="h-[34px] w-[110px] shrink-0 border border-cardbg rounded-[8px] px-2 text-[13px] bg-white focus:outline-none focus:border-cta"
+                    >
+                      <option value="literal">Значение</option>
+                      <option value="lookup">Из таблицы</option>
+                    </select>
+                  )}
+                  {!opsWithoutValue.includes(c.op) && c.valueType === "literal" && (
                     <input
                       value={c.value}
                       onChange={(e) => patchCond(c.id, { value: e.target.value })}
@@ -300,6 +563,17 @@ function RuleModal({
                     />
                   )}
                   <button onClick={() => removeCond(c.id)} className="text-primary/30 hover:text-mistake text-lg leading-none w-6 shrink-0">✕</button>
+                </div>
+                {!opsWithoutValue.includes(c.op) && c.valueType === "lookup" && c.lookup && (
+                  <div className="ml-10">
+                    <LookupEditor
+                      value={c.lookup}
+                      onChange={(lk) => patchCond(c.id, { lookup: lk })}
+                      entities={entities}
+                      currentEntityFields={userFields}
+                    />
+                  </div>
+                )}
                 </div>
               ))}
             </div>
@@ -322,7 +596,7 @@ function RuleModal({
                     onChange={(e) => patchAction(a.id, { type: e.target.value })}
                     className="h-[34px] w-[230px] border border-cardbg rounded-[8px] px-2 text-[13px] bg-white focus:outline-none focus:border-cta shrink-0"
                   >
-                    {ACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {actionTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                   <div className="flex-1 flex flex-col gap-2">
                     {a.type === "set_field" && (
@@ -343,12 +617,48 @@ function RuleModal({
                       </div>
                     )}
                     {a.type === "send_notification" && (
-                      <input
-                        value={a.message}
-                        onChange={(e) => patchAction(a.id, { message: e.target.value })}
-                        placeholder="Текст уведомления"
-                        className="h-[34px] flex-1 border border-cardbg rounded-[8px] px-2 text-[13px] focus:outline-none focus:border-cta"
-                      />
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <select
+                            value={a.notifyToType}
+                            onChange={(e) => patchAction(a.id, { notifyToType: e.target.value as "literal" | "field_ref", notifyTo: "" })}
+                            className="h-[34px] w-[140px] shrink-0 border border-cardbg rounded-[8px] px-2 text-[13px] bg-white focus:outline-none focus:border-cta"
+                          >
+                            <option value="literal">Email (статично)</option>
+                            <option value="field_ref">Поле записи</option>
+                          </select>
+                          {a.notifyToType === "field_ref" ? (
+                            <select
+                              value={a.notifyTo}
+                              onChange={(e) => patchAction(a.id, { notifyTo: e.target.value })}
+                              className="h-[34px] flex-1 border border-cardbg rounded-[8px] px-2 text-[13px] bg-white focus:outline-none focus:border-cta"
+                            >
+                              <option value="">— поле с email —</option>
+                              {userFields.map((f) => <option key={f.id} value={f.name}>{f.display_name}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              value={a.notifyTo}
+                              onChange={(e) => patchAction(a.id, { notifyTo: e.target.value })}
+                              placeholder="куда: email@example.com"
+                              className="h-[34px] flex-1 border border-cardbg rounded-[8px] px-2 text-[13px] focus:outline-none focus:border-cta"
+                            />
+                          )}
+                        </div>
+                        <input
+                          value={a.notifySubject}
+                          onChange={(e) => patchAction(a.id, { notifySubject: e.target.value })}
+                          placeholder="Тема письма"
+                          className="h-[34px] border border-cardbg rounded-[8px] px-2 text-[13px] focus:outline-none focus:border-cta"
+                        />
+                        <textarea
+                          value={a.notifyTemplate}
+                          onChange={(e) => patchAction(a.id, { notifyTemplate: e.target.value })}
+                          placeholder="Текст уведомления (HTML)"
+                          rows={2}
+                          className="border border-cardbg rounded-[8px] px-2 py-1.5 text-[13px] focus:outline-none focus:border-cta resize-y"
+                        />
+                      </div>
                     )}
                     {a.type === "call_webhook" && (
                       <input
@@ -359,7 +669,15 @@ function RuleModal({
                       />
                     )}
                     {a.type === "stop" && (
-                      <span className="text-[13px] text-mistake/70 leading-[34px]">Сохранение будет заблокировано</span>
+                      <span className="text-[13px] text-primary/50 leading-[34px]">Остальные действия этого и последующих правил в батче не выполнятся. Запись всё равно сохранится.</span>
+                    )}
+                    {a.type === "block_save" && (
+                      <input
+                        value={a.message}
+                        onChange={(e) => patchAction(a.id, { message: e.target.value })}
+                        placeholder="Сообщение об ошибке для пользователя"
+                        className="h-[34px] flex-1 border border-cardbg rounded-[8px] px-2 text-[13px] focus:outline-none focus:border-cta"
+                      />
                     )}
                   </div>
                   <button onClick={() => removeAction(a.id)} className="text-primary/30 hover:text-mistake text-lg leading-none w-6 mt-[7px] shrink-0">✕</button>
@@ -978,7 +1296,7 @@ function RuleCard({ rule, appId, onEdit }: { rule: Rule; appId: string; onEdit: 
 export function RulesPage() {
   const [railModule, setRailModule] = useState<RailModule>("automation");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
-  const [ruleTab, setRuleTab] = useState<"automation" | "autofill">("automation");
+  const [ruleTab, setRuleTab] = useState<"automation" | "autofill" | "validation">("automation");
   const [modal, setModal] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
@@ -1003,10 +1321,13 @@ export function RulesPage() {
   function closeModal() { setModal({ open: false, rule: null }); }
 
   const isAutofill = ruleTab === "autofill";
+  const isValidationTab = ruleTab === "validation";
 
   const emptyText = isAutofill
     ? { icon: "✨", title: "Автозаполнений пока нет", desc: "Настройте автоматическое заполнение полей при создании или изменении записи.", btn: "Создать автозаполнение" }
-    : { icon: "⚡", title: "Правил пока нет", desc: "Создайте правило, чтобы автоматически реагировать на события: уведомления, изменение полей, блокировка сохранения.", btn: "Создать первое правило" };
+    : isValidationTab
+    ? { icon: "🛡️", title: "Проверок пока нет", desc: "Создайте проверку, чтобы отклонять сохранение записи, если условие не выполняется — например, если материала по рецепту не хватает.", btn: "Создать первую проверку" }
+    : { icon: "⚡", title: "Правил пока нет", desc: "Создайте правило, чтобы автоматически реагировать на события: уведомления, изменение полей, вызов webhook.", btn: "Создать первое правило" };
 
   return (
     <div className="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
@@ -1021,7 +1342,7 @@ export function RulesPage() {
         {/* Tab switcher */}
         <div className="px-4 pt-4 pb-0 border-b border-cardbg">
           <div className="flex gap-1 mb-0">
-            {([["automation", "Автоматизация"], ["autofill", "Автозаполнение"]] as const).map(([val, label]) => (
+            {([["automation", "Автоматизация"], ["autofill", "Автозаполнение"], ["validation", "Проверки"]] as const).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setRuleTab(val)}
@@ -1068,7 +1389,7 @@ export function RulesPage() {
             <div>
               <h2 className="text-[22px] font-bold text-primary">
                 {activeEntity ? activeEntity.display_name : "Выберите таблицу"}
-                {activeEntity && <span className="ml-2 text-[14px] font-normal text-primary/40">{isAutofill ? "· Автозаполнение" : "· Автоматизация"}</span>}
+                {activeEntity && <span className="ml-2 text-[14px] font-normal text-primary/40">{isAutofill ? "· Автозаполнение" : isValidationTab ? "· Проверки" : "· Автоматизация"}</span>}
               </h2>
               {activeEntity && (
                 <p className="text-[14px] text-primary/50 mt-1">
@@ -1091,7 +1412,7 @@ export function RulesPage() {
                   className="h-[38px] px-5 rounded-[10px] bg-cta text-white text-[14px] font-medium hover:bg-cta/90 flex items-center gap-2"
                 >
                   <span className="text-xl leading-none">+</span>
-                  {isAutofill ? "Добавить автозаполнение" : "Добавить правило"}
+                  {isAutofill ? "Добавить автозаполнение" : isValidationTab ? "Добавить проверку" : "Добавить правило"}
                 </button>
               )}
             </div>
@@ -1132,7 +1453,9 @@ export function RulesPage() {
           rule={modal.rule}
           entityId={activeEntity.id}
           fields={fields}
+          entities={entities}
           appId={appId}
+          ruleType={isValidationTab ? "validation" : "automation"}
           onClose={closeModal}
         />
       )}
