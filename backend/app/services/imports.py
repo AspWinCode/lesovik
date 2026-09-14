@@ -93,6 +93,7 @@ class ImportService:
 
         from app.schemas.records import RecordCreate, RecordUpdate
         from app.services.records import RecordService, RecordValidationError
+        from app.services.validation_rules import ValidationBlockedError
 
         svc = RecordService(self._db)
 
@@ -117,16 +118,17 @@ class ImportService:
                 existing_id = await self._find_by_key(entity_id, key_field, payload) if key_field else None
                 if existing_id is not None:
                     await svc.update_record(
-                        entity_id, existing_id, RecordUpdate(payload=payload), actor_id=actor_id,
+                        entity_id, existing_id, RecordUpdate(payload=payload), app_id, actor_id=actor_id,
                     )
                     result.updated += 1
                 else:
                     await svc.create_record(
-                        entity_id, RecordCreate(payload=payload), actor_id=actor_id
+                        entity_id, RecordCreate(payload=payload), app_id, actor_id=actor_id
                     )
                     result.created += 1
-            except RecordValidationError as exc:
-                result.errors.append({"row": row_num, "error": str(exc), "data": payload})
+            except (RecordValidationError, ValidationBlockedError) as exc:
+                error_message = exc.message if isinstance(exc, ValidationBlockedError) else str(exc)
+                result.errors.append({"row": row_num, "error": error_message, "data": payload})
                 if on_error == "abort":
                     break
             except Exception as exc:  # noqa: BLE001

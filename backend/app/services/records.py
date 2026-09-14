@@ -508,9 +508,11 @@ class RecordService:
         self,
         entity_id: uuid.UUID,
         data: RecordCreate,
+        app_id: uuid.UUID,
         actor_id: uuid.UUID | None = None,
     ) -> RecordRead:
         from app.services.sequences import SequenceService  # local import avoids circular
+        from app.services.validation_rules import ValidationRuleService
 
         fields = await self._get_entity_fields(entity_id)
         # Fill autonumber fields before validation so they don't fail required-check
@@ -519,6 +521,14 @@ class RecordService:
         )
         _validate_payload(payload, fields, partial=False)
         payload = _evaluate_formulas(payload, fields)
+
+        # Synchronous, pre-commit validation rules (rule_type="validation")
+        # get first look — nothing has been written yet, so a block_save
+        # raises cleanly with no rollback needed. Unlike automation rules
+        # (async, post-commit — see RuleService.evaluate_rules_for_event).
+        await ValidationRuleService(self._db).run(
+            app_id, entity_id, "record.created", payload, actor_id=actor_id,
+        )
 
         record = Record(
             entity_id=entity_id,
@@ -537,8 +547,11 @@ class RecordService:
         entity_id: uuid.UUID,
         record_id: uuid.UUID,
         data: RecordUpdate,
+        app_id: uuid.UUID,
         actor_id: uuid.UUID | None = None,
     ) -> RecordRead:
+        from app.services.validation_rules import ValidationRuleService
+
         record = await self._fetch(entity_id, record_id)
         fields = await self._get_entity_fields(entity_id)
         _validate_payload(data.payload, fields, partial=True)
@@ -548,6 +561,11 @@ class RecordService:
         # Remove keys explicitly set to None (delete semantics)
         merged = {k: v for k, v in merged.items() if v is not None}
         merged = _evaluate_formulas(merged, fields)
+
+        await ValidationRuleService(self._db).run(
+            app_id, entity_id, "record.updated", merged, record_id=record_id,
+            changed_fields=list(data.payload.keys()), actor_id=actor_id,
+        )
 
         await self._db.execute(
             update(Record)

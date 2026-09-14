@@ -29,6 +29,7 @@ from app.services.imports import ImportService
 from app.services.records import RecordNotFoundError, RecordService, RecordValidationError
 from app.services.rules import RuleService
 from app.services.security import ABACService
+from app.services.validation_rules import ValidationBlockedError
 
 logger = structlog.get_logger(__name__)
 
@@ -126,10 +127,12 @@ async def create_record(
 
     try:
         record = await RecordService(db).create_record(
-            entity_id, body, actor_id=current_user.user_id
+            entity_id, body, app_id, actor_id=current_user.user_id
         )
     except RecordValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except ValidationBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message) from exc
 
     try:
         await RuleService(db).evaluate_rules_for_event(
@@ -248,12 +251,14 @@ async def update_record(
 
     try:
         record = await RecordService(db).update_record(
-            entity_id, record_id, body, actor_id=current_user.user_id
+            entity_id, record_id, body, app_id, actor_id=current_user.user_id
         )
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
     except RecordValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except ValidationBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message) from exc
 
     try:
         await RuleService(db).evaluate_rules_for_event(

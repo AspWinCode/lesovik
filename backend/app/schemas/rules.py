@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 class RuleType(str, Enum):
     AUTOMATION = "automation"
     AUTOFILL   = "autofill"
+    VALIDATION = "validation"
 
 
 class TriggerEvent(str, Enum):
@@ -104,7 +105,33 @@ class FuncExpr(BaseModel):
     args: list["ExprNode"] = Field(default_factory=list)
 
 
-ExprNode = LiteralExpr | FieldRefExpr | MathExpr | FuncExpr
+class LookupAgg(str, Enum):
+    VALUE = "value"  # first matching record's field
+    SUM   = "sum"
+    COUNT = "count"
+    AVG   = "avg"
+    MIN   = "min"
+    MAX   = "max"
+
+
+class LookupExpr(BaseModel):
+    """Reads a value from a DIFFERENT entity's records — the cross-table
+    primitive validation rules need (ТЗ: "проверка достаточности материалов
+    по рецепту"). `filter` maps a target field name to an expression
+    evaluated against the *triggering* record (so it can reference the
+    record's own fields, incl. another lookup for chained hops — a
+    filter's own field_ref/lookup is resolved before this lookup runs).
+    Only used inside a validation rule's condition/action value — the main
+    interpreter's pure evaluate() never sees an unresolved "lookup" node,
+    see app/engine/lookup.py."""
+    type: Literal["lookup"]
+    entity_id: uuid.UUID
+    filter: dict[str, Any] = Field(default_factory=dict)
+    field: str | None = None  # omit for agg="count"
+    agg: LookupAgg = LookupAgg.VALUE
+
+
+ExprNode = LiteralExpr | FieldRefExpr | MathExpr | FuncExpr | LookupExpr
 MathExpr.model_rebuild()
 FuncExpr.model_rebuild()
 
@@ -155,6 +182,15 @@ class StopAction(BaseModel):
     type: Literal["stop"]
 
 
+class BlockSaveAction(BaseModel):
+    """Validation-rule-only action: rejects the save with a 422 carrying
+    `message`. Only meaningful on a rule_type="validation" rule — see
+    app/services/validation_rules.py, which runs these synchronously
+    *before* the record is written, unlike every other action here."""
+    type: Literal["block_save"]
+    message: str = Field(default="Сохранение отклонено правилом проверки", max_length=500)
+
+
 ActionNode = (
     SetFieldAction
     | CreateRecordAction
@@ -163,6 +199,7 @@ ActionNode = (
     | SendNotificationAction
     | CallWebhookAction
     | StopAction
+    | BlockSaveAction
 )
 
 
@@ -207,6 +244,7 @@ class RuleCreate(BaseModel):
         # Validate actions structure
         for action in self.actions:
             _validate_action_node(action)
+        _validate_rule_type_actions(self.rule_type, self.actions)
         return self
 
 
@@ -291,8 +329,35 @@ class RuleWebhookDeliveryRead(BaseModel):
 _VALID_CONDITION_TYPES = {"and", "or", "not", "compare"}
 _VALID_ACTION_TYPES = {
     "set_field", "create_record", "update_record", "delete_record",
-    "send_notification", "call_webhook", "stop",
+    "send_notification", "call_webhook", "stop", "block_save",
 }
+_VALID_EXPR_TYPES = {"literal", "field_ref", "math", "func", "lookup"}
+_VALID_LOOKUP_AGGS = {"value", "sum", "count", "avg", "min", "max"}
+
+
+def _validate_expr_node(node: Any, depth: int = 0) -> None:
+    if depth > 15:
+        raise ValueError("Expression tree too deep (max 15)")
+    if not isinstance(node, dict):
+        return  # a raw literal — always valid
+    t = node.get("type")
+    if t not in _VALID_EXPR_TYPES:
+        raise ValueError(f"Invalid expression type: {t!r}")
+    if t == "math":
+        _validate_expr_node(node.get("left"), depth + 1)
+        _validate_expr_node(node.get("right"), depth + 1)
+    elif t == "func":
+        for arg in node.get("args", []):
+            _validate_expr_node(arg, depth + 1)
+    elif t == "lookup":
+        if not node.get("entity_id"):
+            raise ValueError("lookup.entity_id is required")
+        if node.get("agg", "value") not in _VALID_LOOKUP_AGGS:
+            raise ValueError(f"Invalid lookup.agg: {node.get('agg')!r}")
+        if node.get("agg", "value") != "count" and not node.get("field"):
+            raise ValueError("lookup.field is required unless agg is 'count'")
+        for v in (node.get("filter") or {}).values():
+            _validate_expr_node(v, depth + 1)
 
 
 def _validate_condition_node(node: Any, depth: int = 0) -> None:
@@ -303,8 +368,26 @@ def _validate_condition_node(node: Any, depth: int = 0) -> None:
     t = node.get("type")
     if t not in _VALID_CONDITION_TYPES:
         raise ValueError(f"Invalid condition type: {t!r}")
+    if t == "compare" and isinstance(node.get("value"), dict):
+        _validate_expr_node(node["value"])
     for child in node.get("children", []):
         _validate_condition_node(child, depth + 1)
+
+
+def _validate_rule_type_actions(rule_type: "RuleType", actions: list[dict[str, Any]]) -> None:
+    """block_save only does anything inside ValidationRuleService's
+    synchronous pre-commit pass (app/services/validation_rules.py) — the
+    async interpreter used by automation/autofill rules has no case for it
+    and would just log a silent "unknown action type" error. Conversely a
+    validation rule's non-block_save actions (set_field etc.) are simply
+    never looked at by that service — reject both mismatches up front
+    instead of letting them silently do nothing."""
+    has_block_save = any(a.get("type") == "block_save" for a in actions)
+    if rule_type == RuleType.VALIDATION:
+        if actions and not all(a.get("type") == "block_save" for a in actions):
+            raise ValueError("A validation rule's actions may only be block_save")
+    elif has_block_save:
+        raise ValueError("block_save is only valid on a validation rule (rule_type=\"validation\")")
 
 
 def _validate_action_node(node: Any) -> None:
@@ -313,6 +396,8 @@ def _validate_action_node(node: Any) -> None:
     t = node.get("type")
     if t not in _VALID_ACTION_TYPES:
         raise ValueError(f"Invalid action type: {t!r}")
+    if t == "set_field" and isinstance(node.get("value"), dict):
+        _validate_expr_node(node["value"])
 
 
 # ------------------------------------------------------------------
