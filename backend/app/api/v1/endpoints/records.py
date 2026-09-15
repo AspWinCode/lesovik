@@ -147,7 +147,7 @@ async def create_record(
         user_id=current_user.user_id,
         resource_type="record",
         resource_id=str(record.id),
-        details={"app_id": str(app_id), "entity_id": str(entity_id)},
+        details={"app_id": str(app_id), "entity_id": str(entity_id), "payload": record.payload},
     )
     return record
 
@@ -250,6 +250,11 @@ async def update_record(
     changed_fields = list(body.payload.keys())
 
     try:
+        # Pre-update snapshot, just for the audit diff below — RecordService.update_record
+        # re-checks ABAC/existence itself right after, so this doesn't weaken enforcement.
+        previous = await RecordService(db).get_record(
+            entity_id, record_id, actor_id=current_user.user_id, actor_roles=current_user.roles,
+        )
         record = await RecordService(db).update_record(
             entity_id, record_id, body, app_id,
             actor_id=current_user.user_id, actor_roles=current_user.roles,
@@ -269,12 +274,18 @@ async def update_record(
     except Exception:  # noqa: BLE001
         logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
 
+    field_changes = {
+        f: {"old": previous.payload.get(f), "new": record.payload.get(f)} for f in changed_fields
+    }
     await AuditService(db).log(
         "record.updated",
         user_id=current_user.user_id,
         resource_type="record",
         resource_id=str(record_id),
-        details={"app_id": str(app_id), "entity_id": str(entity_id), "changed_fields": changed_fields},
+        details={
+            "app_id": str(app_id), "entity_id": str(entity_id),
+            "changed_fields": changed_fields, "field_changes": field_changes,
+        },
     )
     return _apply_abac(record, restrictions.denied_read)
 
@@ -292,6 +303,11 @@ async def delete_record(
     if hard and not current_user.has_role("platform_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Hard delete requires platform_admin")
     try:
+        # Pre-delete snapshot, just for the audit trail — delete_record re-checks
+        # ABAC/existence itself right after, so this doesn't weaken enforcement.
+        deleted = await RecordService(db).get_record(
+            entity_id, record_id, actor_id=current_user.user_id, actor_roles=current_user.roles,
+        )
         await RecordService(db).delete_record(
             entity_id, record_id, hard=hard,
             actor_id=current_user.user_id, actor_roles=current_user.roles,
@@ -304,7 +320,10 @@ async def delete_record(
         user_id=current_user.user_id,
         resource_type="record",
         resource_id=str(record_id),
-        details={"app_id": str(app_id), "entity_id": str(entity_id), "hard": hard},
+        details={
+            "app_id": str(app_id), "entity_id": str(entity_id), "hard": hard,
+            "payload": deleted.payload,
+        },
     )
 
 
