@@ -1032,6 +1032,10 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 const OP_LABELS: Record<string, string> = {
   eq: "=",
   neq: "≠",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
   in: "входит в",
   not_in: "не входит в",
   contains: "содержит",
@@ -1040,6 +1044,10 @@ const OP_LABELS: Record<string, string> = {
 const OP_OPTIONS = [
   { value: "eq", label: "= (равно)" },
   { value: "neq", label: "≠ (не равно)" },
+  { value: "gt", label: "> (больше)" },
+  { value: "gte", label: "≥ (больше или равно)" },
+  { value: "lt", label: "< (меньше)" },
+  { value: "lte", label: "≤ (меньше или равно)" },
   { value: "in", label: "входит в список" },
   { value: "not_in", label: "не входит в список" },
   { value: "contains", label: "содержит" },
@@ -1358,6 +1366,14 @@ function RbacSection({ appId }: { appId?: string }) {
     setForm((f) => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
   }
 
+  // "in" / "not_in" need an actual array value on the wire; the editor keeps
+  // a single comma-separated text field for them, split here on submit.
+  function serializeCondition(c: AbacCondition): AbacCondition {
+    if (c.op !== "in" && c.op !== "not_in") return c;
+    const raw = Array.isArray(c.value) ? c.value.join(",") : c.value;
+    return { ...c, value: raw.split(",").map((v) => v.trim()).filter(Boolean) };
+  }
+
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!form.role_id || !form.resource_type) return;
@@ -1365,7 +1381,7 @@ function RbacSection({ appId }: { appId?: string }) {
       role_id: form.role_id,
       resource_type: form.resource_type,
       resource_id: form.resource_id || undefined,
-      condition_json: form.conditions.filter((c) => c.field && c.value),
+      condition_json: form.conditions.filter((c) => c.field && c.value).map(serializeCondition),
       effect: form.effect,
       priority: form.priority,
       description: form.description || undefined,
@@ -1552,7 +1568,7 @@ function RbacSection({ appId }: { appId?: string }) {
                     <input
                       value={cond.value}
                       onChange={(e) => updateCondition(i, { value: e.target.value })}
-                      placeholder="${user.org_id}"
+                      placeholder={cond.op === "in" || cond.op === "not_in" ? "значение1, значение2" : "$self.org_id"}
                       className="flex-1 h-[34px] px-2 bg-mainbg border border-cardbg rounded-[6px] text-[13px] text-primary outline-none focus:border-cta placeholder:text-primary/30 font-mono"
                     />
                     <button type="button" onClick={() => removeCondition(i)}
@@ -1563,7 +1579,11 @@ function RbacSection({ appId }: { appId?: string }) {
                 ))}
                 {form.conditions.length > 0 && (
                   <p className="text-[11px] text-primary/40">
-                    Переменные: <code className="font-mono">{"${user.id}"}</code>, <code className="font-mono">{"${user.org_id}"}</code>, <code className="font-mono">{"${user.email}"}</code>
+                    Значение может быть текстом/числом или переменной текущего пользователя:{" "}
+                    <code className="font-mono">$self.id</code>,{" "}
+                    <code className="font-mono">$self.org_id</code>,{" "}
+                    <code className="font-mono">$self.email</code>. Поле <code className="font-mono">created_by</code>{" "}
+                    сравнивается с <code className="font-mono">$self</code> — «только мои записи».
                   </p>
                 )}
               </div>
@@ -1634,7 +1654,7 @@ function RbacSection({ appId }: { appId?: string }) {
                     <div className="flex flex-wrap gap-2">
                       {rule.condition_json.map((c, i) => (
                         <span key={i} className="text-[12px] bg-mainbg border border-cardbg rounded-[6px] px-2 py-0.5 font-mono">
-                          {c.field} {OP_LABELS[c.op] ?? c.op} {c.value}
+                          {c.field} {OP_LABELS[c.op] ?? c.op} {Array.isArray(c.value) ? c.value.join(", ") : c.value}
                         </span>
                       ))}
                     </div>

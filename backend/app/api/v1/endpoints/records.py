@@ -251,7 +251,8 @@ async def update_record(
 
     try:
         record = await RecordService(db).update_record(
-            entity_id, record_id, body, app_id, actor_id=current_user.user_id
+            entity_id, record_id, body, app_id,
+            actor_id=current_user.user_id, actor_roles=current_user.roles,
         )
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
@@ -291,7 +292,10 @@ async def delete_record(
     if hard and not current_user.has_role("platform_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Hard delete requires platform_admin")
     try:
-        await RecordService(db).delete_record(entity_id, record_id, hard=hard, actor_id=current_user.user_id)
+        await RecordService(db).delete_record(
+            entity_id, record_id, hard=hard,
+            actor_id=current_user.user_id, actor_roles=current_user.roles,
+        )
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
 

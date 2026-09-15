@@ -38,7 +38,10 @@ export interface ResourcePermissionUpsert {
 export interface AbacCondition {
   field: string;
   op: string;
-  value: string;
+  // Plain value for most ops; a list for "in" / "not_in" (backend requires
+  // an actual array there — comma-separated text is split on submit, see
+  // SecurityPage's AbacSection).
+  value: string | string[];
 }
 
 export interface AbacRule {

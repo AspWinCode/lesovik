@@ -16,6 +16,7 @@ from app.schemas.security import (
     ResourcePermissionRead,
 )
 from app.schemas.users import RoleCreate, RoleRead, RoleUpdate
+from app.services.abac import AbacConditionError
 from app.services.roles import (
     RoleConflictError,
     RoleNotFoundError,
@@ -173,11 +174,14 @@ async def create_abac_rule(
     db: DbDep,
 ) -> AbacRuleRead:
     _require_platform_admin(current_user)
-    return await RoleService(db).create_abac_rule(
-        body,
-        created_by=current_user.user_id,
-        actor_email=getattr(current_user, "email", None),
-    )
+    try:
+        return await RoleService(db).create_abac_rule(
+            body,
+            created_by=current_user.user_id,
+            actor_email=getattr(current_user, "email", None),
+        )
+    except AbacConditionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.patch(
@@ -201,6 +205,8 @@ async def update_abac_rule(
         )
     except RoleNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AbacConditionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.delete(

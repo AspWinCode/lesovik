@@ -16,6 +16,7 @@ from app.schemas.security import (
     ResourcePermissionRead,
 )
 from app.schemas.users import RoleCreate, RoleRead, RoleUpdate
+from app.services import abac
 from app.services.audit import AuditService
 
 logger = structlog.get_logger(__name__)
@@ -31,6 +32,14 @@ class RoleConflictError(Exception):
 
 class RolePermissionError(Exception):
     pass
+
+
+def _validate_conditions(condition_json: list) -> None:
+    """Raise abac.AbacConditionError for the first unsupported condition —
+    fail at save time rather than have the rule silently no-op every time
+    it's evaluated (see app.services.abac)."""
+    for cond in condition_json or []:
+        abac.validate_condition(cond)
 
 
 class RoleService:
@@ -220,6 +229,7 @@ class RoleService:
         created_by: uuid.UUID | None = None,
         actor_email: str | None = None,
     ) -> AbacRuleRead:
+        _validate_conditions(data.condition_json)
         rule = AbacRule(
             role_id=data.role_id,
             resource_type=data.resource_type,
@@ -262,6 +272,9 @@ class RoleService:
         rule = result.scalar_one_or_none()
         if rule is None:
             raise RoleNotFoundError(f"ABAC rule {rule_id} not found")
+
+        if data.condition_json is not None:
+            _validate_conditions(data.condition_json)
 
         changed: dict = {}
         if data.resource_type is not None:
