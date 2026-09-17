@@ -8,7 +8,7 @@ import { useActiveApp } from "@/shared/hooks/useActiveApp";
 import { useEntities } from "@/shared/hooks/useEntities";
 import { useEntityRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, useRuleLogs, useRuleConflicts, useRuleWebhookDeliveries } from "@/shared/hooks/useRules";
 import type { EntityRead, FieldRead } from "@/shared/api/entities";
-import type { Rule, RuleTestResponse, RuleExecutionLogRead, RuleConflictLogRead } from "@/shared/api/rules";
+import type { Rule, RuleTrigger, RuleTestResponse, RuleExecutionLogRead, RuleConflictLogRead } from "@/shared/api/rules";
 
 function uid() { return Math.random().toString(36).slice(2); }
 
@@ -53,6 +53,12 @@ const TRIGGER_EVENTS = [
   { value: "record.updated",  label: "При обновлении записи" },
   { value: "record.deleted",  label: "При удалении записи" },
   { value: "field.changed",   label: "При изменении поля" },
+  { value: "schedule",        label: "По расписанию" },
+];
+
+const SCHEDULE_KINDS = [
+  { value: "cron",          label: "По календарю (например, раз в месяц)" },
+  { value: "relative_date", label: "Относительно даты в записи (например, за N дней до срока)" },
 ];
 
 const COMPARE_OPS = [
@@ -197,6 +203,10 @@ function blankForm(entityId: string) {
     priority: 100,
     triggerEvent: "record.created",
     watchFields: [] as string[],
+    scheduleKind: "cron" as "cron" | "relative_date",
+    cronMinute: "0", cronHour: "0", cronDayOfMonth: "*", cronMonthOfYear: "*", cronDayOfWeek: "*",
+    relativeDateField: "",
+    relativeOffsetDays: -3,
     conditions: [] as CondRow[],
     actions: [] as ActionRow[],
     entityId,
@@ -365,12 +375,22 @@ function RuleModal({
 
   const [form, setForm] = useState(() => {
     if (rule) {
+      const blank = blankForm(entityId);
       return {
+        ...blank,
         name:        rule.name,
         description: rule.description ?? "",
         priority:    rule.priority,
         triggerEvent: rule.trigger.event,
         watchFields:  rule.trigger.watch_fields ?? [],
+        scheduleKind: rule.trigger.schedule_kind ?? blank.scheduleKind,
+        cronMinute:      rule.trigger.cron?.minute ?? blank.cronMinute,
+        cronHour:        rule.trigger.cron?.hour ?? blank.cronHour,
+        cronDayOfMonth:  rule.trigger.cron?.day_of_month ?? blank.cronDayOfMonth,
+        cronMonthOfYear: rule.trigger.cron?.month_of_year ?? blank.cronMonthOfYear,
+        cronDayOfWeek:   rule.trigger.cron?.day_of_week ?? blank.cronDayOfWeek,
+        relativeDateField:   rule.trigger.relative_date?.date_field ?? blank.relativeDateField,
+        relativeOffsetDays:  rule.trigger.relative_date?.offset_days ?? blank.relativeOffsetDays,
         conditions:  parseConditions(rule.conditions),
         actions:     parseActions(rule.actions),
         entityId,
@@ -416,8 +436,29 @@ function RuleModal({
     setForm((p) => ({ ...p, actions: p.actions.filter((a) => a.id !== id) }));
   }
 
+  function buildTrigger(): RuleTrigger {
+    if (form.triggerEvent === "schedule") {
+      return {
+        event: "schedule",
+        schedule_kind: form.scheduleKind,
+        cron: form.scheduleKind === "cron" ? {
+          minute: form.cronMinute, hour: form.cronHour, day_of_month: form.cronDayOfMonth,
+          month_of_year: form.cronMonthOfYear, day_of_week: form.cronDayOfWeek,
+        } : undefined,
+        relative_date: form.scheduleKind === "relative_date" ? {
+          date_field: form.relativeDateField, offset_days: form.relativeOffsetDays,
+        } : undefined,
+      };
+    }
+    return { event: form.triggerEvent, watch_fields: form.triggerEvent === "field.changed" ? form.watchFields : undefined };
+  }
+
   async function handleSave() {
     if (!form.name.trim()) { setError("Введите название правила"); return; }
+    if (form.triggerEvent === "schedule" && form.scheduleKind === "relative_date" && !form.relativeDateField) {
+      setError("Выберите поле с датой для расписания");
+      return;
+    }
     setSaving(true);
     setError(null);
     const payload = {
@@ -425,7 +466,7 @@ function RuleModal({
       description: form.description.trim() || null,
       priority:    form.priority,
       rule_type:   ruleType,
-      trigger:     { event: form.triggerEvent, watch_fields: form.triggerEvent === "field.changed" ? form.watchFields : undefined },
+      trigger:     buildTrigger(),
       conditions:  buildConditions(form.conditions),
       actions:     buildActions(form.actions),
     };
@@ -508,6 +549,67 @@ function RuleModal({
                     {f.display_name}
                   </button>
                 ))}
+              </div>
+            )}
+            {form.triggerEvent === "schedule" && (
+              <div className="mt-3 flex flex-col gap-3 bg-mainbg rounded-[8px] p-4">
+                <select
+                  value={form.scheduleKind}
+                  onChange={(e) => setF("scheduleKind", e.target.value as "cron" | "relative_date")}
+                  className="h-[36px] border border-cardbg rounded-[8px] px-3 text-[14px] text-primary focus:outline-none focus:border-cta bg-white w-fit"
+                >
+                  {SCHEDULE_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                </select>
+
+                {form.scheduleKind === "cron" ? (
+                  <div>
+                    <div className="flex gap-2">
+                      {([
+                        ["cronMinute", "Минута"], ["cronHour", "Час"], ["cronDayOfMonth", "День месяца"],
+                        ["cronMonthOfYear", "Месяц"], ["cronDayOfWeek", "День недели"],
+                      ] as const).map(([key, label]) => (
+                        <div key={key} className="flex-1">
+                          <label className="block text-[11px] text-primary/50 mb-1">{label}</label>
+                          <input
+                            value={form[key]}
+                            onChange={(e) => setF(key, e.target.value)}
+                            placeholder="*"
+                            className="w-full h-[32px] border border-cardbg rounded-[6px] px-2 text-[13px] text-primary text-center focus:outline-none focus:border-cta"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-primary/40 mt-2">
+                      «*» — любое значение; конкретное число — точное совпадение. Проверяется раз в час, поэтому минута
+                      имеет смысл только как «0» (сработает в начале часа) или «*» (каждый час). Например: час=0, день месяца=1 — раз в месяц, первого числа.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex gap-3 items-end">
+                    <div className="flex-1">
+                      <label className="block text-[11px] text-primary/50 mb-1">Поле с датой</label>
+                      <select
+                        value={form.relativeDateField}
+                        onChange={(e) => setF("relativeDateField", e.target.value)}
+                        className="w-full h-[36px] border border-cardbg rounded-[8px] px-3 text-[14px] text-primary focus:outline-none focus:border-cta bg-white"
+                      >
+                        <option value="">— выберите поле —</option>
+                        {userFields.filter((f) => f.field_type === "date" || f.field_type === "datetime").map((f) => (
+                          <option key={f.id} value={f.name}>{f.display_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="w-[140px]">
+                      <label className="block text-[11px] text-primary/50 mb-1">Дней (- = до, + = после)</label>
+                      <input
+                        type="number" min={-365} max={365}
+                        value={form.relativeOffsetDays}
+                        onChange={(e) => setF("relativeOffsetDays", Number(e.target.value))}
+                        className="w-full h-[36px] border border-cardbg rounded-[8px] px-3 text-[14px] text-primary focus:outline-none focus:border-cta"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

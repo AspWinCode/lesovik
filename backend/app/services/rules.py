@@ -427,6 +427,30 @@ class RuleService:
             for r in result.scalars()
         ]
 
+    async def get_active_schedule_rules(self) -> list[dict]:
+        """Every active rule with trigger.event='schedule', across all apps —
+        used by the periodic sweep in app/worker/tasks/rules_schedule.py
+        (ТЗ 3.5.1 "Расчёт"/"Уведомление": работа по расписанию, не по
+        событию). Unlike _get_rules_raw this isn't scoped to one app,
+        since the sweep has to look at everything in one pass."""
+        stmt = select(Rule).where(
+            Rule.is_active.is_(True),
+            Rule.trigger["event"].astext == "schedule",
+        )
+        result = await self._db.execute(stmt)
+        return [
+            {
+                "id": r.id,
+                "app_id": r.app_id,
+                "entity_id": r.entity_id,
+                "trigger": r.trigger,
+                "conditions": r.conditions,
+                "actions": r.actions,
+                "priority": r.priority,
+            }
+            for r in result.scalars()
+        ]
+
     async def _assert_no_cycles(
         self, app_id: uuid.UUID, activating_rule_id: uuid.UUID
     ) -> None:

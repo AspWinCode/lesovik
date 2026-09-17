@@ -21,7 +21,8 @@ class Rule(Base):
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # {"event": "record.created|record.updated|record.deleted|field.changed", "watch_fields": [...]}
+    # {"event": "record.created|record.updated|record.deleted|field.changed|schedule", "watch_fields": [...],
+    #  "schedule_kind": "cron|relative_date", "cron": {...}, "relative_date": {...}}
     trigger: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # Root condition node — AST
     conditions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

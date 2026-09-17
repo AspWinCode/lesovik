@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.worker.tasks.workflow",
         "app.worker.tasks.integration",
         "app.worker.tasks.documents",
+        "app.worker.tasks.rules_schedule",
     ],
 )
 
@@ -61,6 +62,11 @@ celery_app.conf.update(
             "task": "app.worker.tasks.documents.close_overdue_filing_cases",
             "schedule": crontab(hour=0, minute=15),  # once daily, just after midnight UTC
             "options": {"queue": "default"},
+        },
+        "evaluate-scheduled-rules": {
+            "task": "app.worker.tasks.rules_schedule.evaluate_scheduled_rules",
+            "schedule": crontab(minute=0),  # once an hour, on the hour (ТЗ 3.5.1 schedule rules)
+            "options": {"queue": "sandbox"},
         },
     },
 )

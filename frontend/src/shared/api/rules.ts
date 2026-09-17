@@ -1,5 +1,27 @@
 import { apiClient } from "./client";
 
+export interface CronSchedule {
+  minute: string;
+  hour: string;
+  day_of_month: string;
+  month_of_year: string;
+  day_of_week: string;
+}
+
+export interface RelativeDateSchedule {
+  date_field: string;
+  offset_days: number;
+}
+
+export interface RuleTrigger {
+  event: string;
+  watch_fields?: string[];
+  // Only meaningful when event === "schedule" (ТЗ 3.5.1 "Расчёт"/"Уведомление" по расписанию).
+  schedule_kind?: "cron" | "relative_date";
+  cron?: CronSchedule;
+  relative_date?: RelativeDateSchedule;
+}
+
 export interface Rule {
   id: string;
   app_id: string;
@@ -8,7 +30,7 @@ export interface Rule {
   description: string | null;
   is_active: boolean;
   rule_type: "automation" | "autofill" | "validation";
-  trigger: { event: string; watch_fields: string[] };
+  trigger: RuleTrigger;
   conditions: Record<string, unknown>;
   actions: Array<Record<string, unknown>>;
   priority: number;
@@ -24,7 +46,7 @@ export interface RuleUpdate {
   is_active?: boolean;
   rule_type?: "automation" | "autofill" | "validation";
   priority?: number;
-  trigger?: { event: string; watch_fields?: string[] };
+  trigger?: RuleTrigger;
   conditions?: Record<string, unknown>;
   actions?: Record<string, unknown>[];
 }
@@ -33,7 +55,7 @@ export interface RuleCreate {
   name: string;
   entity_id: string;
   rule_type?: "automation" | "autofill" | "validation";
-  trigger: { event: string; watch_fields?: string[] };
+  trigger: RuleTrigger;
   description?: string | null;
   priority?: number;
   conditions?: Record<string, unknown>;

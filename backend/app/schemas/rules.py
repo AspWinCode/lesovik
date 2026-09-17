@@ -22,6 +22,33 @@ class TriggerEvent(str, Enum):
     RECORD_UPDATED = "record.updated"
     RECORD_DELETED = "record.deleted"
     FIELD_CHANGED  = "field.changed"
+    SCHEDULE       = "schedule"
+
+
+class ScheduleKind(str, Enum):
+    CRON = "cron"                    # calendar tick, e.g. "monthly on the 1st" (ТЗ: ежемесячная амортизация)
+    RELATIVE_DATE = "relative_date"  # N days before/after a per-record date field (ТЗ: напоминание за 3 дня до срока)
+
+
+class CronSchedule(BaseModel):
+    """Fields mirror celery.schedules.crontab. Checked hourly (see
+    app/worker/tasks/rules_schedule.py), so `minute` only matters as
+    "0" (fires on the hour) vs anything else (never fires) — sub-hour
+    granularity isn't supported."""
+    minute: str = "0"
+    hour: str = "0"
+    day_of_month: str = "*"
+    month_of_year: str = "*"
+    day_of_week: str = "*"
+
+
+class RelativeDateSchedule(BaseModel):
+    date_field: str = Field(min_length=1, max_length=128)
+    offset_days: int = Field(
+        ge=-365, le=365,
+        description="Negative = before the date (a reminder), positive = after. "
+                     "-3 fires once when today == date_field - 3 days.",
+    )
 
 
 class RuleTrigger(BaseModel):
@@ -30,6 +57,24 @@ class RuleTrigger(BaseModel):
         default_factory=list,
         description="For field.changed: only fire if these fields were modified",
     )
+    schedule_kind: ScheduleKind | None = None
+    cron: CronSchedule | None = None
+    relative_date: RelativeDateSchedule | None = None
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "RuleTrigger":
+        if self.event == TriggerEvent.SCHEDULE:
+            if self.schedule_kind == ScheduleKind.CRON:
+                if not self.cron:
+                    raise ValueError("trigger.cron is required when schedule_kind='cron'")
+            elif self.schedule_kind == ScheduleKind.RELATIVE_DATE:
+                if not self.relative_date:
+                    raise ValueError("trigger.relative_date is required when schedule_kind='relative_date'")
+            else:
+                raise ValueError("trigger.schedule_kind ('cron' or 'relative_date') is required when event='schedule'")
+        elif self.schedule_kind or self.cron or self.relative_date:
+            raise ValueError("schedule_kind/cron/relative_date are only valid when event='schedule'")
+        return self
 
 
 # ------------------------------------------------------------------
