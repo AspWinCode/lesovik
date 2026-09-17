@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
+    # Base64-encoded 32-byte key for AES-256-GCM field-level encryption (ТЗ 3.13).
+    # Dev default is fixed and public — production MUST override this or
+    # every "sensitive" field's encryption is worthless (see app/core/field_crypto.py).
+    FIELD_ENCRYPTION_KEY: str = "3o4Kp1P8h6bYFvQxzT9mWnR2cJdL7sAeUgXi0MoNqKw="
 
     # Database
     DATABASE_URL: PostgresDsn

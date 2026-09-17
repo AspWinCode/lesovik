@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Numeric
 
+from app.core import field_crypto
 from app.core.metrics import record_operations
 from app.models.data import Record
 from app.models.identity import AbacRule, User
@@ -377,10 +378,31 @@ class RecordService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
+    @staticmethod
+    def _sensitive_names(fields: list[Field]) -> set[str]:
+        return {f.name for f in fields if f.is_sensitive}
+
+    async def get_sensitive_field_names(self, entity_id: uuid.UUID) -> set[str]:
+        """Public helper for callers outside RecordService (e.g. the API
+        layer building audit-log entries) that need to mask a payload
+        without going through the encrypt/decrypt round trip."""
+        return self._sensitive_names(await self._get_entity_fields(entity_id))
+
     async def list_records(
         self, entity_id: uuid.UUID, params: RecordListParams,
         actor_id: uuid.UUID | None = None, actor_roles: list[str] | None = None,
     ) -> CursorPage[RecordRead]:
+        fields = await self._get_entity_fields(entity_id)
+        sensitive_names = self._sensitive_names(fields)
+        if sensitive_names:
+            if params.sort_field in sensitive_names:
+                raise RecordValidationError(
+                    f"Cannot sort by encrypted field: {params.sort_field!r}"
+                )
+            bad_filters = [f.field for f in params.filters if f.field in sensitive_names]
+            if bad_filters:
+                raise RecordValidationError(f"Cannot filter by encrypted field(s): {bad_filters}")
+
         stmt = (
             select(Record)
             .where(Record.entity_id == entity_id)
@@ -423,11 +445,15 @@ class RecordService:
             _cursor_encode(items[-1].created_at, items[-1].id) if has_more else None
         )
         record_operations.labels(operation="list").inc()
-        return CursorPage(
-            items=[RecordRead.model_validate(r) for r in items],
-            next_cursor=next_cursor,
-            has_more=has_more,
-        )
+        reads = [RecordRead.model_validate(r) for r in items]
+        if sensitive_names:
+            reads = [
+                r.model_copy(update={
+                    "payload": field_crypto.decrypt_sensitive_fields(r.payload, sensitive_names)
+                })
+                for r in reads
+            ]
+        return CursorPage(items=reads, next_cursor=next_cursor, has_more=has_more)
 
     async def _assert_row_visible(
         self, entity_id: uuid.UUID, record_id: uuid.UUID,
@@ -453,7 +479,13 @@ class RecordService:
         record = await self._fetch(entity_id, record_id)
         await self._assert_row_visible(entity_id, record_id, actor_id, actor_roles)
         record_operations.labels(operation="read").inc()
-        return RecordRead.model_validate(record)
+        read = RecordRead.model_validate(record)
+        sensitive_names = await self.get_sensitive_field_names(entity_id)
+        if sensitive_names:
+            read = read.model_copy(update={
+                "payload": field_crypto.decrypt_sensitive_fields(read.payload, sensitive_names)
+            })
+        return read
 
     async def create_record(
         self,
@@ -481,9 +513,10 @@ class RecordService:
             app_id, entity_id, "record.created", payload, actor_id=actor_id,
         )
 
+        sensitive_names = self._sensitive_names(fields)
         record = Record(
             entity_id=entity_id,
-            payload=payload,
+            payload=field_crypto.encrypt_sensitive_fields(payload, sensitive_names),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -491,7 +524,8 @@ class RecordService:
         await self._db.flush()
         record_operations.labels(operation="create").inc()
         logger.info("record_created", record_id=str(record.id), entity_id=str(entity_id))
-        return RecordRead.model_validate(record)
+        read = RecordRead.model_validate(record)
+        return read.model_copy(update={"payload": payload}) if sensitive_names else read
 
     async def update_record(
         self,
@@ -509,8 +543,11 @@ class RecordService:
         fields = await self._get_entity_fields(entity_id)
         _validate_payload(data.payload, fields, partial=True)
 
-        # JSONB merge: existing payload + incoming updates
-        merged = {**record.payload, **data.payload}
+        sensitive_names = self._sensitive_names(fields)
+        existing_payload = field_crypto.decrypt_sensitive_fields(record.payload, sensitive_names)
+
+        # JSONB merge: existing (decrypted) payload + incoming updates
+        merged = {**existing_payload, **data.payload}
         # Remove keys explicitly set to None (delete semantics)
         merged = {k: v for k, v in merged.items() if v is not None}
         merged = _evaluate_formulas(merged, fields)
@@ -524,7 +561,7 @@ class RecordService:
             update(Record)
             .where(Record.entity_id == entity_id, Record.id == record_id)
             .values(
-                payload=merged,
+                payload=field_crypto.encrypt_sensitive_fields(merged, sensitive_names),
                 version=Record.version + 1,
                 updated_by=actor_id,
                 updated_at=datetime.now(UTC),
@@ -586,7 +623,13 @@ class RecordService:
         await self._cascade_restore(entity_id, record_id)
 
         await self._db.refresh(record, attribute_names=["updated_at"])
-        return RecordRead.model_validate(record)
+        read = RecordRead.model_validate(record)
+        sensitive_names = await self.get_sensitive_field_names(entity_id)
+        if sensitive_names:
+            read = read.model_copy(update={
+                "payload": field_crypto.decrypt_sensitive_fields(read.payload, sensitive_names)
+            })
+        return read
 
     async def list_deleted_records(
         self,

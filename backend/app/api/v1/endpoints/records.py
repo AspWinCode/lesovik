@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 
 from app.api.deps import AuthDep, DbDep
+from app.core import field_crypto
 from app.core.antivirus import get_antivirus
 from app.core.rate_limit import limiter
 from app.core.storage import get_storage
@@ -28,7 +29,7 @@ from app.services.imports import ImportError as ImportFileError
 from app.services.imports import ImportService
 from app.services.records import RecordNotFoundError, RecordService, RecordValidationError
 from app.services.rules import RuleService
-from app.services.security import ABACService
+from app.services.security import ABACService, FieldRestrictions
 from app.services.validation_rules import ValidationBlockedError
 
 logger = structlog.get_logger(__name__)
@@ -55,12 +56,34 @@ async def _resolve_entity(app_id: uuid.UUID, entity_id: uuid.UUID, current_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found") from exc
 
 
-def _apply_abac(record: RecordRead, denied_read: set) -> RecordRead:  # type: ignore[type-arg]
-    """Return a copy of the record with denied fields stripped from payload."""
-    if not denied_read:
+def _apply_abac(
+    record: RecordRead, denied_read: set[str], mask_fields: set[str] = frozenset()
+) -> RecordRead:
+    """Return a copy of the record with denied fields stripped and
+    sensitive-but-unauthorized fields masked (ТЗ 3.13)."""
+    if not denied_read and not mask_fields:
         return record
-    filtered = {k: v for k, v in record.payload.items() if k not in denied_read}
-    return record.model_copy(update={"payload": filtered})
+    result: dict[str, Any] = {}
+    for k, v in record.payload.items():
+        if k in denied_read:
+            continue
+        result[k] = field_crypto.mask_value(v) if k in mask_fields else v
+    return record.model_copy(update={"payload": result})
+
+
+async def _sensitive_mask_fields(
+    db: DbDep, entity_id: uuid.UUID, current_user: AuthDep, restrictions: FieldRestrictions
+) -> set[str]:
+    """Fields marked Field.is_sensitive that this caller hasn't been
+    explicitly granted read access to (platform_admin always sees
+    everything). Everything else about a sensitive field's storage is
+    handled inside RecordService — this only decides display masking."""
+    if current_user.has_role("platform_admin"):
+        return set()
+    sensitive = await RecordService(db).get_sensitive_field_names(entity_id)
+    if not sensitive:
+        return set()
+    return sensitive - restrictions.explicit_read_allow - restrictions.denied_read
 
 
 # ------------------------------------------------------------------
@@ -95,14 +118,18 @@ async def list_records(
         sort_dir=sort_dir,
         include_deleted=include_deleted and current_user.has_role("platform_admin", "app_admin"),
     )
-    page = await RecordService(db).list_records(
-        entity_id, params, actor_id=current_user.user_id, actor_roles=current_user.roles,
-    )
+    try:
+        page = await RecordService(db).list_records(
+            entity_id, params, actor_id=current_user.user_id, actor_roles=current_user.roles,
+        )
+    except RecordValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     restrictions = await ABACService(db).get_restrictions(entity_id, current_user.roles)
-    if restrictions.denied_read:
+    mask_fields = await _sensitive_mask_fields(db, entity_id, current_user, restrictions)
+    if restrictions.denied_read or mask_fields:
         page = page.model_copy(update={
-            "items": [_apply_abac(r, restrictions.denied_read) for r in page.items]
+            "items": [_apply_abac(r, restrictions.denied_read, mask_fields) for r in page.items]
         })
     return page
 
@@ -142,14 +169,22 @@ async def create_record(
     except Exception:  # noqa: BLE001
         logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
 
+    # The audit log itself is not encrypted — mask sensitive fields here too,
+    # or marking a field "sensitive" would be undone by its own audit trail.
+    sensitive_names = await RecordService(db).get_sensitive_field_names(entity_id)
+    audit_payload = (
+        {k: (field_crypto.mask_value(v) if k in sensitive_names else v) for k, v in record.payload.items()}
+        if sensitive_names else record.payload
+    )
     await AuditService(db).log(
         "record.created",
         user_id=current_user.user_id,
         resource_type="record",
         resource_id=str(record.id),
-        details={"app_id": str(app_id), "entity_id": str(entity_id), "payload": record.payload},
+        details={"app_id": str(app_id), "entity_id": str(entity_id), "payload": audit_payload},
     )
-    return record
+    mask_fields = await _sensitive_mask_fields(db, entity_id, current_user, restrictions)
+    return _apply_abac(record, restrictions.denied_read, mask_fields)
 
 
 _EXPORT_CONTENT_TYPES = {
@@ -225,7 +260,8 @@ async def get_record(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
 
     restrictions = await ABACService(db).get_restrictions(entity_id, current_user.roles)
-    return _apply_abac(record, restrictions.denied_read)
+    mask_fields = await _sensitive_mask_fields(db, entity_id, current_user, restrictions)
+    return _apply_abac(record, restrictions.denied_read, mask_fields)
 
 
 @router.patch("/{record_id}", response_model=RecordRead)
@@ -274,8 +310,14 @@ async def update_record(
     except Exception:  # noqa: BLE001
         logger.exception("rule_evaluation_failed", entity_id=str(entity_id))
 
+    sensitive_names = await RecordService(db).get_sensitive_field_names(entity_id)
+
+    def _audit_value(f: str, v: Any) -> Any:
+        return field_crypto.mask_value(v) if f in sensitive_names else v
+
     field_changes = {
-        f: {"old": previous.payload.get(f), "new": record.payload.get(f)} for f in changed_fields
+        f: {"old": _audit_value(f, previous.payload.get(f)), "new": _audit_value(f, record.payload.get(f))}
+        for f in changed_fields
     }
     await AuditService(db).log(
         "record.updated",
@@ -287,7 +329,9 @@ async def update_record(
             "changed_fields": changed_fields, "field_changes": field_changes,
         },
     )
-    return _apply_abac(record, restrictions.denied_read)
+    mask_fields = sensitive_names - restrictions.explicit_read_allow - restrictions.denied_read \
+        if not current_user.has_role("platform_admin") else set()
+    return _apply_abac(record, restrictions.denied_read, mask_fields)
 
 
 @router.delete("/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -315,6 +359,11 @@ async def delete_record(
     except RecordNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found") from exc
 
+    sensitive_names = await RecordService(db).get_sensitive_field_names(entity_id)
+    audit_payload = (
+        {k: (field_crypto.mask_value(v) if k in sensitive_names else v) for k, v in deleted.payload.items()}
+        if sensitive_names else deleted.payload
+    )
     await AuditService(db).log(
         "record.deleted",
         user_id=current_user.user_id,
@@ -322,7 +371,7 @@ async def delete_record(
         resource_id=str(record_id),
         details={
             "app_id": str(app_id), "entity_id": str(entity_id), "hard": hard,
-            "payload": deleted.payload,
+            "payload": audit_payload,
         },
     )
 

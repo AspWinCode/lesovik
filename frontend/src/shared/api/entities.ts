@@ -21,6 +21,7 @@ export interface FieldRead {
   is_unique: boolean;
   is_system: boolean;
   is_indexed: boolean;
+  is_sensitive: boolean;
   default_value: unknown | null;
   validation_rules: Record<string, unknown>;
   field_options: Record<string, unknown>;
@@ -73,6 +74,9 @@ export interface FieldCreate {
   is_required?: boolean;
   is_unique?: boolean;
   is_indexed?: boolean;
+  // AES-256-GCM encrypted at rest + masked for anyone without explicit
+  // field-read permission (ТЗ 3.13). Fixed at creation — not on FieldUpdate.
+  is_sensitive?: boolean;
   default_value?: unknown | null;
   validation_rules?: Record<string, unknown>;
   field_options?: Record<string, unknown>;

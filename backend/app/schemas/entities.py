@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.metamodel import FieldType, RelationType
 
@@ -18,6 +18,7 @@ class FieldRead(BaseModel):
     is_unique: bool
     is_system: bool
     is_indexed: bool
+    is_sensitive: bool = False
     default_value: Any | None
     validation_rules: dict
     field_options: dict
@@ -35,10 +36,23 @@ class FieldCreate(BaseModel):
     is_required: bool = False
     is_unique: bool = False
     is_indexed: bool = False
+    # AES-256-GCM encrypted at rest + masked by default (ТЗ 3.13). Not
+    # exposed on FieldUpdate — flipping it after records exist would leave
+    # a plaintext/ciphertext mismatch with no safe automatic re-encryption.
+    is_sensitive: bool = False
     default_value: Any | None = None
     validation_rules: dict = Field(default_factory=dict)
     field_options: dict = Field(default_factory=dict)
     formula_definition: dict | None = None
+
+    @model_validator(mode="after")
+    def validate_sensitive_not_unique(self) -> "FieldCreate":
+        # AES-GCM uses a random nonce per encryption, so two equal plaintexts
+        # never produce equal ciphertext — a uniqueness check against the
+        # stored value could never work for an encrypted field.
+        if self.is_sensitive and self.is_unique:
+            raise ValueError("A sensitive (encrypted) field cannot also be unique")
+        return self
 
 
 class FieldUpdate(BaseModel):

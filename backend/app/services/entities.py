@@ -214,6 +214,7 @@ class EntityService:
             is_required=data.is_required,
             is_unique=data.is_unique,
             is_indexed=data.is_indexed,
+            is_sensitive=data.is_sensitive,
             default_value=data.default_value,
             validation_rules=data.validation_rules,
             field_options=data.field_options,

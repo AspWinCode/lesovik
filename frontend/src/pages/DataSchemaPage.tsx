@@ -781,6 +781,14 @@ function FieldRow({
         {field.is_indexed && (
           <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[10px] rounded font-medium">индекс</span>
         )}
+        {field.is_sensitive && (
+          <span
+            title="Значение шифруется (AES-256) и маскируется без явного права на чтение"
+            className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[10px] rounded font-medium"
+          >
+            🔒 шифр.
+          </span>
+        )}
       </div>
 
       {/* Actions */}
@@ -1088,6 +1096,7 @@ function FieldModal({
   const [isRequired, setIsRequired]   = useState(field?.is_required ?? false);
   const [isUnique, setIsUnique]       = useState(field?.is_unique ?? false);
   const [isIndexed, setIsIndexed]     = useState(field?.is_indexed ?? false);
+  const [isSensitive, setIsSensitive] = useState(field?.is_sensitive ?? false);
   const [fieldOptions, setFieldOptions] = useState<Record<string, unknown>>(
     field?.field_options ?? {},
   );
@@ -1121,6 +1130,7 @@ function FieldModal({
         is_required: isRequired,
         is_unique: isUnique,
         is_indexed: isIndexed,
+        is_sensitive: isSensitive,
         field_options: opts,
         formula_definition: fieldType === "formula" ? formulaDef : undefined,
       });
@@ -1443,8 +1453,29 @@ function FieldModal({
             {/* Flags */}
             <div className="pt-2 border-t border-cardbg space-y-2">
               <Toggle label="Обязательное" value={isRequired} onChange={setIsRequired} />
-              <Toggle label="Уникальное" value={isUnique} onChange={setIsUnique} />
+              <Toggle
+                label="Уникальное"
+                value={isUnique}
+                onChange={(v) => { setIsUnique(v); if (v) setIsSensitive(false); }}
+              />
               <Toggle label="Индексировать" value={isIndexed} onChange={setIsIndexed} />
+              {mode === "create" && (
+                <>
+                  <Toggle
+                    label="🔒 Чувствительное (шифровать AES-256)"
+                    value={isSensitive}
+                    onChange={(v) => { setIsSensitive(v); if (v) setIsUnique(false); }}
+                  />
+                  {isSensitive && (
+                    <p className="text-[12px] text-amber-600">
+                      Значение будет зашифровано в базе и скрыто (маскировано) для ролей без
+                      явного права на чтение этого поля. По зашифрованному полю нельзя
+                      фильтровать, сортировать или искать. Настройку нельзя изменить после
+                      создания поля.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           </div>
         )}

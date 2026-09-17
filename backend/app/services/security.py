@@ -44,6 +44,11 @@ class FieldRestrictions:
     entity_id: uuid.UUID
     denied_read: set[str] = field(default_factory=set)
     denied_write: set[str] = field(default_factory=set)
+    # Fields with an explicit can_read=True row for one of the caller's
+    # roles — used to unmask a sensitive field for roles that have been
+    # deliberately granted access, without changing the "open by default"
+    # rule for everything else (see RecordService / app.core.field_crypto).
+    explicit_read_allow: set[str] = field(default_factory=set)
 
     def filter_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Strip fields the caller is not allowed to read."""
@@ -100,10 +105,13 @@ class ABACService:
 
         denied_read: set[str] = set()
         denied_write: set[str] = set()
+        explicit_read_allow: set[str] = set()
 
         for row in rows:
             if not row.can_read:
                 denied_read.add(row.field_name)
+            else:
+                explicit_read_allow.add(row.field_name)
             if not row.can_write:
                 denied_write.add(row.field_name)
 
@@ -111,6 +119,7 @@ class ABACService:
             entity_id=entity_id,
             denied_read=denied_read,
             denied_write=denied_write,
+            explicit_read_allow=explicit_read_allow,
         )
 
     # ---- Admin CRUD ----
