@@ -188,6 +188,7 @@ class TransitionDefRead(BaseModel):
     guard_conditions: dict[str, Any]
     actions: list[dict[str, Any]]
     required_roles: list[str]
+    display_order: int
     model_config = {"from_attributes": True}
 
 
@@ -209,6 +210,7 @@ class TransitionDefUpdate(BaseModel):
     guard_conditions: dict[str, Any] | None = None
     actions: list[dict[str, Any]] | None = None
     required_roles: list[str] | None = None
+    display_order: int | None = None
 
 
 # ------------------------------------------------------------------

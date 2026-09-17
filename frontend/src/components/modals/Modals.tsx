@@ -824,20 +824,42 @@ export function SelectDbModal({
    MODAL 7 — Action order (drag-reorder)
 ───────────────────────────────────────────────── */
 
-const MOCK_ORDERED_ACTIONS = [
-  { id: "1", num: 1, name: "Edit",   type: "Основной"   as const },
-  { id: "2", num: 2, name: "Add",    type: "Встроенный" as const },
-  { id: "3", num: 3, name: "Delire", type: "Встроенный" as const },
-];
+export interface OrderableAction {
+  id: string;
+  name: string;
+  fromState: string;
+  toState: string;
+}
 
 export function ActionOrderModal({
   onClose,
   viewName = "Аналитики",
+  actions,
+  onSave,
+  isSaving = false,
 }: {
   onClose: () => void;
   viewName?: string;
+  actions: OrderableAction[];
+  onSave: (orderedIds: string[]) => void;
+  isSaving?: boolean;
 }) {
-  const [actions] = useState(MOCK_ORDERED_ACTIONS);
+  const [items, setItems] = useState(actions);
+  const dragIndex = useRef<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  function handleDrop(targetIndex: number) {
+    const from = dragIndex.current;
+    dragIndex.current = null;
+    setOverIndex(null);
+    if (from === null || from === targetIndex) return;
+    setItems((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  }
 
   return (
     <Overlay onClose={onClose}>
@@ -849,51 +871,59 @@ export function ActionOrderModal({
           <CloseBtn onClick={onClose} />
         </div>
 
-        <div className="flex flex-col gap-[5px] mb-6">
-          {actions.map((action) => (
-            <div
-              key={action.id}
-              className="flex items-center gap-3 h-[46px] px-3 rounded-[5px] bg-mainbg hover:bg-cardbg/60 transition-colors cursor-grab"
-            >
-              <span className="w-4 h-4 text-primary/30 shrink-0">
-                <svg viewBox="0 0 16 16" fill="none" className="w-full h-full">
-                  <circle cx="6"  cy="4"  r="1.2" fill="currentColor" />
-                  <circle cx="10" cy="4"  r="1.2" fill="currentColor" />
-                  <circle cx="6"  cy="8"  r="1.2" fill="currentColor" />
-                  <circle cx="10" cy="8"  r="1.2" fill="currentColor" />
-                  <circle cx="6"  cy="12" r="1.2" fill="currentColor" />
-                  <circle cx="10" cy="12" r="1.2" fill="currentColor" />
-                </svg>
-              </span>
-              <span className="w-5 text-[14px] font-medium text-primary/50 shrink-0">{action.num}</span>
-              <span className="w-5 h-5 shrink-0">
-                <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
-                  <ellipse cx="10" cy="5" rx="6" ry="2" stroke="#00205F" strokeWidth="1.6" />
-                  <path d="M4 5v10c0 1.1 2.69 2 6 2s6-.9 6-2V5" stroke="#00205F" strokeWidth="1.6" />
-                  <path d="M4 10c0 1.1 2.69 2 6 2s6-.9 6-2" stroke="#00205F" strokeWidth="1.6" />
-                </svg>
-              </span>
-              <span className="flex-1 text-[15px] font-medium text-primary">{action.name}</span>
-              <span
+        {items.length === 0 ? (
+          <p className="text-[13px] text-primary/50 bg-mainbg rounded-[8px] px-3 py-3 mb-6">
+            У этого процесса пока нет действий (переходов) — добавьте их на вкладке процесса.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-[5px] mb-6">
+            {items.map((action, i) => (
+              <div
+                key={action.id}
+                draggable
+                onDragStart={() => { dragIndex.current = i; }}
+                onDragOver={(e) => { e.preventDefault(); setOverIndex(i); }}
+                onDragLeave={() => setOverIndex((v) => (v === i ? null : v))}
+                onDrop={() => handleDrop(i)}
                 className={cn(
-                  "px-3 py-0.5 rounded-[20px] text-[12px] font-semibold shrink-0",
-                  action.type === "Основной"
-                    ? "bg-cta/10 text-cta"
-                    : "bg-white border border-primary/20 text-primary/60"
+                  "flex items-center gap-3 h-[46px] px-3 rounded-[5px] bg-mainbg hover:bg-cardbg/60 transition-colors cursor-grab",
+                  overIndex === i && "ring-2 ring-cta/50"
                 )}
               >
-                {action.type}
-              </span>
-            </div>
-          ))}
-        </div>
+                <span className="w-4 h-4 text-primary/30 shrink-0">
+                  <svg viewBox="0 0 16 16" fill="none" className="w-full h-full">
+                    <circle cx="6"  cy="4"  r="1.2" fill="currentColor" />
+                    <circle cx="10" cy="4"  r="1.2" fill="currentColor" />
+                    <circle cx="6"  cy="8"  r="1.2" fill="currentColor" />
+                    <circle cx="10" cy="8"  r="1.2" fill="currentColor" />
+                    <circle cx="6"  cy="12" r="1.2" fill="currentColor" />
+                    <circle cx="10" cy="12" r="1.2" fill="currentColor" />
+                  </svg>
+                </span>
+                <span className="w-5 text-[14px] font-medium text-primary/50 shrink-0">{i + 1}</span>
+                <span className="w-5 h-5 shrink-0">
+                  <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+                    <ellipse cx="10" cy="5" rx="6" ry="2" stroke="#00205F" strokeWidth="1.6" />
+                    <path d="M4 5v10c0 1.1 2.69 2 6 2s6-.9 6-2V5" stroke="#00205F" strokeWidth="1.6" />
+                    <path d="M4 10c0 1.1 2.69 2 6 2s6-.9 6-2" stroke="#00205F" strokeWidth="1.6" />
+                  </svg>
+                </span>
+                <span className="flex-1 text-[15px] font-medium text-primary">{action.name}</span>
+                <span className="px-3 py-0.5 rounded-[20px] text-[12px] font-semibold shrink-0 bg-white border border-primary/20 text-primary/60">
+                  {action.fromState} → {action.toState}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="flex justify-end">
           <button
-            onClick={onClose}
-            className="px-5 py-[3px] h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-meta hover:bg-active transition-colors"
+            onClick={() => onSave(items.map((a) => a.id))}
+            disabled={isSaving || items.length === 0}
+            className="px-5 py-[3px] h-[34px] bg-cta border-2 border-cta rounded-btn text-white text-meta hover:bg-active transition-colors disabled:opacity-50"
           >
-            Готово
+            {isSaving ? "Сохранение…" : "Готово"}
           </button>
         </div>
       </div>

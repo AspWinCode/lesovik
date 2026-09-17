@@ -326,6 +326,7 @@ export interface TransitionDefRead {
   guard_conditions: Record<string, unknown>;
   actions: Record<string, unknown>[];
   required_roles: string[];
+  display_order: number;
 }
 
 export interface TransitionDefCreate {
@@ -345,6 +346,7 @@ export interface TransitionDefUpdate {
   guard_conditions?: Record<string, unknown>;
   actions?: Record<string, unknown>[];
   required_roles?: string[];
+  display_order?: number;
 }
 
 export async function listTransitions(appId: string, workflowId: string): Promise<TransitionDefRead[]> {

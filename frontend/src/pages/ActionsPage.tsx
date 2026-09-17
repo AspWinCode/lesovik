@@ -10,7 +10,7 @@ import { useEntities } from "@/shared/hooks/useEntities";
 import {
   useWorkflows, useCreateWorkflow, useDeleteWorkflow, useActivateWorkflow, useDeactivateWorkflow,
   useWorkflowStates, useCreateState, useDeleteState, useUpdateState,
-  useWorkflowTransitions, useCreateTransition, useDeleteTransition,
+  useWorkflowTransitions, useCreateTransition, useUpdateTransition, useDeleteTransition,
   useApprovalChains, useCreateApprovalChain, useUpdateApprovalChain, useDeleteApprovalChain,
 } from "@/shared/hooks/useWorkflows";
 import type {
@@ -58,6 +58,7 @@ export function ActionsPage() {
   const transitionsQuery = useWorkflowTransitions(appId, activeAction || undefined);
   const transitions = transitionsQuery.data ?? [];
   const createTransitionMutation = useCreateTransition(appId ?? "", activeAction);
+  const updateTransitionMutation = useUpdateTransition(appId ?? "", activeAction);
   const deleteTransitionMutation = useDeleteTransition(appId ?? "", activeAction);
 
   const chainsQuery = useApprovalChains(appId, activeAction || undefined);
@@ -425,7 +426,17 @@ export function ActionsPage() {
 
       {actionOrderOpen && (
         <ActionOrderModal
-          viewName={openGroup ? (entities.find((e) => e.id === openGroup)?.display_name ?? "Аналитики") : "Аналитики"}
+          viewName={activeWorkflow?.name ?? (openGroup ? (entities.find((e) => e.id === openGroup)?.display_name ?? "Аналитики") : "Аналитики")}
+          actions={transitions.map((t) => ({
+            id: t.id, name: t.display_name, fromState: t.from_state, toState: t.to_state,
+          }))}
+          isSaving={updateTransitionMutation.isPending}
+          onSave={(orderedIds) => {
+            orderedIds.forEach((id, index) => {
+              updateTransitionMutation.mutate({ transitionId: id, body: { display_order: index } });
+            });
+            setActionOrderOpen(false);
+          }}
           onClose={() => setActionOrderOpen(false)}
         />
       )}

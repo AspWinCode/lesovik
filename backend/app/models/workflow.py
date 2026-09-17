@@ -79,6 +79,7 @@ class TransitionDef(Base):
     guard_conditions: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     required_roles: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    display_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="0")
 
 
 class WorkflowInstance(Base):

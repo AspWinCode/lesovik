@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.metrics import workflow_instances_active, workflow_transitions
@@ -244,13 +244,17 @@ class WorkflowService:
     async def list_transitions(self, workflow_id: uuid.UUID) -> list[TransitionDefRead]:
         result = await self._db.execute(
             select(TransitionDef).where(TransitionDef.workflow_id == workflow_id)
-            .order_by(TransitionDef.from_state, TransitionDef.name)
+            .order_by(TransitionDef.display_order, TransitionDef.from_state, TransitionDef.name)
         )
         return [TransitionDefRead.model_validate(t) for t in result.scalars()]
 
     async def create_transition(
         self, workflow_id: uuid.UUID, data: TransitionDefCreate
     ) -> TransitionDefRead:
+        existing_count = (await self._db.execute(
+            select(func.count()).select_from(TransitionDef)
+            .where(TransitionDef.workflow_id == workflow_id)
+        )).scalar_one()
         tr = TransitionDef(
             workflow_id=workflow_id,
             name=data.name,
@@ -260,6 +264,7 @@ class WorkflowService:
             guard_conditions=data.guard_conditions,
             actions=data.actions,
             required_roles=data.required_roles,
+            display_order=existing_count,  # new transitions append to the end
         )
         self._db.add(tr)
         await self._db.flush()
@@ -281,6 +286,8 @@ class WorkflowService:
             tr.actions = data.actions
         if data.required_roles is not None:
             tr.required_roles = data.required_roles
+        if data.display_order is not None:
+            tr.display_order = data.display_order
         await self._db.flush()
         return TransitionDefRead.model_validate(tr)
 
